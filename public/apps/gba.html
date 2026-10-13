@@ -93,7 +93,8 @@
   #bar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   #bar svg.f { fill: currentColor; stroke: none; }
   #vol { width: 90px; accent-color: var(--accent); }
-  #status { color: var(--muted); font-size: 11.5px; padding: 0 6px; white-space: nowrap; }
+  #status { color: var(--muted); font-size: 11.5px; padding: 0 6px; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: help; }
+  #status.slow { color: #ffb86b; }
 </style>
 </head>
 <body>
@@ -134,8 +135,12 @@
           <dd id="ab-rom"></dd>
           <dt>Размер</dt>
           <dd id="ab-size"></dd>
+          <dt>Скорость</dt>
+          <dd id="ab-speed"></dd>
           <dt>Звук</dt>
           <dd id="ab-audio"></dd>
+          <dt>Браузер</dt>
+          <dd id="ab-env"></dd>
           <dt>Настройки</dt>
           <dd><code>fs/etc/gba.json</code></dd>
         </dl>

@@ -6,7 +6,7 @@
   /api/ls?path=/x  -> JSON со списком файлов в ./fs/x
   /fs/x/y.mp3      -> отдать файл ./fs/x/y.mp3 (с поддержкой Range для аудио/видео)
 
-Виртуальная ФС живёт в ./fs: путь /home/nikita/projects == ./fs/home/nikita/projects
+Виртуальная ФС живёт в ./fs: путь /home/nikita/Projects == ./fs/home/nikita/Projects
 Положи туда свою музыку/игры — они сразу появятся в проводнике.
 """
 import json
@@ -41,17 +41,18 @@ mimetypes.add_type("application/json", ".lnk")
 DESKTOP_DIR = "home/nikita/Desktop"
 DEFAULT_DESKTOP = {
     "01 nikita.lnk": {"name": "nikita", "icon": "🏠", "open": "/home/nikita"},
-    "02 projects.lnk": {"name": "projects", "icon": "📁", "open": "/home/nikita/projects"},
+    "02 Projects.lnk": {"name": "Projects", "icon": "📁", "open": "/home/nikita/Projects"},
     "03 Graveblood.lnk": {"name": "Graveblood", "icon": "🕹️",
-                          "open": "/home/nikita/projects/Graveblood 0.0.1.1.5.2 demo.gba"},
+                          "open": "/home/nikita/Projects/Graveblood 0.0.1.1.5.2 demo.gba"},
     "09 Настройки.lnk": {"name": "Настройки", "icon": "⚙️", "app": "settings"},
 }
 
 # Конфиги по умолчанию — создаются в fs/etc, только если их там ещё нет
 DEFAULT_CONFIGS = {
     "os.json": {
-        "_help": "Настройки по умолчанию для всех посетителей. wallpaper: 'glow' или путь к картинке в fs, напр. '/home/nikita/wallpapers/bg.jpg'. dim: затемнение картинки 0..0.8. Посетитель может выбрать своё в Настройках — это хранится у него в браузере.",
-        "wallpaper": "glow",
+        "_help": "Настройки по умолчанию для всех посетителей. wallpaper: путь к картинке в fs или 'glow' (чёрный с подсветкой). wallpaperDir: из какой папки предлагать обои в Настройках. dim: затемнение картинки 0..0.8. Посетитель может выбрать своё в Настройках — это хранится у него в браузере.",
+        "wallpaper": "/home/nikita/Wallpapers/wallpaper.jpg",
+        "wallpaperDir": "/home/nikita/Wallpapers",
         "dim": 0.25,
     },
     "gba.json": {
@@ -65,7 +66,7 @@ DEFAULT_CONFIGS = {
         "volume": 1.0,
         "fastForwardSpeed": 3,
         "integerScale": False,
-        "audio": {"sampleRate": "auto", "bufferSize": 2048, "output": "worklet", "latencyMs": 120},
+        "audio": {"contextRate": 48000, "sampleRate": "auto", "bufferSize": 2048, "output": "worklet", "latencyMs": 120},
         "core": {
             "showFpsCounter": False,
             "rewindEnable": True,
@@ -256,12 +257,8 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    # стартовая структура
-    projects = FS_ROOT / "home" / "nikita" / "projects"
-    projects.mkdir(parents=True, exist_ok=True)
-    init = projects / "__init__"
-    if not init.exists():
-        init.touch()
+    # стартовая структура: только корень fs; своё содержимое сервер больше не трогает
+    FS_ROOT.mkdir(parents=True, exist_ok=True)
     desktop = FS_ROOT / DESKTOP_DIR
     if not desktop.exists():
         desktop.mkdir(parents=True)
@@ -273,6 +270,24 @@ def main():
         cfg = etc / name
         if not cfg.exists():
             cfg.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    migrate_os_json(etc / "os.json")
+
+
+# os.json, созданный старой версией и не тронутый руками, обновляем до новых значений по умолчанию
+OLD_OS_HELP = "Настройки по умолчанию для всех посетителей. wallpaper: 'glow' или путь к картинке в fs, напр. '/home/nikita/wallpapers/bg.jpg'. dim: затемнение картинки 0..0.8. Посетитель может выбрать своё в Настройках — это хранится у него в браузере."
+
+
+def migrate_os_json(path):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    untouched = (data.get("_help") == OLD_OS_HELP and data.get("wallpaper") == "glow"
+                 and set(data) <= {"_help", "wallpaper", "wallpaperDir", "dim"})
+    if untouched:
+        new = dict(DEFAULT_CONFIGS["os.json"], dim=data.get("dim", 0.25))
+        path.write_text(json.dumps(new, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print("fs/etc/os.json обновлён: обои по умолчанию —", new["wallpaper"], flush=True)
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"nikita.os запущена: http://{HOST}:{PORT}  (Ctrl+C — остановить)", flush=True)

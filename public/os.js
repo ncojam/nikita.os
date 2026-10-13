@@ -65,7 +65,60 @@ const WM = {
     margin: store.get("wm.margin", 24),   // поля экрана при раскладке «по сетке»
   },
   SNAP: 7, // на каком расстоянии начинает «притягивать», px
-  setCfg(k, v) { this.cfg[k] = v; store.set("wm." + k, v); },
+  setCfg(k, v) {
+    const old = this.cfg[k];
+    this.cfg[k] = v; store.set("wm." + k, v);
+    // меняем расстояние/поля — окна перестраиваются сразу
+    if (k === "gap" && old !== v) this.respace(+old || 0);
+    if (k === "margin" && old !== v && this.arrangedValid()) this.arrange();
+  },
+
+  // окна всё ещё стоят так, как их разложила кнопка «Разложить»?
+  arranged: null,
+  arrangedValid() {
+    const vis = [...this.wins.values()].filter(w => !w.minimized && !w.closing);
+    return !!this.arranged && vis.length === this.arranged.size && vis.every(w => this.arranged.has(w));
+  },
+  breakArrange() { this.arranged = null; },
+
+  // пересчитать зазоры: всё, что было «приклеено» на старом расстоянии, переклеиваем на новое
+  respace(oldG) {
+    if (this.arrangedValid()) return this.arrange();
+    const g = +this.cfg.gap || 0, A = this.area(), T = 1.5;
+    const list = [...this.wins.values()].filter(w => !w.minimized && !w.closing && !w.maximized);
+    const old = new Map(list.map(w => [w, this.rectOf(w)]));
+    const nr = new Map(list.map(w => [w, { ...old.get(w) }]));
+    const near = (a, b) => Math.abs(a - b) <= T;
+    const axis = (lo, hi, crossLo, crossHi, aLo, aHi) => {
+      // по одной оси: идём от начала экрана к концу, чтобы цепочки окон сдвигались по очереди
+      for (const w of [...list].sort((a, b) => old.get(a)[lo] - old.get(b)[lo])) {
+        const r = old.get(w), n = nr.get(w), size = r[hi] - r[lo];
+        let start = null;
+        if (near(r[lo], aLo + oldG)) start = aLo + g;
+        else for (const o of list) {
+          const ro = old.get(o);
+          if (o !== w && near(r[lo], ro[hi] + oldG) && r[crossLo] < ro[crossHi] && r[crossHi] > ro[crossLo]) {
+            start = nr.get(o)[hi] + g; break;
+          }
+        }
+        const endGlued = near(r[hi], aHi - oldG);
+        if (start !== null) {
+          n[lo] = start;
+          n[hi] = endGlued ? aHi - g : start + size; // прижато к обоим краям — меняем размер
+        } else if (endGlued) {
+          n[hi] = aHi - g; n[lo] = n[hi] - size;
+        }
+      }
+    };
+    axis("left", "right", "top", "bottom", A.left, A.right);
+    axis("top", "bottom", "left", "right", A.top, A.bottom);
+    for (const w of list) {
+      const a = old.get(w), b = nr.get(w);
+      if (a.left !== b.left || a.top !== b.top || a.right !== b.right || a.bottom !== b.bottom) {
+        this.moveTo(w, { left: b.left, top: b.top, width: b.right - b.left, height: b.bottom - b.top });
+      }
+    }
+  },
 
   // рабочая область: весь экран над панелью задач
   area() {
@@ -169,6 +222,7 @@ const WM = {
         width: Math.round(cw), height: Math.round(ch),
       });
     });
+    this.arranged = new Set(list); // запоминаем раскладку — изменения зазора/полей перестроят её
     const t = this.topmost(); if (t) this.focus(t);
   },
 
@@ -332,6 +386,7 @@ const WM = {
   setMax(w, on, savedRect) {
     if (on === w.maximized) return;
     const n = w.node;
+    this.breakArrange();
     w.anim?.cancel();
     if (on) w.restoreRect = savedRect || { left: n.offsetLeft, top: n.offsetTop, width: n.offsetWidth, height: n.offsetHeight };
     w.maximized = on;
@@ -361,6 +416,7 @@ const WM = {
       const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop;
       handle.setPointerCapture(e.pointerId);
       const move = ev => {
+        this.breakArrange(); // окно сдвинули руками — раскладка больше не «сетка»
         const x = Math.min(Math.max(ev.clientX - sx, -n.offsetWidth + 80), innerWidth - 80);
         const y = Math.min(Math.max(ev.clientY - sy, 0), innerHeight - 60);
         // прилипание (Alt — двигать свободно)
@@ -381,6 +437,7 @@ const WM = {
     handle.addEventListener("pointerdown", e => {
       e.stopPropagation();
       const n = w.node;
+      this.breakArrange();
       w.maximized = false;
       n.classList.remove("maximized", "tween");
       const sx = e.clientX, sy = e.clientY, sw = n.offsetWidth, sh = n.offsetHeight;
@@ -415,7 +472,7 @@ addEventListener("resize", () => {
 
 /* ================= проводник ================= */
 // opts.select — имя файла, который выделить после загрузки (для «Открыть расположение»)
-function openExplorer(path = "/home/nikita/projects", opts = {}) {
+function openExplorer(path = "/home/nikita/Projects", opts = {}) {
   WM.open({
     title: baseName(path), icon: "📁", width: 760, height: 480,
     render(root, win) {
@@ -428,8 +485,10 @@ function openExplorer(path = "/home/nikita/projects", opts = {}) {
       const crumbs = el("div", { className: "crumbs" });
       const grid = el("div", { className: "grid" });
       const status = el("div", { className: "statusbar" });
+      const banner = el("div", { className: "gh-banner", hidden: true }); // «эта папка — зеркало GitHub»
       root.append(el("div", { className: "explorer" },
-        el("div", { className: "toolbar" }, bBack, bFwd, bUp, bRefresh, crumbs), grid, status));
+        el("div", { className: "toolbar" }, bBack, bFwd, bUp, bRefresh, crumbs), banner, grid, status));
+      let remote = null, loadSeq = 0; // remote = { m, rel } когда показываем репозиторий
       let summary = "";
       const sel = makeSelectable(grid, grid, () => {
         const n = sel.selected().length;
@@ -449,15 +508,36 @@ function openExplorer(path = "/home/nikita/projects", opts = {}) {
       bBack.onclick = () => history.length && (future.push(cur), go(history.pop(), false));
       bFwd.onclick = () => future.length && (history.push(cur), go(future.pop(), false));
       bUp.onclick = () => cur !== "/" && go(parentOf(cur));
-      bRefresh.onclick = () => load();
+      bRefresh.onclick = () => load(true);
       // для контекстного меню по пустому месту
       grid.ctx = {
-        path: () => cur, refresh: () => load(), selectAll: () => sel.selectAll(),
+        path: () => cur, refresh: () => load(true), selectAll: () => sel.selectAll(),
         canUp: () => cur !== "/",
         up: () => cur !== "/" && go(parentOf(cur)),
+        remote: () => remote,
       };
 
-      async function load() {
+      function showBanner(info) {
+        if (!remote) { banner.hidden = true; return; }
+        const { m, rel } = remote;
+        const age = info ? Math.round((Date.now() - info.t) / 60000) : 0;
+        banner.hidden = false;
+        banner.replaceChildren(
+          el("span", { className: "gh-logo", textContent: "🐙" }),
+          el("span", { className: "gh-text" },
+            el("b", { textContent: "GitHub · " + GitHub.label(m) }),
+            el("small", { textContent: !info ? "не удалось получить содержимое репозитория" : info.stale
+              ? `⚠ ${info.stale} — показана копия от ${new Date(info.t).toLocaleString("ru-RU")}`
+              : `содержимое из репозитория · обновлено ${age < 1 ? "только что" : age + " мин назад"}` +
+                (info.truncated ? " · репозиторий слишком большой, показана часть" : "") })),
+          el("a", { href: GitHub.html(m, [m.sub, rel].filter(Boolean).join("/"), true), target: "_blank", rel: "noopener",
+            className: "gh-btn", textContent: "Открыть на GitHub ↗" }),
+          el("button", { className: "gh-btn", textContent: "⟳", title: "Обновить из GitHub", onclick: () => load(true) }),
+        );
+      }
+
+      async function load(force = false) {
+        const seq = ++loadSeq;
         win.setTitle(baseName(cur));
         bBack.disabled = !history.length; bFwd.disabled = !future.length; bUp.disabled = cur === "/";
         crumbs.replaceChildren(el("span", { textContent: "/", onclick: () => go("/") }));
@@ -469,23 +549,42 @@ function openExplorer(path = "/home/nikita/projects", opts = {}) {
         });
         grid.replaceChildren(el("div", { className: "empty", textContent: "Загрузка…" }));
         try {
+          // 1) локальная папка; 2) если в ней github.mount или её нет, но она внутри зеркала — репозиторий
+          let entries = null, info = null;
+          remote = null;
           const r = await fetch("/api/ls?path=" + encodeURIComponent(cur));
-          const data = await r.json();
-          if (!r.ok) throw new Error(data.error || r.statusText);
+          const data = await r.json().catch(() => ({}));
+          if (r.ok && data.entries.some(e => e.type === "file" && e.name === GitHub.MARKER)) {
+            remote = { m: await GitHub.mountAt(cur), rel: "" };
+          } else if (r.ok) {
+            entries = data.entries;
+          } else if (r.status === 404) {
+            remote = await GitHub.find(cur);
+            if (!remote) throw new Error(data.error || "Нет такой папки");
+          } else throw new Error(data.error || r.statusText);
+          if (remote) {
+            if (seq === loadSeq) grid.replaceChildren(el("div", { className: "empty", textContent: "Загрузка с GitHub…" }));
+            ({ entries, info } = await GitHub.list(remote.m, remote.rel, force));
+          }
+          if (seq !== loadSeq) return; // пока грузили, ушли в другую папку
+          showBanner(info);
           grid.replaceChildren();
-          if (!data.entries.length) grid.append(el("div", { className: "empty", textContent: "Папка пуста" }));
-          for (const it of data.entries) {
+          if (!entries.length) grid.append(el("div", { className: "empty", textContent: "Папка пуста" }));
+          for (const it of entries) {
             const full = joinPath(cur, it.name);
             const kind = it.type === "dir" ? "dir" : kindOf(it.name);
             const meta = { ...it, path: full, kind };
-            const ic = makeIcon(GLYPH[kind], it.name, () => it.type === "dir" ? go(full) : openFile(full), meta);
+            if (remote) meta.remote = { m: remote.m, rpath: it.rpath, isDir: it.type === "dir" };
+            const open = () => it.type === "dir" ? go(full) : remote ? GitHub.open(meta) : openFile(full);
+            const ic = makeIcon(GLYPH[kind], it.name, open, meta);
             ic.title = it.type === "dir" ? it.name : `${it.name}\n${fmtSize(it.size)}`;
+            if (remote) ic.classList.add("is-remote");
             meta.openNew = it.type === "dir" ? () => openExplorer(full) : null;
             grid.append(ic);
-            if (kind === "link") Links.decorate(ic, full);
+            if (kind === "link" && !remote) Links.decorate(ic, full);
           }
-          const files = data.entries.filter(e => e.type === "file");
-          summary = `${data.entries.length} элем. · ${fmtSize(files.reduce((s, f) => s + f.size, 0))}`;
+          const files = entries.filter(e => e.type === "file");
+          summary = `${entries.length} элем. · ${fmtSize(files.reduce((s, f) => s + f.size, 0))}` + (remote ? " · GitHub" : "");
           status.textContent = summary;
           if (pendingSelect) {
             const target = sel.items().find(i => i.meta?.name === pendingSelect);
@@ -493,7 +592,9 @@ function openExplorer(path = "/home/nikita/projects", opts = {}) {
             if (target) { sel.select([target]); target.scrollIntoView({ block: "nearest" }); }
           }
         } catch (err) {
-          grid.replaceChildren(el("div", { className: "error", textContent: "⚠ " + err.message }));
+          if (seq !== loadSeq) return;
+          showBanner(null);
+          grid.replaceChildren(el("div", { className: "error", textContent: "⚠ " + (remote ? "GitHub: " : "") + err.message }));
           summary = status.textContent = "";
         }
       }
@@ -501,6 +602,177 @@ function openExplorer(path = "/home/nikita/projects", opts = {}) {
     },
   });
 }
+
+/*
+ * Папка-зеркало GitHub. Если в папке лежит файл github.mount, проводник показывает
+ * вместо её содержимого файлы репозитория. Всё делает браузер: дерево берётся
+ * из GitHub API, файлы открываются и скачиваются прямо с GitHub. Сервер не участвует.
+ *
+ * github.mount — либо одна строка со ссылкой:
+ *     https://github.com/ncojam/cfa-engine
+ *   (можно и https://github.com/owner/repo/tree/ветка/подпапка или просто owner/repo),
+ * либо JSON:
+ *     { "repo": "ncojam/cfa-engine", "branch": "main", "path": "editors" }
+ *   branch и path — необязательны (по умолчанию основная ветка и корень репозитория).
+ */
+const GitHub = {
+  MARKER: "github.mount",
+  TTL: 10 * 60 * 1000,             // кеш дерева: у анонимного API лимит 60 запросов в час
+  mounts: new Map(),               // локальная папка -> настройки репозитория
+
+  parse(text) {
+    text = text.trim();
+    let o = {};
+    if (text.startsWith("{")) {
+      try { o = JSON.parse(text); } catch { throw new Error(`${this.MARKER}: это не JSON`); }
+    } else o = { repo: text.split(/\s+/)[0] };
+    const repo = String(o.repo || o.url || "");
+    const m = repo.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:\/tree\/([^/]+)(?:\/(.+?))?)?\/?$/i)
+      || repo.match(/^([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
+    if (!m) throw new Error(`${this.MARKER}: не понял, какой это репозиторий («${repo || "пусто"}»)`);
+    const sub = String(o.path || m[4] || "").replace(/^\/+|\/+$/g, "");
+    const branch = o.branch || o.ref || m[3] || null;
+    return { owner: m[1], repo: m[2], branch, ref: branch || "HEAD", sub };
+  },
+
+  async mountAt(root) {
+    const r = await fetch(fsUrl(joinPath(root, this.MARKER)), { cache: "no-store" });
+    if (!r.ok) throw new Error(`не прочитать ${this.MARKER}`);
+    const m = { ...this.parse(await r.text()), root };
+    this.mounts.set(root, m);
+    return m;
+  },
+
+  // путь внутри смонтированной папки (локально его нет): ищем github.mount у родителей
+  async find(path) {
+    for (const [root, m] of this.mounts) {
+      if (path.startsWith(root + "/")) return { m, rel: path.slice(root.length + 1) };
+    }
+    for (let p = parentOf(path); ; p = parentOf(p)) {
+      try {
+        const r = await fetch("/api/entry?path=" + encodeURIComponent(joinPath(p, this.MARKER)));
+        if (r.ok && (await r.json()).exists) {
+          const m = await this.mountAt(p);
+          return { m, rel: path.slice(p === "/" ? 1 : p.length + 1) };
+        }
+      } catch {}
+      if (p === "/") return null;
+    }
+  },
+
+  async tree(m, force = false) {
+    const key = `gh.tree:${m.owner}/${m.repo}@${m.ref}`;
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(key)); } catch {}
+    if (!force && cached && Date.now() - cached.t < this.TTL) return cached;
+    try {
+      const r = await fetch(`https://api.github.com/repos/${m.owner}/${m.repo}/git/trees/${encodeURIComponent(m.ref)}?recursive=1`,
+        { headers: { Accept: "application/vnd.github+json" } });
+      if (r.status === 403 || r.status === 429) {
+        const reset = +r.headers.get("x-ratelimit-reset");
+        throw new Error("лимит запросов к GitHub исчерпан (60 в час)" +
+          (reset ? `, сброс в ${new Date(reset * 1000).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : ""));
+      }
+      if (r.status === 404 || r.status === 409) throw new Error("репозиторий или ветка не найдены (или репозиторий приватный)");
+      if (!r.ok) throw new Error("GitHub ответил " + r.status);
+      const d = await r.json();
+      const data = {
+        t: Date.now(), truncated: !!d.truncated,
+        items: d.tree.filter(x => x.type === "blob" || x.type === "tree").map(x => [x.path, x.type === "tree" ? 1 : 0, x.size || 0]),
+      };
+      try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+      return data;
+    } catch (e) {
+      if (cached) return { ...cached, stale: e.message || "нет связи с GitHub" }; // показываем последнее известное
+      throw new Error(e.message === "Failed to fetch" || e.name === "TypeError" ? "нет связи с GitHub" : e.message);
+    }
+  },
+
+  async list(m, rel, force) {
+    const data = await this.tree(m, force);
+    const base = [m.sub, rel].filter(Boolean).join("/");
+    if (base && !data.items.some(([p, d]) => d && p === base)) throw new Error(`в репозитории нет папки «${base}»`);
+    const pre = base ? base + "/" : "";
+    const entries = [];
+    for (const [p, isDir, size] of data.items) {
+      if (!p.startsWith(pre)) continue;
+      const name = p.slice(pre.length);
+      if (!name || name.includes("/")) continue;
+      entries.push({ name, type: isDir ? "dir" : "file", size, rpath: p });
+    }
+    entries.sort((a, b) => (a.type === "dir" ? 0 : 1) - (b.type === "dir" ? 0 : 1)
+      || a.name.localeCompare(b.name, "ru", { numeric: true, sensitivity: "base" }));
+    return { entries, info: data };
+  },
+
+  // один путь внутри репозитория: { type, size } или null
+  async stat(m, rel) {
+    const data = await this.tree(m);
+    const want = [m.sub, rel].filter(Boolean).join("/");
+    if (!want) return { type: "dir", size: 0 };
+    const it = data.items.find(([p]) => p === want);
+    return it ? { type: it[1] ? "dir" : "file", size: it[2], rpath: want } : null;
+  },
+
+  enc: p => p.split("/").map(encodeURIComponent).join("/"),
+  raw(m, rpath) { return `https://raw.githubusercontent.com/${m.owner}/${m.repo}/${encodeURIComponent(m.ref)}/${this.enc(rpath)}`; },
+  html(m, rpath = "", dir = false) {
+    const base = `https://github.com/${m.owner}/${m.repo}`;
+    return rpath ? `${base}/${dir ? "tree" : "blob"}/${encodeURIComponent(m.ref)}/${this.enc(rpath)}` : base;
+  },
+  label: m => `${m.owner}/${m.repo}` + (m.branch ? ` @ ${m.branch}` : "") + (m.sub ? ` / ${m.sub}` : ""),
+
+  // открыть файл репозитория: код и текст — у нас, картинки — у нас, ROM — в эмуляторе, остальное — на GitHub
+  open(meta) {
+    const { m, rpath } = meta.remote, name = meta.name, raw = this.raw(m, rpath);
+    const big = meta.size > 4 * 1024 * 1024;
+    const textLike = /^(md|txt|c|h|cc|cpp|hpp|hh|py|js|ts|json|css|html?|sh|bat|cmake|mk|s|inc|asm|ld|toml|ya?ml|ini|cfg|xml|csv|lua|rs|go|java|kt|gitignore|gitattributes|editorconfig|tmx|tsx)$/i;
+    const ext = name.includes(".") ? name.split(".").pop() : "";
+    const opts = { title: name, icon: GLYPH[meta.kind] || "📄", key: "gh:" + raw };
+    if (meta.kind === "rom") {
+      return WM.open({ ...opts, width: 760, height: 580, render(c, w) {
+        const f = el("iframe", { className: "viewer-frame", src: "/apps/gba.html?url=" + encodeURIComponent(raw), allow: "fullscreen; autoplay; gamepad" });
+        c.append(f); wireIframe(f, w);
+        const send = cmd => f.contentWindow?.postMessage({ type: "gba", cmd }, location.origin);
+        w.onMinimize = () => send("pause"); w.onRestore = () => send("resume");
+        w.onClose = () => f.contentWindow?.gbaShutdown?.();
+      } });
+    }
+    if (meta.kind === "image" && !big) {
+      return WM.open({ ...opts, width: 760, height: 520, render(c) {
+        c.append(el("div", { className: "viewer-img" }, el("img", { src: raw, alt: name, crossOrigin: "anonymous" })));
+      } });
+    }
+    if (!big && (textLike.test(ext) || !ext || ["text", "web"].includes(meta.kind))) {
+      return WM.open({ ...opts, width: 720, height: 500, render: async c => {
+        const pre = el("pre", { className: "viewer-text", textContent: "Загрузка с GitHub…" });
+        const bar = el("div", { className: "gh-filebar" },
+          el("span", { textContent: `${m.owner}/${m.repo} · ${rpath}` }),
+          el("a", { href: this.html(m, rpath), target: "_blank", rel: "noopener", textContent: "Открыть на GitHub ↗" }));
+        c.append(el("div", { className: "gh-file" }, bar, pre));
+        try {
+          const r = await fetch(raw);
+          if (!r.ok) throw new Error("GitHub ответил " + r.status);
+          const t = await r.text();
+          pre.textContent = t.length ? t : "(пустой файл)";
+        } catch (e) { pre.textContent = "Не удалось загрузить: " + e.message; }
+      } });
+    }
+    window.open(this.html(m, rpath), "_blank", "noopener");
+  },
+
+  async download(meta) {
+    const { m, rpath } = meta.remote;
+    try {
+      const r = await fetch(this.raw(m, rpath));
+      if (!r.ok) throw new Error("GitHub ответил " + r.status);
+      const url = URL.createObjectURL(await r.blob());
+      const a = el("a", { href: url, download: meta.name });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) { notify("Не скачать: " + e.message); }
+  },
+};
 
 // иконка: эмодзи или путь к картинке в fs ("/home/nikita/icons/x.png")
 function setGlyph(box, icon) {
@@ -1092,7 +1364,16 @@ async function openPath(p) {
     const r = await fetch("/api/entry?path=" + encodeURIComponent(p));
     if (r.ok) st = await r.json();
   } catch (e) { console.warn("api/entry:", e); }
-  if (st && !st.exists) return notify("Не найдено: " + p);
+  if (st && !st.exists) {
+    // может, это путь внутри папки-зеркала GitHub
+    const f = await GitHub.find(p).catch(() => null);
+    const rs = f && await GitHub.stat(f.m, f.rel).catch(() => null);
+    if (!rs) return notify("Не найдено: " + p);
+    if (rs.type === "dir") return openExplorer(p);
+    const name = baseName(p);
+    return GitHub.open({ name, path: p, type: "file", size: rs.size, kind: kindOf(name),
+      remote: { m: f.m, rpath: rs.rpath, isDir: false } });
+  }
   // сервер не ответил — угадываем по расширению: есть расширение — файл, нет — папка
   const isDir = st ? st.type === "dir" : !/\.[^/.]+$/.test(baseName(p));
   isDir ? openExplorer(p) : openFile(p);
@@ -1102,7 +1383,7 @@ async function openPath(p) {
 const DESKTOP = "/home/nikita/Desktop";
 const FALLBACK_DESKTOP = [
   { name: "nikita", icon: "🏠", open: "/home/nikita" },
-  { name: "projects", icon: "📁", open: "/home/nikita/projects" },
+  { name: "Projects", icon: "📁", open: "/home/nikita/Projects" },
   { name: "Настройки", icon: "⚙️", app: "settings" },
 ];
 const Desktop = {
@@ -1201,8 +1482,11 @@ document.addEventListener("keydown", e => {
 /* ================= обои ================= */
 const IMAGE_EXT = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"];
 const Wallpaper = {
-  cfg: { wallpaper: "glow", dim: 0.25 }, // из fs/etc/os.json
+  cfg: { wallpaper: "/home/nikita/Wallpapers/wallpaper.jpg", dim: 0.25, wallpaperDir: "/home/nikita/Wallpapers" }, // из fs/etc/os.json
   current: null,
+  // папка, из которой берутся обои (выбор посетителя важнее значения из os.json)
+  get dir() { return store.get("wp.dir", this.cfg.wallpaperDir || "/home/nikita/Wallpapers"); },
+  set dir(p) { store.set("wp.dir", p); },
 
   async init() {
     try {
@@ -1244,16 +1528,64 @@ const Wallpaper = {
 };
 Wallpaper.init();
 
+/* ================= выбор папки ================= */
+// окно с деревом папок; резолвится выбранным путём или null
+function pickFolder(start = "/home/nikita", title = "Выбор папки") {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = (v, w) => { if (done) return; done = true; resolve(v); if (w) WM.close(w); };
+    WM.open({ title, icon: "📂", width: 460, height: 440, render(c, w) {
+      let cur = start;
+      const crumbs = el("div", { className: "crumbs" });
+      const list = el("div", { className: "folder-list" });
+      const ok = el("button", { className: "btn primary", textContent: "Выбрать эту папку" });
+      const cancel = el("button", { className: "btn", textContent: "Отмена" });
+      c.append(el("div", { className: "picker" }, crumbs, list, el("div", { className: "picker-foot" }, cancel, ok)));
+      ok.onclick = () => finish(cur, w);
+      cancel.onclick = () => finish(null, w);
+      w.onClose = () => finish(null);
+      async function go(p) {
+        cur = p;
+        crumbs.replaceChildren(el("span", { textContent: "/", onclick: () => go("/") }));
+        const parts = p.split("/").filter(Boolean);
+        parts.forEach((part, i) => {
+          if (i) crumbs.append(el("i", { textContent: "/" }));
+          crumbs.append(el("span", { textContent: part, className: i === parts.length - 1 ? "cur" : "",
+            onclick: () => go("/" + parts.slice(0, i + 1).join("/")) }));
+        });
+        list.replaceChildren(el("div", { className: "hint", textContent: "Загрузка…" }));
+        try {
+          const r = await fetch("/api/ls?path=" + encodeURIComponent(p));
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || r.statusText);
+          const dirs = d.entries.filter(e => e.type === "dir");
+          list.replaceChildren();
+          if (p !== "/") list.append(el("button", { className: "folder-item", textContent: "⬑  ..", onclick: () => go(parentOf(p)) }));
+          for (const e of dirs) list.append(el("button", { className: "folder-item", textContent: "📁  " + e.name, onclick: () => go(joinPath(p, e.name)) }));
+          if (!dirs.length) list.append(el("div", { className: "hint", textContent: "Вложенных папок нет" }));
+        } catch (e) {
+          list.replaceChildren(el("div", { className: "hint", textContent: "⚠ " + e.message }),
+            el("button", { className: "folder-item", textContent: "⬑  ..", onclick: () => go(parentOf(p)) }));
+        }
+      }
+      go(start);
+    } });
+  });
+}
+
 /* ================= настройки ================= */
 function openSettings() {
   WM.open({ title: "Настройки", icon: "⚙️", width: 660, height: 640, key: "settings", async render(c, w) {
     const tiles = el("div", { className: "wp-grid" });
     const dim = el("input", { type: "range", min: 0, max: 0.8, step: 0.05, value: Wallpaper.dim });
     const dimVal = el("span", { textContent: Math.round(Wallpaper.dim * 100) + "%" });
-    const refresh = el("button", { className: "btn", textContent: "⟳ Обновить список" });
+    const refresh = el("button", { className: "btn", textContent: "⟳ Обновить" });
+    const dirBox = el("input", { type: "text", value: Wallpaper.dir, className: "path", spellcheck: false });
+    const pick = el("button", { className: "btn", textContent: "📂 Выбрать…" });
     const hint = el("div", { className: "hint" });
-    hint.innerHTML = "Сюда попадают все картинки из <code>fs</code> (png, jpg, webp…). Удобно сложить их, например, в <code>fs/home/nikita/wallpapers</code>. " +
-      "Выбор сохраняется в этом браузере. Фон по умолчанию для всех посетителей задаётся в <code>fs/etc/os.json</code>.";
+    hint.innerHTML = "Показываются картинки (png, jpg, webp…) из выбранной папки. " +
+      "Выбор сохраняется в этом браузере. Папку и фон по умолчанию для всех посетителей можно задать в <code>fs/etc/os.json</code> " +
+      "(<code>wallpaperDir</code>, <code>wallpaper</code>).";
     // окна: прилипание, зазор, поля раскладки
     const snap = el("input", { type: "checkbox", checked: WM.cfg.snap });
     const num = (key, max) => {
@@ -1271,10 +1603,11 @@ function openSettings() {
     const tryArrange = el("button", { className: "btn", textContent: "▦ Разложить окна сейчас", onclick: () => WM.arrange() });
 
     c.append(el("div", { className: "settings" },
-      el("section", {}, el("h3", { textContent: "Фон рабочего стола" }), tiles, hint),
+      el("section", {}, el("h3", { textContent: "Фон рабочего стола" }),
+        el("div", { className: "row dirrow" }, el("span", { className: "lbl", textContent: "Папка с обоями" }), dirBox, pick, refresh),
+        tiles, hint),
       el("section", {}, el("h3", { textContent: "Затемнение картинки" }),
         el("div", { className: "row" }, dim, dimVal)),
-      el("section", {}, el("div", { className: "row" }, refresh)),
       el("section", {}, el("h3", { textContent: "Окна" }),
         el("label", { className: "row check" }, snap,
           el("span", { textContent: "Прилипать к краям экрана и друг к другу (на расстоянии 7 px; Alt — двигать свободно)" })),
@@ -1294,18 +1627,25 @@ function openSettings() {
       return t;
     };
     async function load() {
+      const dir = Wallpaper.dir;
+      dirBox.value = dir;
       tiles.replaceChildren(tile("glow", "Чёрный с подсветкой", "thumb-glow"));
       try {
-        const r = await fetch("/api/find?ext=" + IMAGE_EXT.join(","));
+        const r = await fetch("/api/ls?path=" + encodeURIComponent(dir), { cache: "no-store" });
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || r.statusText);
-        for (const p of d.files) tiles.append(tile(p, baseName(p), "", fsUrl(p)));
+        if (!r.ok) throw new Error(r.status === 404 ? "такой папки нет — создай её или выбери другую" : d.error || r.statusText);
+        const imgs = d.entries.filter(e => e.type === "file" && IMAGE_EXT.includes(e.name.split(".").pop().toLowerCase()));
+        for (const e of imgs) { const p = joinPath(dir, e.name); tiles.append(tile(p, e.name, "", fsUrl(p))); }
+        if (!imgs.length) tiles.append(el("div", { className: "hint empty-wp", textContent: "В этой папке пока нет картинок" }));
       } catch (e) {
-        tiles.append(el("div", { className: "hint", textContent: "Не удалось получить список картинок: " + e.message +
-          " (если только что обновился — перезапусти сервер)" }));
+        tiles.append(el("div", { className: "hint empty-wp", textContent: `${dir}: ${e.message}` }));
       }
       mark();
     }
+    const setDir = p => { if (!p) return; p = "/" + p.trim().replace(/^\/+|\/+$/g, ""); Wallpaper.dir = p; load(); };
+    dirBox.onchange = () => setDir(dirBox.value);
+    dirBox.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); setDir(dirBox.value); } };
+    pick.onclick = async () => setDir(await pickFolder(Wallpaper.dir, "Папка с обоями"));
     dim.oninput = () => { dimVal.textContent = Math.round(dim.value * 100) + "%"; Wallpaper.apply(Wallpaper.src, +dim.value); };
     refresh.onclick = load;
     load();
@@ -1382,8 +1722,13 @@ function openProperties(meta) {
   ];
   if (meta.path) rows.push(["Расположение", parentOf(meta.path)], ["Путь", meta.path]);
   if (meta.link) rows.push(["Ведёт на", Links.describe(meta.link)]);
+  if (meta.remote) {
+    const { m, rpath } = meta.remote;
+    rows.push(["Источник", `GitHub: ${m.owner}/${m.repo}`], ["Ветка", m.branch || "основная"], ["В репозитории", rpath]);
+  }
   if (meta.type === "file" && meta.size !== undefined) rows.push(["Размер", `${fmtSize(meta.size)} (${meta.size.toLocaleString("ru-RU")} байт)`]);
   if (meta.mtime) rows.push(["Изменён", new Date(meta.mtime * 1000).toLocaleString("ru-RU")]);
+  if (meta.remote) rows.push(["Ссылка", GitHub.html(meta.remote.m, meta.remote.rpath, meta.remote.isDir)]);
   WM.open({ title: "Свойства: " + (meta.link?.name || meta.name), icon: "ℹ️", width: 440, height: 320,
     key: "props:" + (meta.path || meta.name), render(c) {
       const dl = el("dl", { className: "props" });
@@ -1449,8 +1794,31 @@ document.addEventListener("keydown", e => {
   e.stopPropagation(); // пока меню открыто, клавиши не уходят окнам (Enter нажмёт пункт меню)
 }, true);
 
+// меню для файлов из папки-зеркала GitHub
+const remoteMenu = (icons, metas) => {
+  const one = metas.length === 1 ? metas[0] : null;
+  const files = metas.filter(m => m.type === "file");
+  const ghLinks = metas.map(x => GitHub.html(x.remote.m, x.remote.rpath, x.remote.isDir));
+  return [
+    { label: icons.length > 1 ? `Открыть (${icons.length})` : "Открыть", icon: "↗", bold: true, hint: "Enter",
+      run: () => icons.slice(0, 12).forEach(i => i.open()) },
+    one?.openNew && { label: "Открыть в новом окне", icon: "⧉", run: one.openNew },
+    { label: "Открыть на GitHub", icon: "🐙", run: () => ghLinks.slice(0, 8).forEach(u => window.open(u, "_blank", "noopener")) },
+    "-",
+    files.length && { label: files.length > 1 ? `Скачать (${files.length})` : "Скачать", icon: "⬇",
+      run: () => files.forEach((x, k) => setTimeout(() => GitHub.download(x), k * 400)) },
+    { label: "Копировать ссылку на GitHub", icon: "🔗", run: () => copyText(ghLinks.join("\n"), "Ссылка скопирована") },
+    files.length && { label: "Копировать прямую ссылку (raw)", icon: "⎘",
+      run: () => copyText(files.map(x => GitHub.raw(x.remote.m, x.remote.rpath)).join("\n"), "Ссылка скопирована") },
+    { label: "Копировать путь", icon: "⎘", run: () => copyText(metas.map(x => x.path).join("\n"), "Путь скопирован") },
+    "-",
+    one && { label: "Свойства", icon: "ℹ", run: () => openProperties(one) },
+  ];
+};
+
 const fileMenu = icons => {
   const metas = icons.map(i => i.meta).filter(Boolean);
+  if (metas.length && metas.every(m => m.remote)) return remoteMenu(icons, metas);
   const one = metas.length === 1 ? metas[0] : null;
   const files = metas.filter(m => m.type === "file" && m.path);
   const paths = metas.filter(m => m.path).map(m => m.path);
@@ -1512,9 +1880,11 @@ document.addEventListener("contextmenu", e => {
     const w = [...WM.wins.values()].find(w => w.node === winNode);
     const grid = t.closest(".grid");
     if (grid?.ctx) {
-      const g = grid.ctx;
+      const g = grid.ctx, rm = g.remote();
       return Ctx.show(x, y, [
-        { label: "Обновить", icon: "⟳", run: g.refresh },
+        { label: rm ? "Обновить из GitHub" : "Обновить", icon: "⟳", run: g.refresh },
+        rm && { label: "Открыть эту папку на GitHub", icon: "🐙",
+          run: () => window.open(GitHub.html(rm.m, [rm.m.sub, rm.rel].filter(Boolean).join("/"), true), "_blank", "noopener") },
         { label: "Выделить всё", icon: "▦", hint: "Ctrl+A", run: g.selectAll },
         { label: "Вверх", icon: "↑", hint: "Backspace", disabled: !g.canUp(), run: g.up },
         "-",
@@ -1544,4 +1914,4 @@ document.addEventListener("contextmenu", e => {
 });
 
 /* стартовое окно */
-openExplorer("/home/nikita/projects");
+openExplorer("/home/nikita/Projects");

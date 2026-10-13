@@ -21,11 +21,16 @@ const DEFAULTS = {
   //         подвисания страницы его не рвут; "sdl" — старый вывод через ScriptProcessor
   // dcFilter — убирает постоянную составляющую, как конденсатор на выходе GBA
   // (выключен: на громких сценах сдвигает пики за предел и даёт клиппинг)
-  audio: { sampleRate: "auto", bufferSize: 2048, output: "worklet", latencyMs: 120, dcFilter: false },
+  // contextRate: частота звукового контекста — 48000 (по умолчанию; браузер сам пересчитает
+  //              в частоту звуковой карты) или "device" — как у звуковой карты
+  audio: { contextRate: 48000, sampleRate: "auto", bufferSize: 2048, output: "worklet", latencyMs: 120, dcFilter: false },
   core: {},
 };
 
-const romPath = new URLSearchParams(location.search).get("rom") || "";
+const params = new URLSearchParams(location.search);
+const romPath = params.get("rom") || "";      // путь в fs сервера
+const romUrl = params.get("url") || "";       // или прямая ссылка (например, raw.githubusercontent.com)
+const romName = romPath ? baseName(romPath) : decodeURIComponent(baseName(new URL(romUrl || "x:/", location.href).pathname));
 const canvas = $("#screen");
 let M = null, cfg = DEFAULTS, romFile = "", romSize = 0;
 let started = false, paused = false, autoPaused = false, ffLatched = false, ffHeld = false;
@@ -49,9 +54,39 @@ function fail(msg) {
   $("#ov-start").hidden = true;
   $("#overlay").classList.remove("gone");
 }
+/* ---------- скорость эмуляции ----------
+ * mGBA растягивает звук вслед за скоростью: если эмуляция идёт на 30 fps вместо 60,
+ * звук становится вдвое ниже и медленнее. Поэтому скорость видна прямо в статусе.
+ */
+const NATIVE_FPS = 59.7275;
+const speed = { frames: 0, fps: 0, slowSec: 0, warned: false, timer: 0 };
+function startSpeedMeter() {
+  M.addCoreCallbacks({ videoFrameEndedCallback: () => { speed.frames++; } });
+  let last = performance.now();
+  speed.timer = setInterval(() => {
+    const now = performance.now();
+    speed.fps = speed.frames * 1000 / (now - last);
+    speed.frames = 0; last = now;
+    const ff = ffLatched || ffHeld;
+    if (!paused && !ff && document.visibilityState === "visible" && speed.fps < NATIVE_FPS * 0.9) speed.slowSec++;
+    else speed.slowSec = 0;
+    if (speed.slowSec >= 3 && !speed.warned) {
+      speed.warned = true;
+      toast(`⚠ Эмуляция идёт на ${Math.round(speed.fps / NATIVE_FPS * 100)}% скорости — поэтому звук замедлен.\n` +
+        `Браузер не успевает. Попробуй Chromium/Chrome, закрой тяжёлые вкладки\nили поставь "frameSkip": 1 в core в fs/etc/gba.json.`, 9000);
+    }
+    setStatus();
+  }, 1000);
+}
 function setStatus() {
-  const speed = ffLatched || ffHeld ? ` · ⏩ x${cfg.fastForwardSpeed}` : "";
-  $("#status").textContent = !started ? "" : paused ? "пауза" : "играет" + speed;
+  const ff = ffLatched || ffHeld ? ` · ⏩ x${cfg.fastForwardSpeed}` : "";
+  const st = $("#status");
+  if (!started) return void (st.textContent = "");
+  if (paused) { st.textContent = "пауза"; st.classList.remove("slow"); return; }
+  const pct = speed.fps ? Math.round(speed.fps / NATIVE_FPS * 100) : 0;
+  st.textContent = speed.fps ? `${speed.fps.toFixed(0)} fps · ${pct}%${ff}` : "играет" + ff;
+  st.classList.toggle("slow", !!speed.fps && !ff && pct < 90);
+  st.title = "Скорость эмуляции относительно настоящего GBA (59.73 кадра/с). Ниже 100% — игра и звук замедлены.";
 }
 function deepMerge(a, b) {
   const out = { ...a };
@@ -73,9 +108,9 @@ new ResizeObserver(fit).observe($("#stage"));
 
 /* ---------- запуск ---------- */
 async function boot() {
-  $("#ov-title").textContent = baseName(romPath) || "Нет ROM";
-  document.title = baseName(romPath) || "GBA";
-  if (!romPath) return fail("Не указан ROM.");
+  $("#ov-title").textContent = romName || "Нет ROM";
+  document.title = romName || "GBA";
+  if (!romPath && !romUrl) return fail("Не указан ROM.");
   if (!crossOriginIsolated) {
     return fail("Браузер не дал включить многопоточность (cross-origin isolation).\nПерезапусти сервер — в server.py добавились нужные заголовки.");
   }
@@ -86,7 +121,7 @@ async function boot() {
   fit();
 
   try {
-    const romReq = fetch(fsUrl(romPath)).then(r => {
+    const romReq = fetch(romPath ? fsUrl(romPath) : romUrl).then(r => {
       if (!r.ok) throw new Error(`ROM не загрузился (${r.status})`);
       return r.arrayBuffer();
     });
@@ -98,7 +133,7 @@ async function boot() {
     for (const f of M.listRoms()) {
       if (f !== "." && f !== "..") try { M.FS.unlink(p.gamePath + "/" + f); } catch {}
     }
-    romFile = p.gamePath + "/" + baseName(romPath).replace(/[^\w.\-() Ѐ-ӿ]/g, "_");
+    romFile = p.gamePath + "/" + romName.replace(/[^\w.\-() Ѐ-ӿ]/g, "_");
     M.FS.writeFile(romFile, new Uint8Array(rom));
     romSize = rom.byteLength;
     console.log(M.version.projectName, M.version.projectVersion);
@@ -157,6 +192,7 @@ class NosRingOut extends AudioWorkletProcessor {
 registerProcessor("nos-ring-out", NosRingOut);`;
 
 const audioOut = { mode: "sdl", timer: 0, idx: null, node: null };
+const audioDiag = { deviceRate: 0 }; // частота звуковой карты — для «О программе»
 
 async function setupWorkletAudio() {
   // SDL открывает аудиоустройство не сразу после loadGame, а чуть позже — ждём его
@@ -221,12 +257,22 @@ function coreSettings() {
 
 async function start() {
   if (started) return;
-  // Создаём AudioContext сами (по клику, поэтому он сразу «живой») и отдаём его SDL —
-  // так мы заранее знаем настоящую частоту звуковой системы и просим mGBA выдавать ровно её.
-  // Иначе mGBA пишет 48000 Гц, а SDL грубо пересэмплирует в 44100 — звук становится «пожатым».
+  // Создаём AudioContext сами (по клику, поэтому он сразу «живой») и отдаём его SDL.
+  // Частота контекста фиксированная (по умолчанию 48 кГц), а не «как у звуковой карты»:
+  // mGBA выдаёт ровно её, а в частоту устройства (44.1/96/192 кГц…) пересчитывает уже сам
+  // браузер своим качественным ресемплером. Так звук не зависит от настроек системы.
   try {
     M.SDL2 = M.SDL2 || {};
-    if (!M.SDL2.audioContext) M.SDL2.audioContext = new AudioContext({ latencyHint: "playback" });
+    if (!M.SDL2.audioContext) {
+      try { const probe = new AudioContext(); audioDiag.deviceRate = probe.sampleRate; probe.close(); } catch {}
+      const want = cfg.audio?.contextRate === "device" ? null : (+cfg.audio?.contextRate || 48000);
+      try {
+        M.SDL2.audioContext = new AudioContext(want ? { sampleRate: want, latencyHint: "playback" } : { latencyHint: "playback" });
+      } catch (e) {
+        console.warn("AudioContext с частотой", want, "не создался:", e);
+        M.SDL2.audioContext = new AudioContext({ latencyHint: "playback" });
+      }
+    }
     await M.SDL2.audioContext.resume();
   } catch (e) { console.warn("AudioContext:", e); }
   const core = coreSettings();
@@ -245,6 +291,7 @@ async function start() {
     catch (e) { console.warn("AudioWorklet:", e); }
   }
   console.log("audio output:", audioOut.mode);
+  startSpeedMeter();
   M.addCoreCallbacks({
     saveDataUpdatedCallback: syncSoon,
     autoSaveStateCapturedCallback: syncSoon,
@@ -293,7 +340,7 @@ $("#b-export").onclick = () => {
   if (!data) return toast("У игры пока нет сохранения");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
-  a.download = baseName(romPath).replace(/\.[^.]+$/, "") + ".sav";
+  a.download = romName.replace(/\.[^.]+$/, "") + ".sav";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 };
@@ -322,10 +369,16 @@ function showAbout(on) {
     $("#ab-core").textContent = M ? `${M.version.projectName} ${M.version.projectVersion}` : "mGBA (загружается…)";
     const ctx = M?.SDL2?.audioContext;
     $("#ab-audio").textContent = ctx
-      ? `${started ? coreSettings().audioSampleRate : ctx.sampleRate} Гц, буфер ${coreSettings().audioBufferSize}, ` +
+      ? `mGBA ${started ? coreSettings().audioSampleRate : "—"} Гц → контекст ${ctx.sampleRate} Гц` +
+        (audioDiag.deviceRate ? ` → звуковая карта ${audioDiag.deviceRate} Гц` : "") +
+        `, буфер ${coreSettings().audioBufferSize}, ` +
         (audioOut.mode === "worklet" ? `AudioWorklet (запас ${cfg.audio.latencyMs} мс)` : "SDL ScriptProcessor")
       : "—";
-    $("#ab-rom").textContent = romPath || "—";
+    $("#ab-rom").textContent = romPath || romUrl || "—";
+    $("#ab-speed").textContent = started && speed.fps
+      ? `${speed.fps.toFixed(1)} fps (${Math.round(speed.fps / NATIVE_FPS * 100)}% от настоящего GBA)` : "—";
+    const ua = navigator.userAgent.match(/(Firefox|LibreWolf|Chrome|Chromium|Edg|Safari)\/[\d.]+/g) || [];
+    $("#ab-env").textContent = `${ua.join(", ") || navigator.userAgent} · потоков CPU: ${navigator.hardwareConcurrency || "?"} · изоляция: ${crossOriginIsolated ? "да" : "нет"}`;
     $("#ab-size").textContent = !romSize ? "—"
       : romSize < 1048576 ? (romSize / 1024).toFixed(1) + " КБ" : (romSize / 1048576).toFixed(2) + " МБ";
   }

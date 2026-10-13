@@ -188,6 +188,35 @@ html, body {
   align-content: start; gap: 6px; user-select: none;
 }
 .grid .empty, .grid .error { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 40px 0; }
+/* папка-зеркало GitHub */
+.gh-banner {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; flex: none;
+  background: linear-gradient(90deg, rgba(138,180,255,0.10), rgba(138,180,255,0.03));
+  border-bottom: 1px solid var(--glass-border); user-select: none;
+}
+.gh-banner[hidden] { display: none; }
+.gh-logo { font-size: 20px; }
+.gh-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gh-text b { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gh-text small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gh-btn {
+  border: 0; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  background: rgba(255,255,255,0.07); color: var(--text); text-decoration: none; white-space: nowrap;
+}
+.gh-btn:hover { background: rgba(255,255,255,0.14); }
+.icon.is-remote .glyph::after {
+  content: ""; position: absolute; right: -3px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px rgba(14,14,18,.9);
+}
+.gh-file { display: flex; flex-direction: column; height: 100%; }
+.gh-filebar {
+  display: flex; justify-content: space-between; gap: 10px; padding: 7px 14px; flex: none;
+  font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--glass-border);
+}
+.gh-filebar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-filebar a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+.gh-file .viewer-text { flex: 1; overflow: auto; margin: 0; }
+
 .statusbar { padding: 6px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--glass-border); flex: none; }
 
 /* ---------- просмотрщики ---------- */
@@ -283,6 +312,29 @@ html, body {
 .settings .row .lbl { width: 190px; flex: none; color: var(--text); }
 .settings .row.check { cursor: pointer; align-items: flex-start; }
 .settings .row.check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 1px 0 0; flex: none; }
+.settings .dirrow { margin-bottom: 14px; flex-wrap: wrap; }
+.settings .path {
+  flex: 1; min-width: 160px; padding: 7px 10px; border-radius: 9px; font: 12.5px ui-monospace, monospace;
+  background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--glass-border); outline: none;
+}
+.settings .path:focus { border-color: rgba(138,180,255,.6); }
+.wp-grid .empty-wp { grid-column: 2 / -1; align-self: center; margin: 0; }
+.btn.primary { background: rgba(138,180,255,0.25); }
+.btn.primary:hover { background: rgba(138,180,255,0.38); }
+.picker { display: flex; flex-direction: column; height: 100%; }
+.picker .crumbs { padding: 10px 12px; border-bottom: 1px solid var(--glass-border); }
+.folder-list { flex: 1; overflow: auto; padding: 6px; display: flex; flex-direction: column; }
+.folder-item {
+  text-align: left; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px;
+  padding: 8px 10px; border-radius: 9px; cursor: pointer;
+}
+.folder-item:hover { background: rgba(255,255,255,0.08); }
+.picker .hint { color: var(--muted); font-size: 12px; padding: 8px 10px; }
+.picker-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--glass-border); }
+.picker .btn {
+  border: 0; border-radius: 10px; padding: 8px 12px; cursor: pointer; font: inherit; font-size: 13px;
+  background: rgba(255,255,255,0.08); color: var(--text);
+}
 .settings .num {
   width: 62px; padding: 5px 8px; border-radius: 8px; font: inherit; font-size: 13px;
   background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--glass-border);
