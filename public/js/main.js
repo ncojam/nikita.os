@@ -3,6 +3,7 @@ import { openExplorer } from "./apps/explorer.js";
 import "./apps/id3.js";
 import { init_apps_player } from "./apps/player.js";
 import "./apps/settings.js";
+import "./apps/chat.js";
 import "./core/anim.js";
 import "./core/types.js";
 import "./core/util.js";

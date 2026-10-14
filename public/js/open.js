@@ -1,6 +1,7 @@
 import { openExplorer } from "./apps/explorer.js";
 import { Player } from "./apps/player.js";
 import { openSettings } from "./apps/settings.js";
+import { openChat } from "./apps/chat.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";
@@ -84,11 +85,12 @@ function openAbout() {
 /*
  * Ярлык .lnk — JSON-файл:
  *   { "name": "Graveblood", "icon": "🕹️" | "/путь/к/картинке.png",
- *     "open": "/путь/в/fs" | "app": "settings|about|explorer" (+ "path") | "url": "https://..." }
+ *     "open": "/путь/в/fs" | "app": "settings|about|explorer|chat" (+ "path") | "url": "https://..." }
  */
 const APPS = {
   settings: () => openSettings(),
   about: () => openAbout(),
+  chat: () => openChat(),
   explorer: l => openExplorer(l.path || "/home/nikita"),
 };
 

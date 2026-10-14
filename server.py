@@ -8,6 +8,7 @@
   /api/entry?path=/x    -> есть ли такой путь, файл это или папка
   /api/find?ext=png,jpg -> поиск файлов по расширению
   POST /api/listen?path=/x.mp3 -> +1 прослушивание (защита от накруток: 1 раз с адреса за 30 минут)
+  /api/chat/...         -> чатилка (см. chat.py)
 
 Виртуальная ФС живёт в ./fs: путь /home/nikita/Projects == ./fs/home/nikita/Projects.
 Прослушивания хранятся в ./data/plays.json (вне fs — снаружи их не скачать).
@@ -439,6 +440,9 @@ def make_app():
     app.router.add_get("/api/entry", api_entry)
     app.router.add_get("/api/find", api_find)
     app.router.add_post("/api/listen", api_listen)
+    from chat import Chat
+    app["chat"] = Chat(DATA_DIR / "chat.db", client_ip)
+    app["chat"].routes(app)
     app.router.add_get("/fs/{tail:.*}", serve_fs)
     app.router.add_get("/{tail:.*}", serve_public)
     return app

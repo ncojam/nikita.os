@@ -12,6 +12,7 @@ const FALLBACK_DESKTOP = [
   { name: "nikita", icon: "🏠", open: "/home/nikita" },
   { name: "Projects", icon: "📁", open: "/home/nikita/Projects" },
   { name: "Настройки", icon: "⚙️", app: "settings" },
+  { name: "Чат", icon: "💬", app: "chat" },
 ];
 
 const Desktop = {
