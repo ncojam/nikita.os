@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Flash</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  ruffle-player { width: 100%; height: 100%; display: block; }
+</style>
+<script>
+  window.RufflePlayer = window.RufflePlayer || {};
+  window.RufflePlayer.config = {
+    autoplay: "on",
+    unmuteOverlay: "hidden",
+    letterbox: "on",
+    contextMenu: "rightClickOnly",
+    splashScreen: false,
+    publicPath: "/vendor/ruffle/",
+  };
+</script>
+<script src="/vendor/ruffle/ruffle.js"></script>
+</head>
+<body>
+<script>
+  const swf = new URLSearchParams(location.search).get("swf");
+  const player = window.RufflePlayer.newest().createPlayer();
+  document.body.append(player);
+  // base — чтобы игра находила соседние файлы (подгружаемые swf, xml) рядом с собой
+  player.load({ url: swf, base: swf.replace(/[^/]*$/, "") });
+
+  addEventListener("message", e => {
+    if (e.origin !== location.origin || e.data?.type !== "flash") return;
+    if (e.data.cmd === "pause")  player.suspend?.();
+    if (e.data.cmd === "resume") player.resume?.();
+  });
+</script>
+</body>
+</html>

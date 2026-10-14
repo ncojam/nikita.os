@@ -327,11 +327,23 @@ async def api_listen(request):
 
 # ======================= файлы =======================
 
+# Сжатые файлы веб-сборок (Unity: Game.wasm.br, Game.data.gz): отдаём как есть,
+# с Content-Encoding и типом внутреннего файла — браузер распакует сам
+ENCODED = {".br": "br", ".gz": "gzip"}
+INNER_CTYPE = {".js": "application/javascript", ".wasm": "application/wasm", ".data": "application/octet-stream"}
+
+
 async def serve_fs(request):
     p = resolve_inside(FS_ROOT, request.match_info["tail"])
     if p is None or not p.is_file() or not os.access(p, os.R_OK):
         raise web.HTTPNotFound()
-    return web.FileResponse(p, chunk_size=256 * 1024, headers={"Content-Type": text_ctype(p)})
+    headers = {"Content-Type": text_ctype(p)}
+    enc = ENCODED.get(p.suffix.lower())
+    inner = Path(p.stem).suffix.lower()
+    if enc and inner in INNER_CTYPE:
+        headers["Content-Type"] = INNER_CTYPE[inner]
+        headers["Content-Encoding"] = enc
+    return web.FileResponse(p, chunk_size=256 * 1024, headers=headers)
 
 
 async def serve_public(request):
