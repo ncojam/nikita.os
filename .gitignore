@@ -1,2 +1,6 @@
 /fs/*
 !/fs/.gitkeep
+.venv/
+data/
+server.log
+.server.pid

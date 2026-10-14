@@ -1,0 +1,31 @@
+# Caddy перед сервером nikita.os: HTTPS, сжатие и защита от медленных соединений.
+# Адрес сайта берётся из SITE_ADDRESS (см. compose.yaml): ":80" — просто HTTP,
+# "nikita.example.com" — HTTPS с автоматическим сертификатом Let's Encrypt.
+{
+	servers {
+		timeouts {
+			read_header 10s # заголовки запроса — не дольше 10 с (против slowloris)
+			read_body 30s
+			idle 2m # простаивающее keep-alive соединение
+		}
+		max_header_size 16KB
+	}
+}
+
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	reverse_proxy app:8000 {
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 30s
+		}
+	}
+
+	header -Server
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -448,6 +448,11 @@ html, body {
 .pl-item .t b { display: block; font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-item .t small { display: block; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-item.active .t b { color: var(--accent); }
+.pl-item .pc {
+  flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; padding-left: 6px; cursor: default;
+}
+.pl-item.active .pc { color: var(--text); }
 .eq { display: none; gap: 2px; align-items: flex-end; height: 12px; }
 .pl-item.active .eq { display: flex; }
 .pl-item.active .num { display: none; }

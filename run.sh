@@ -16,6 +16,19 @@ if ! command -v python3 >/dev/null; then
   exit 1
 fi
 
+# Python с aiohttp: системный (sudo pacman -S python-aiohttp) или свой в .venv
+PY=python3
+if ! python3 -c "import aiohttp" 2>/dev/null; then
+  PY=.venv/bin/python
+  if ! { [ -x "$PY" ] && "$PY" -c "import aiohttp" 2>/dev/null; }; then
+    say "Первый запуск: ставлю зависимости в .venv (нужен интернет, ~10 секунд)…"
+    if ! { python3 -m venv .venv && .venv/bin/pip install -q --disable-pip-version-check -r requirements.txt; } >>"$LOG" 2>&1; then
+      say "Не удалось поставить aiohttp (подробности в server.log). Можно так: sudo pacman -S python-aiohttp"
+      exit 1
+    fi
+  fi
+fi
+
 stop_server            # если уже запущен — останавливаем, чтобы подхватить новый код
 
 open_browser() {
@@ -32,7 +45,7 @@ open_browser() {
 
 if [ -t 1 ]; then
   # запущен из терминала: работаем на переднем плане
-  PORT="$PORT" HOST="$HOST" python3 server.py &
+  PORT="$PORT" HOST="$HOST" "$PY" server.py &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PIDFILE"
   trap 'kill "$SERVER_PID" 2>/dev/null; rm -f "$PIDFILE"' EXIT INT TERM
@@ -40,7 +53,7 @@ if [ -t 1 ]; then
   wait "$SERVER_PID"
 else
   # двойной клик: отвязываемся от файлового менеджера и уходим в фон
-  PORT="$PORT" HOST="$HOST" setsid nohup python3 server.py >>"$LOG" 2>&1 < /dev/null &
+  PORT="$PORT" HOST="$HOST" setsid nohup "$PY" server.py >>"$LOG" 2>&1 < /dev/null &
   echo $! > "$PIDFILE"
   sleep 0.3
   if ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then

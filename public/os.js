@@ -18,6 +18,12 @@ const fmtTime = s => {
   s = Math.floor(s);
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 };
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many;
+};
+const fmtCount = n => n < 10000 ? n.toLocaleString("ru-RU")
+  : new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 const px = r => ({ left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -577,7 +583,8 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
             if (remote) meta.remote = { m: remote.m, rpath: it.rpath, isDir: it.type === "dir" };
             const open = () => it.type === "dir" ? go(full) : remote ? GitHub.open(meta) : openFile(full);
             const ic = makeIcon(GLYPH[kind], it.name, open, meta);
-            ic.title = it.type === "dir" ? it.name : `${it.name}\n${fmtSize(it.size)}`;
+            ic.title = it.type === "dir" ? it.name : `${it.name}\n${fmtSize(it.size)}` +
+              (it.plays !== undefined ? `\n▶ ${it.plays.toLocaleString("ru-RU")} ${plural(it.plays, "прослушивание", "прослушивания", "прослушиваний")}` : "");
             if (remote) ic.classList.add("is-remote");
             meta.openNew = it.type === "dir" ? () => openExplorer(full) : null;
             grid.append(ic);
@@ -981,6 +988,8 @@ const Player = {
   repeat: store.get("pl.repeat", "all"), // off | all | one
   ctx: null, analyser: null, raf: 0,
   seeking: false,
+  plays: new Map(),   // путь -> число прослушиваний (с сервера)
+  session: null,      // текущее прослушивание: { path, heard, last, sent }
 
   init() {
     const a = this.audio;
@@ -988,7 +997,8 @@ const Player = {
     a.volume = store.get("pl.volume", 0.8);
     a.addEventListener("play", () => this.syncPlay());
     a.addEventListener("pause", () => this.syncPlay());
-    a.addEventListener("timeupdate", () => this.syncTime());
+    a.addEventListener("timeupdate", () => { this.syncTime(); this.trackListen(); });
+    a.addEventListener("seeked", () => { if (this.session) this.session.last = a.currentTime; });
     a.addEventListener("loadedmetadata", () => this.syncTime());
     a.addEventListener("ended", () => this.next(true));
     a.addEventListener("volumechange", () => { this.syncVol(); store.set("pl.volume", a.volume); });
@@ -1017,7 +1027,9 @@ const Player = {
     try {
       const r = await fetch("/api/ls?path=" + encodeURIComponent(dir));
       const d = await r.json();
-      const found = d.entries.filter(e => e.type === "file" && kindOf(e.name) === "audio").map(e => joinPath(dir, e.name));
+      const audio = d.entries.filter(e => e.type === "file" && kindOf(e.name) === "audio");
+      for (const e of audio) if (e.plays !== undefined) this.plays.set(joinPath(dir, e.name), e.plays);
+      const found = audio.map(e => joinPath(dir, e.name));
       if (found.length) list = found;
     } catch {}
     this.list = list;
@@ -1088,11 +1100,13 @@ const Player = {
     ui.list.replaceChildren(...list.map((p, i) => {
       const item = el("div", { className: "pl-item" });
       item.innerHTML = `<span class="n"><span class="num">${i + 1}</span><span class="eq"><i></i><i></i><i></i></span></span>
-        <span class="t"><b></b><small></small></span>`;
+        <span class="t"><b></b><small></small></span><span class="pc"></span>`;
       item.querySelector("b").textContent = baseName(p).replace(/\.[^.]+$/, "");
+      item.dataset.path = p;
       item.onclick = () => this.play(i);
       return item;
     }));
+    list.forEach(p => this.showPlays(p));
     this.highlight();
     // подтягиваем теги по очереди, чтобы не долбить сервер
     for (let i = 0; i < list.length; i++) {
@@ -1102,6 +1116,37 @@ const Player = {
       it.querySelector("b").textContent = m.title;
       it.querySelector("small").textContent = m.artist || "";
     }
+  },
+
+  /* ---------- прослушивания ----------
+   * Засчитываем, когда трек реально прослушан 30 с (или половину, если он короче минуты).
+   * Перемотка вперёд в счёт не идёт: копим только время, которое прошло при обычном воспроизведении.
+   * Сервер дополнительно не даёт накрутить: один трек с одного адреса — раз в 30 минут.
+   */
+  showPlays(path) {
+    const it = this.ui && [...this.ui.list.children].find(x => x.dataset.path === path);
+    if (!it) return;
+    const n = this.plays.get(path), pc = it.querySelector(".pc");
+    pc.textContent = n === undefined ? "" : "▶ " + fmtCount(n);
+    pc.title = n === undefined ? "" : `${n.toLocaleString("ru-RU")} ${plural(n, "прослушивание", "прослушивания", "прослушиваний")}`;
+  },
+  trackListen() {
+    const s = this.session, a = this.audio;
+    if (!s || s.sent || a.paused || this.seeking) return;
+    const t = a.currentTime, dt = t - s.last;
+    s.last = t;
+    if (dt > 0 && dt < 1.5) s.heard += dt; // скачок больше 1.5 с — это перемотка, не считаем
+    const need = a.duration ? Math.max(2, Math.min(30, a.duration / 2)) : 30;
+    if (s.heard >= need) { s.sent = true; this.reportListen(s.path); }
+  },
+  async reportListen(path) {
+    try {
+      const r = await fetch("/api/listen?path=" + encodeURIComponent(path), { method: "POST", keepalive: true });
+      if (!r.ok) return;
+      const d = await r.json();
+      this.plays.set(path, d.plays);
+      this.showPlays(path);
+    } catch (e) { console.warn("listen:", e); }
   },
 
   highlight() {
@@ -1126,6 +1171,7 @@ const Player = {
     if (i < 0 || i >= this.list.length) return;
     this.idx = i;
     const path = this.list[i];
+    this.session = { path, heard: 0, last: 0, sent: false };
     this.audio.src = fsUrl(path);
     this.initGraph();
     this.audio.play().catch(() => {});
@@ -1156,7 +1202,10 @@ const Player = {
 
   next(auto = false) {
     const n = this.list.length; if (!n) return;
-    if (auto && this.repeat === "one") { this.audio.currentTime = 0; this.audio.play(); return; }
+    if (auto && this.repeat === "one") {
+      this.session = { path: this.list[this.idx], heard: 0, last: 0, sent: false }; // новый круг — новое прослушивание
+      this.audio.currentTime = 0; this.audio.play(); return;
+    }
     let i;
     if (this.shuffle && n > 1) { do i = Math.floor(Math.random() * n); while (i === this.idx); }
     else i = this.idx + 1;
@@ -1728,6 +1777,7 @@ function openProperties(meta) {
   }
   if (meta.type === "file" && meta.size !== undefined) rows.push(["Размер", `${fmtSize(meta.size)} (${meta.size.toLocaleString("ru-RU")} байт)`]);
   if (meta.mtime) rows.push(["Изменён", new Date(meta.mtime * 1000).toLocaleString("ru-RU")]);
+  if (meta.plays !== undefined) rows.push(["Прослушивания", meta.plays.toLocaleString("ru-RU")]);
   if (meta.remote) rows.push(["Ссылка", GitHub.html(meta.remote.m, meta.remote.rpath, meta.remote.isDir)]);
   WM.open({ title: "Свойства: " + (meta.link?.name || meta.name), icon: "ℹ️", width: 440, height: 320,
     key: "props:" + (meta.path || meta.name), render(c) {

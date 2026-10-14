@@ -1,0 +1,10 @@
+# в образ попадают только server.py, requirements.txt и public — всё остальное не нужно
+fs
+data
+.venv
+.git
+__pycache__
+*.pyc
+server.log
+.server.pid
+*.tar.gz
