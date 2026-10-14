@@ -5,12 +5,16 @@ import { WM } from "../wm.js";
 /* ================= чатилка =================
  * Общий чат — через сервер (WebSocket), хранится там же (до 1000 сообщений).
  * Личка — P2P через WebRTC DataChannel: сервер только сводит браузеры, текст на нём не бывает.
+ * При P2P собеседники видят IP друг друга, поэтому переписка начинается с запроса через сервер:
+ * отправитель соглашается раскрыть IP, получатель — принять. Согласия хранятся здесь, в localStorage.
  * История лички и список контактов живут в localStorage этого браузера.
  * Весь чужой текст выводится только через textContent — никакого innerHTML.
  */
 const MSG_MAX = 500;
 const PUBLIC = "#общий";
 const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
+const IP_OUT = n => `Личка идёт напрямую между браузерами (P2P), поэтому ${n} узнает ваш IP-адрес. Отправить запрос на переписку?`;
+const IP_IN = n => `${n} хочет написать вам лично. Если согласитесь, переписка пойдёт напрямую (P2P) и ${n} узнает ваш IP-адрес (а вы — его). Принять?`;
 const STATUS = { queued: "⏳ ждёт адресата", sent: "✓ отправлено", delivered: "✓✓ доставлено" };
 
 const clean = s => typeof s !== "string" ? "" :
@@ -32,7 +36,15 @@ const Store = {
   set(s, v) { try { localStorage.setItem(this.k(s), JSON.stringify(v)); } catch {} },
   contacts() { return this.get("contacts", []); },
   addContact(n) { const c = this.contacts(); if (!c.includes(n)) { c.unshift(n); this.set("contacts", c); } },
+  consent(n) { return this.get("consent", {})[n.toLowerCase()] || ""; },   // out | in | ok | declined
+  setConsent(n, v) {
+    const c = this.get("consent", {});
+    if (v) c[n.toLowerCase()] = v; else delete c[n.toLowerCase()];
+    this.set("consent", c);
+  },
+  allowed() { return this.contacts().filter(n => ["ok", "out"].includes(this.consent(n))); },
   removeContact(n) {
+    this.setConsent(n, "");
     this.set("contacts", this.contacts().filter(x => x !== n));
     try { localStorage.removeItem(this.k("dm." + n.toLowerCase())); } catch {}
   },
@@ -173,11 +185,14 @@ class ChatApp {
       const b = el("div", { className: "chat-item" + (this.view === name ? " active" : "") });
       if (online !== null) b.append(el("span", { className: "dot" + (online ? " on" : "") }));
       b.append(el("span", { className: "name", textContent: label }));
+      if (removable && Store.consent(name) === "in") b.append(el("span", { className: "badge", textContent: "запрос" }));
       if (removable) b.append(el("button", { className: "del", title: "Удалить чат", textContent: "✕",
         onclick: e => {
           e.stopPropagation();
           if (!confirm(`Удалить переписку с ${name}? История в этом браузере сотрётся.`)) return;
           Store.removeContact(name);
+          this.wsSend({ t: "allow_remove", nick: name });
+          this.dropPeer(this.peers.get(name));
           if (this.view === name) this.openView(PUBLIC); else this.renderList();
         } }));
       b.onclick = () => this.openView(name);
@@ -201,14 +216,44 @@ class ChatApp {
     } else {
       this.renderDmHead();
       this.note.hidden = false;
-      this.note.textContent = "🔒 Личка идёт напрямую между браузерами (P2P), на сервере не хранится. " +
-        "Если собеседник не в сети, держите окно чата открытым — сообщение уйдёт, когда он появится.";
+      this.renderNote();
       for (const m of Store.dm(name)) this.feed.append(this.bubble(m));
       this.scrollDown();
       this.wsSend({ t: "status", nick: name });
       if (Store.dm(name).some(m => m.out && m.st === "queued")) this.peerFor(name);
     }
     this.input.focus();
+  }
+
+  renderNote() {
+    const n = this.view, st = Store.consent(n);
+    const base = "🔒 Личка идёт напрямую между браузерами (P2P) и на сервере не хранится, но собеседники видят IP друг друга. " +
+      "Если собеседник не в сети, держите окно чата открытым — сообщение уйдёт, когда он появится.";
+    const line = { out: "⏳ Запрос отправлен, ждём, пока " + n + " согласится.",
+      declined: "🚫 " + n + " отклонил запрос. Можно отправить новый, написав сообщение.",
+      in: "📩 " + n + " хочет написать вам. Если примете, " + n + " узнает ваш IP-адрес (а вы — его)." }[st];
+    this.note.replaceChildren(el("div", { textContent: base }));
+    if (line) this.note.append(el("div", { className: "chat-consent", textContent: line }));
+    if (st === "in") this.note.append(el("div", { className: "chat-consent-btns" },
+      el("button", { className: "btn small primary", textContent: "Принять", onclick: () => this.answer(n, true) }),
+      el("button", { className: "btn small", textContent: "Отклонить", onclick: () => this.answer(n, false) })));
+  }
+
+  answer(n, ok) {
+    this.wsSend({ t: "dm_answer", to: n, ok });
+    if (ok) Store.setConsent(n, "ok");
+    else Store.removeContact(n);
+    this.renderList();
+    if (this.view === n) ok ? this.renderNote() : this.openView(PUBLIC);
+  }
+
+  incoming(n) {
+    if (!NICK_RE.test(n) || Store.consent(n) === "ok") return;
+    Store.setConsent(n, "in");
+    Store.addContact(n);
+    this.renderList();
+    if (this.view === n) this.renderNote();
+    else notify("📩 " + n + " хочет написать вам лично", 3500);
   }
 
   renderDmHead() {
@@ -261,6 +306,8 @@ class ChatApp {
   onWs(d) {
     if (d.t === "hello") {
       this.online = new Set(d.online);
+      this.wsSend({ t: "allow", nicks: Store.allowed() });
+      for (const n of d.requests || []) this.incoming(n);
       this.renderList();
       if (this.view !== PUBLIC) this.renderDmHead();
       for (const n of Store.contacts()) if (this.online.has(n) && this.hasQueued(n)) this.peerFor(n);
@@ -274,8 +321,19 @@ class ChatApp {
       this.renderList();
       if (this.view === d.nick) this.renderDmHead();
       if (d.online && this.hasQueued(d.nick)) this.peerFor(d.nick);
+    } else if (d.t === "dm_request") {
+      this.incoming(d.from);
+    } else if (d.t === "dm_ok") {
+      if (!Store.contacts().includes(d.nick)) return;
+      Store.setConsent(d.nick, "ok");
+      if (this.view === d.nick) this.renderNote();
+      if (this.hasQueued(d.nick)) this.peerFor(d.nick);
+    } else if (d.t === "dm_declined") {
+      if (Store.consent(d.nick) !== "out") return;
+      Store.setConsent(d.nick, "declined");
+      if (this.view === d.nick) this.renderNote(); else notify(d.nick + " отклонил запрос на личку");
     } else if (d.t === "signal") {
-      if (!NICK_RE.test(d.from)) return;
+      if (!NICK_RE.test(d.from) || Store.consent(d.from) !== "ok") return;
       const p = this.peers.get(d.from) || this.newPeer(d.from);
       p.onSignal(d.data || {});
     } else if (d.t === "error") notify(d.error);
@@ -285,12 +343,13 @@ class ChatApp {
   hasQueued(n) { return Store.dm(n).some(m => m.out && m.st === "queued"); }
   newPeer(n) { const p = new Peer(this, n); this.peers.set(n, p); return p; }
   peerFor(n) {
+    if (Store.consent(n) !== "ok") return null;
     let p = this.peers.get(n);
     if (!p) p = this.newPeer(n);
     if (this.online.has(n)) p.open();
     return p;
   }
-  dropPeer(p) { if (this.peers.get(p.nick) === p) { this.peers.delete(p.nick); p.close(); } }
+  dropPeer(p) { if (p && this.peers.get(p.nick) === p) { this.peers.delete(p.nick); p.close(); } }
 
   flush(n) {
     const p = this.peers.get(n);
@@ -340,7 +399,16 @@ class ChatApp {
       if (this.ws?.readyState !== 1) return notify("Нет связи с сервером");
       this.wsSend({ t: "say", text });
     } else {
-      const n = this.view;
+      const n = this.view, st = Store.consent(n);
+      if (st === "in") {
+        if (!confirm(IP_IN(n))) return;
+        this.answer(n, true);
+      } else if (st !== "ok" && st !== "out") {
+        if (!confirm(IP_OUT(n))) return;
+        Store.setConsent(n, "out");
+        this.wsSend({ t: "dm_request", to: n });
+        this.renderNote();
+      }
       const m = { id: crypto.randomUUID(), nick: this.me, text, ts: Date.now(), out: true, st: "queued" };
       const list = Store.dm(n); list.push(m); Store.saveDm(n, list);
       Store.addContact(n);

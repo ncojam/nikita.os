@@ -8,7 +8,10 @@
   GET  /api/chat/ws       -> WebSocket: общий чат, онлайн-статусы, пересылка WebRTC-сигналов
 
 Личные сообщения через сервер НЕ идут: сервер только сводит два браузера (offer/answer/ICE),
-дальше текст летит напрямую по WebRTC DataChannel.
+дальше текст летит напрямую по WebRTC DataChannel. При P2P собеседники узнают IP друг друга,
+поэтому сначала через сервер идёт запрос на переписку (без текста), и сигналы пересылаются
+только между теми, кто оба согласились. Согласия сервер держит только в памяти: каждый
+браузер присылает свой список при подключении — на диске о личке нет ничего.
 
 Хранилище — SQLite в NOS_DATA/chat.db. Пароли — scrypt, сессии — случайный токен в HttpOnly-cookie.
 IP записывается при регистрации и входе (журнал на случай противоправного контента).
@@ -99,6 +102,9 @@ class Chat:
         self.online = defaultdict(set)          # nick -> {ws}
         self.fails = defaultdict(deque)         # ip -> времена неудачных входов
         self.rate = {}                          # nick -> время последнего сообщения
+        self.allow = defaultdict(set)           # nick -> с кем согласен на P2P (присылает клиент)
+        self.pending = defaultdict(set)         # кому -> от кого ждёт ответа запрос на личку
+        self.req_times = defaultdict(deque)     # nick -> времена отправленных запросов
 
     # ---------- аккаунты ----------
     def user_by_token(self, request):
@@ -215,7 +221,8 @@ class Chat:
         await ws.prepare(request)
         first = not self.online[nick]
         self.online[nick].add(ws)
-        await ws.send_str(json.dumps({"t": "hello", "nick": nick, "online": list(self.online)}, ensure_ascii=False))
+        await ws.send_str(json.dumps({"t": "hello", "nick": nick, "online": list(self.online),
+                                      "requests": sorted(self.pending.get(nick, ()))}, ensure_ascii=False))
         if first:
             await self.send_all({"t": "presence", "nick": nick, "online": True})
         try:
@@ -231,6 +238,7 @@ class Chat:
             self.online[nick].discard(ws)
             if not self.online[nick]:
                 del self.online[nick]
+                self.allow.pop(nick, None)   # вернётся со следующим подключением
                 await self.send_all({"t": "presence", "nick": nick, "online": False})
         return ws
 
@@ -250,11 +258,55 @@ class Chat:
             self.db.q("DELETE FROM messages WHERE id <= ?", mid - PUBLIC_KEEP)
             self.db.commit()
             await self.send_all({"t": "msg", "id": mid, "nick": nick, "text": text, "ts": int(now * 1000)})
+        elif t == "allow":
+            # список собеседников, с которыми этот браузер согласен на P2P
+            nicks = d.get("nicks")
+            if not isinstance(nicks, list):
+                return
+            self.allow[nick] = {n for n in nicks[:500] if isinstance(n, str) and NICK_RE.match(n)}
+            for n in self.allow[nick]:
+                await self.check_mutual(nick, n)
+        elif t == "dm_request":
+            to = d.get("to")
+            if not isinstance(to, str) or not NICK_RE.match(to) or to == nick:
+                return
+            if not self.db.q("SELECT 1 FROM users WHERE nick = ?", to).fetchone():
+                return await ws.send_str(json.dumps({"t": "error", "error": "Нет такого пользователя"}))
+            q = self.req_times[nick]
+            now = time.time()
+            while q and now - q[0] > 3600:
+                q.popleft()
+            if len(q) >= 20:
+                return await ws.send_str(json.dumps({"t": "error", "error": "Слишком много запросов, попробуйте через час"}))
+            q.append(now)
+            self.allow[nick].add(to)
+            if nick in self.allow.get(to, ()):
+                return await self.check_mutual(nick, to)
+            if nick not in self.pending[to]:
+                self.pending[to].add(nick)
+                await self.send_to(to, {"t": "dm_request", "from": nick})
+        elif t == "dm_answer":
+            frm, ok = d.get("to"), d.get("ok") is True
+            if not isinstance(frm, str) or frm not in self.pending.get(nick, ()):
+                return
+            self.pending[nick].discard(frm)
+            if ok:
+                self.allow[nick].add(frm)
+                await self.check_mutual(nick, frm)
+            else:
+                await self.send_to(frm, {"t": "dm_declined", "nick": nick})
+        elif t == "allow_remove":
+            n = d.get("nick")
+            if isinstance(n, str):
+                self.allow[nick].discard(n)
+                self.pending[nick].discard(n)
         elif t == "signal":
             to = d.get("to")
             payload = d.get("data")
             if not isinstance(to, str) or to == nick or len(json.dumps(payload)) > SIGNAL_MAX:
                 return
+            if not self.mutual(nick, to):
+                return   # без обоюдного согласия IP не раскрываем
             if to not in self.online:
                 return await ws.send_str(json.dumps({"t": "presence", "nick": to, "online": False}, ensure_ascii=False))
             await self.send_to(to, {"t": "signal", "from": nick, "data": payload})
@@ -262,6 +314,16 @@ class Chat:
             to = d.get("nick")
             if isinstance(to, str):
                 await ws.send_str(json.dumps({"t": "presence", "nick": to, "online": to in self.online}, ensure_ascii=False))
+
+    def mutual(self, a, b):
+        return b in self.allow.get(a, ()) and a in self.allow.get(b, ())
+
+    async def check_mutual(self, a, b):
+        if self.mutual(a, b):
+            self.pending[a].discard(b)
+            self.pending[b].discard(a)
+            await self.send_to(a, {"t": "dm_ok", "nick": b})
+            await self.send_to(b, {"t": "dm_ok", "nick": a})
 
     def routes(self, app):
         app.router.add_post("/api/chat/auth", self.api_auth)

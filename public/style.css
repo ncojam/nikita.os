@@ -509,3 +509,6 @@ html, body {
 .chat-err { color: #ff8a8a; font-size: 13px; min-height: 1em; }
 .btn.small { padding: 3px 8px; font-size: 12px; }
 @media (max-width: 600px) { .chat-side { position: absolute; z-index: 2; height: 100%; background: var(--glass-bg-strong); } .chat { position: relative; } }
+.chat-consent { margin-top: 4px; color: var(--text); }
+.chat-consent-btns { display: flex; gap: 6px; margin-top: 6px; }
+.chat-item .badge { font-size: 10px; background: rgba(255,200,90,0.25); color: #ffd27a; border-radius: 6px; padding: 1px 5px; }
