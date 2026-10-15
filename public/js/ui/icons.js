@@ -15,6 +15,9 @@ function makeIcon(glyph, label, onOpen, meta = null) {
   setGlyph(g, glyph);
   const ic = el("div", { className: "icon" }, g, el("div", { className: "label", textContent: label }));
   ic.meta = meta;
+  // свои (не серверные) иконки можно таскать между папками — см. ui/fs-dnd.js
+  if (meta?.path && !meta.remote && !meta.builtin) ic.draggable = true;
+  if (meta?.local) { ic.classList.add("is-local"); ic.title = "Только у вас в браузере"; }
   ic.open = () => {
     WM.origin = { rect: ic.getBoundingClientRect(), t: performance.now() };
     onOpen();

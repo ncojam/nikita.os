@@ -16,6 +16,10 @@ import "./ui/notify.js";
 import { init_ui_taskbar } from "./ui/taskbar.js";
 import { init_ui_wallpaper } from "./ui/wallpaper.js";
 import { init_wm } from "./wm.js";
+import { init_vfs } from "./core/vfs.js";
+
+// пользовательский слой fs (Service Worker) — до первых запросов к /api/ls
+await init_vfs();
 
 init_wm();
 init_remote_github();

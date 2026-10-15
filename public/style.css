@@ -512,3 +512,15 @@ html, body {
 .chat-consent { margin-top: 4px; color: var(--text); }
 .chat-consent-btns { display: flex; gap: 6px; margin-top: 6px; }
 .chat-item .badge { font-size: 10px; background: rgba(255,200,90,0.25); color: #ffd27a; border-radius: 6px; padding: 1px 5px; }
+
+/* ---------- пользовательский слой: перетаскивание ---------- */
+#icons { right: 16px; bottom: calc(var(--taskbar-h) + 16px); max-height: none; display: block; }
+#icons > .icon { position: absolute; transition: left .18s ease, top .18s ease; }
+#icons > .icon .label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.icon.dragging { opacity: .45; }
+.icon.drop-target { background: rgba(138,180,255,0.28); border-color: var(--accent); }
+.grid.drop-here { outline: 2px dashed rgba(138,180,255,.55); outline-offset: -6px; border-radius: 10px; }
+.icon.is-local .glyph::before {
+  content: ""; position: absolute; left: -3px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%;
+  background: #7be3a1; box-shadow: 0 0 0 2px rgba(14,14,18,.9);
+}

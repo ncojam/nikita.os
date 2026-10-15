@@ -2,6 +2,8 @@ import { GLYPH, kindOf } from "../core/types.js";
 import { baseName, el, fmtSize, joinPath, parentOf, plural } from "../core/util.js";
 import { Links, openFile } from "../open.js";
 import { GitHub } from "../remote/github.js";
+import { VFS } from "../core/vfs.js";
+import { deleteIcons, makeDropTarget, makeIconsDraggable, newFolder, pickAndUpload, renameIcon } from "../ui/fs-dnd.js";
 import { makeIcon, makeSelectable } from "../ui/icons.js";
 import { WM } from "../wm.js";
 
@@ -34,7 +36,14 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
         else if (e.key === "Escape") sel.clear();
         else if (e.key === "Enter") { const s = sel.selected(); if (s.length === 1) s[0].open(); }
         else if (e.key === "Backspace" && cur !== "/") go(parentOf(cur));
+        else if (e.key === "Delete" && !remote) deleteIcons(sel.selected());
+        else if (e.key === "F2" && !remote) { e.preventDefault(); const s = sel.selected(); if (s.length === 1) renameIcon(s[0]); }
       };
+
+      // пользовательский слой: перетаскивание иконок и файлов с компьютера, обновление после изменений
+      makeIconsDraggable(grid, () => cur);
+      makeDropTarget(grid, { dir: () => remote ? null : cur });
+      const off = VFS.onChange(() => { if (!root.isConnected) return off(); load(); });
 
       const go = (p, push = true) => {
         if (push && p !== cur) { history.push(cur); future = []; }
@@ -50,6 +59,9 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
         canUp: () => cur !== "/",
         up: () => cur !== "/" && go(parentOf(cur)),
         remote: () => remote,
+        canEdit: () => !remote && VFS.ready,
+        mkdir: async () => { const p = await newFolder(cur); if (p) pendingSelect = baseName(p); },
+        upload: () => pickAndUpload(cur),
       };
 
       function showBanner(info) {
@@ -113,7 +125,8 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
             const open = () => it.type === "dir" ? go(full) : remote ? GitHub.open(meta) : openFile(full);
             const ic = makeIcon(GLYPH[kind], it.name, open, meta);
             ic.title = it.type === "dir" ? it.name : `${it.name}\n${fmtSize(it.size)}` +
-              (it.plays !== undefined ? `\n▶ ${it.plays.toLocaleString("ru-RU")} ${plural(it.plays, "прослушивание", "прослушивания", "прослушиваний")}` : "");
+              (it.plays !== undefined ? `\n▶ ${it.plays.toLocaleString("ru-RU")} ${plural(it.plays, "прослушивание", "прослушивания", "прослушиваний")}` : "") +
+              (it.local ? "\nТолько у вас в браузере" : "");
             if (remote) ic.classList.add("is-remote");
             meta.openNew = it.type === "dir" ? () => openExplorer(full) : null;
             grid.append(ic);

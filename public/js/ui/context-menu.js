@@ -5,7 +5,9 @@ import { baseName, el, fsUrl, parentOf } from "../core/util.js";
 import { DESKTOP, Desktop } from "../desktop.js";
 import { openAbout, openPath } from "../open.js";
 import { GitHub } from "../remote/github.js";
-import { copyText, download, openProperties } from "./notify.js";
+import { VFS } from "../core/vfs.js";
+import { canTouch, deleteIcons, newFolder, pickAndUpload, renameIcon } from "./fs-dnd.js";
+import { copyText, download, notify, openProperties } from "./notify.js";
 import { fsBtn } from "./taskbar.js";
 import { WM } from "../wm.js";
 
@@ -78,6 +80,7 @@ const fileMenu = icons => {
   const files = metas.filter(m => m.type === "file" && m.path);
   const paths = metas.filter(m => m.path).map(m => m.path);
   const target = one?.link?.open; // куда ведёт ярлык
+  const editable = VFS.ready && metas.length && metas.every(canTouch);
   return [
     { label: icons.length > 1 ? `Открыть (${icons.length})` : "Открыть", icon: "↗", bold: true, hint: "Enter",
       run: () => icons.slice(0, 12).forEach(i => i.open()) },
@@ -94,9 +97,20 @@ const fileMenu = icons => {
     files.length && { label: files.length > 1 ? "Копировать ссылки" : "Копировать ссылку", icon: "🔗",
       run: () => copyText(files.map(m => location.origin + fsUrl(m.path)).join("\n"), "Ссылка скопирована") },
     "-",
+    editable && one && { label: "Переименовать", icon: "✎", hint: "F2", run: () => renameIcon(icons[0]) },
+    editable && { label: "Удалить", icon: "🗑", hint: "Del", run: () => deleteIcons(icons) },
+    "-",
     one && { label: "Свойства", icon: "ℹ", run: () => openProperties(one) },
   ];
 };
+
+async function resetUserFs() {
+  const u = await VFS.usage();
+  if (!u.changes) return notify("Изменений нет — всё как на сервере");
+  if (!confirm(`Сбросить все ваши изменения файлов (${u.changes}), включая загруженные файлы (${u.files})?\nПапки и файлы вернутся как на сервере.`)) return;
+  await VFS.reset();
+  notify("Файловая система сброшена");
+}
 
 const windowMenu = w => [
   w.minimized
@@ -164,6 +178,9 @@ export function init_ui_context_menu() {
           { label: "Выделить всё", icon: "▦", hint: "Ctrl+A", run: g.selectAll },
           { label: "Вверх", icon: "↑", hint: "Backspace", disabled: !g.canUp(), run: g.up },
           "-",
+          g.canEdit?.() && { label: "Новая папка", icon: "📁", run: g.mkdir },
+          g.canEdit?.() && { label: "Загрузить файлы…", icon: "⤒", run: g.upload },
+          "-",
           { label: "Копировать путь папки", icon: "⎘", run: () => copyText(g.path(), "Путь скопирован") },
           { label: "Открыть в новом окне", icon: "⧉", run: () => openExplorer(g.path()) },
         ]);
@@ -181,8 +198,16 @@ export function init_ui_context_menu() {
     // рабочий стол
     Ctx.show(x, y, [
       { label: "Обновить", icon: "⟳", run: () => Desktop.load(true) },
+      VFS.ready && { label: "Новая папка", icon: "📁", run: async () => {
+        const p = await newFolder(DESKTOP);
+        if (p) Desktop.putAt([baseName(p)], ...Desktop.cellAt(x, y));
+      } },
+      VFS.ready && { label: "Загрузить файлы…", icon: "⤒", run: () => pickAndUpload(DESKTOP) },
+      { label: "Упорядочить значки", icon: "▦", run: () => { Desktop.pos = {}; Desktop.savePos(); Desktop.layout(); } },
+      "-",
       { label: "Открыть папку рабочего стола", icon: "📂", run: () => openPath(DESKTOP) },
       { label: "Сменить фон…", icon: "🖼", run: () => openSettings() },
+      VFS.ready && { label: "Сбросить мои изменения файлов…", icon: "↺", run: resetUserFs },
       "-",
       { label: fsLabel(), icon: "⛶", run: () => fsBtn.click() },
       { label: "О системе", icon: "ℹ", run: () => openAbout() },

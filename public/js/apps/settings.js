@@ -1,5 +1,6 @@
 import { pickFolder } from "./explorer.js";
-import { el, fsUrl, joinPath } from "../core/util.js";
+import { el, fmtSize, fsUrl, joinPath } from "../core/util.js";
+import { VFS } from "../core/vfs.js";
 import { IMAGE_EXT, Wallpaper } from "../ui/wallpaper.js";
 import { WM } from "../wm.js";
 
@@ -30,6 +31,8 @@ function openSettings() {
       return [range, box, el("span", { textContent: "px" })];
     };
     snap.onchange = () => WM.setCfg("snap", snap.checked);
+    const vfsInfo = el("span", { className: "lbl", textContent: "…" });
+    const vfsReset = el("button", { className: "btn", textContent: "↺ Сбросить пользовательский слой" });
     const tryArrange = el("button", { className: "btn", textContent: "▦ Разложить окна сейчас", onclick: () => WM.arrange() });
 
     c.append(el("div", { className: "settings" },
@@ -44,7 +47,22 @@ function openSettings() {
         el("div", { className: "row" }, el("span", { className: "lbl", textContent: "Расстояние между окнами" }), ...num("gap", 64)),
         el("div", { className: "row" }, el("span", { className: "lbl", textContent: "Поля при раскладке" }), ...num("margin", 120)),
         el("div", { className: "row" }, tryArrange)),
+      el("section", {}, el("h3", { textContent: "Мои файлы" }),
+        el("div", { className: "row" }, vfsInfo, vfsReset),
+        el("div", { className: "hint", textContent: "Загруженные вами файлы, созданные папки, перемещения, удаления и расположение значков " +
+          "хранятся только в этом браузере, сервер не меняется. Сброс вернёт всё как на сервере." })),
     ));
+    const showUsage = async () => {
+      if (!VFS.ready) { vfsInfo.textContent = "Недоступно: нужен HTTPS и поддержка Service Worker"; return; }
+      const u = await VFS.usage();
+      vfsInfo.textContent = u.changes ? `Изменений: ${u.changes} · своих файлов: ${u.files} (${fmtSize(u.size)})` : "Изменений нет — всё как на сервере";
+    };
+    vfsReset.onclick = async () => {
+      if (!confirm("Сбросить пользовательский слой полностью?\nВаши файлы и папки удалятся, перемещённые и удалённые вернутся на место, значки встанут по умолчанию.")) return;
+      await VFS.reset();
+      showUsage();
+    };
+    showUsage();
 
     const mark = () => [...tiles.children].forEach(t => t.classList.toggle("active", t.dataset.src === Wallpaper.src));
     const tile = (src, label, thumbClass, bg) => {
