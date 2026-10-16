@@ -455,10 +455,37 @@ async def serve_media(request):
     pid = request.match_info["id"]
     if not _PID_RE.match(pid):
         raise web.HTTPNotFound()
+    if request.app["posts"].is_hidden(pid):
+        raise web.HTTPForbidden(text="картинка скрыта на проверке")
     f = request.app["posts"].media_path(pid)
     if not f.is_file():
         raise web.HTTPNotFound()
     return web.FileResponse(f, headers={"Content-Type": "image/jpeg", "Cache-Control": "no-cache"})
+
+
+async def api_posts_report(request):
+    res, err = request.app["posts"].report(request, request.match_info["id"])
+    return json_response({"error": err}, 400) if err else json_response(res)
+
+
+def _admin_ok(request):
+    token = os.environ.get("NOS_ADMIN_TOKEN", "")
+    return bool(token) and secrets.compare_digest(request.query.get("token", ""), token)
+
+
+async def api_mod_reports(request):
+    # список жалоб для ревью; доступ по токену NOS_ADMIN_TOKEN (без него — функция выключена)
+    if not _admin_ok(request):
+        raise web.HTTPNotFound()
+    return json_response({"reports": request.app["posts"].admin_list()})
+
+
+async def api_mod_show(request):
+    if not _admin_ok(request):
+        raise web.HTTPNotFound()
+    hide = request.query.get("hide") == "1"   # ?hide=1 — снова скрыть, иначе показать
+    err = request.app["posts"].admin_set_hidden(request.match_info["id"], hide)
+    return json_response({"error": err}, 404) if err else json_response({"ok": True, "hidden": hide})
 
 
 # ======================= файлы =======================
@@ -588,12 +615,15 @@ def make_app():
     app["chat"].routes(app)
     # записи («твиты») — общий слой; авторизация через аккаунт чата
     from posts import Posts
-    app["posts"] = Posts(DATA_DIR, app["chat"].user_by_token)
+    app["posts"] = Posts(DATA_DIR, app["chat"].user_by_token, client_ip)
     app.router.add_post("/api/posts", api_posts_create)
     app.router.add_patch("/api/posts/{id}", api_posts_edit)
     app.router.add_delete("/api/posts/{id}", api_posts_delete)
     app.router.add_post("/api/posts/{id}/image", api_posts_image)
     app.router.add_delete("/api/posts/{id}/image", api_posts_image_del)
+    app.router.add_post("/api/posts/{id}/report", api_posts_report)
+    app.router.add_get("/api/mod/reports", api_mod_reports)
+    app.router.add_post("/api/mod/show/{id}", api_mod_show)
     app.router.add_get("/media/{id}", serve_media)
     app.router.add_get("/fs/{tail:.*}", serve_fs)
     app.router.add_get("/{tail:.*}", serve_public)

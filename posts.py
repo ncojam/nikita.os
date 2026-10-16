@@ -17,6 +17,7 @@
 заголовка SOF ≤ 256×256). Есть общий потолок хранилища (GC по старшинству) и потолок
 записей на пользователя, плюс анти-спам по частоте создания.
 """
+import hashlib
 import json
 import os
 import re
@@ -31,6 +32,7 @@ IMG_MAX_DIM = int(os.environ.get("NOS_POST_IMG_DIM", "256"))        # сторо
 STORE_CAP = int(os.environ.get("NOS_POST_STORE_CAP", str(200 * 1024 * 1024)))  # весь склад картинок
 PER_USER_MAX = int(os.environ.get("NOS_POST_PER_USER", "60"))       # записей на пользователя
 CREATE_EVERY = float(os.environ.get("NOS_POST_CREATE_EVERY", "5"))  # не чаще раза в N секунд на пользователя
+REPORT_HIDE = int(os.environ.get("NOS_POST_REPORT_HIDE", "2"))      # сколько РАЗНЫХ жалобщиков прячут картинку
 NAME_SUFFIX = ".запись"
 
 _BAD = re.compile(r"[/\\\x00]")
@@ -100,19 +102,46 @@ def validate_jpeg(data):
 class Posts:
     """Хранилище записей. user_of(request) -> (uid, nick) | None (берём из chat.user_by_token)."""
 
-    def __init__(self, data_dir, user_of):
+    def __init__(self, data_dir, user_of, client_ip=None):
         self.data_dir = Path(data_dir)
         self.media = self.data_dir / "media"
         self.path = self.data_dir / "posts.json"
         self.user_of = user_of
+        self.client_ip = client_ip     # request -> ip (из server.client_ip)
         self.posts = {}
         self.rate = {}   # uid -> время последнего создания
         self.dirty = False
+        self.salt = self._load_salt()  # для хэша IP при модерации — переживает перезапуск
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             self.posts = {k: v for k, v in raw.get("posts", {}).items() if isinstance(v, dict)}
         except (FileNotFoundError, ValueError, OSError):
             pass
+
+    def _load_salt(self):
+        sp = self.data_dir / "mod_salt"
+        try:
+            salt = bytes.fromhex(sp.read_text().strip())
+            if len(salt) == 16:
+                return salt
+        except (OSError, ValueError):
+            pass
+        salt = secrets.token_bytes(16)
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            sp.write_text(salt.hex())
+        except OSError:
+            pass
+        return salt
+
+    def iphash(self, request):
+        """Солёный хэш адреса загрузившего — для модерации, без хранения самого IP."""
+        if not self.client_ip:
+            return ""
+        try:
+            return hashlib.blake2s(self.client_ip(request).encode(), key=self.salt, digest_size=12).hexdigest()
+        except Exception:
+            return ""
 
     # ---------- диск ----------
     def save(self):
@@ -149,8 +178,8 @@ class Posts:
 
     def public(self, pid, p):
         return {"id": pid, "author": p["nick"], "text": p.get("text", ""),
-                "img": bool(p.get("img")), "created": p.get("created", 0),
-                "edited": p.get("edited", 0)}
+                "img": bool(p.get("img")), "img_hidden": bool(p.get("hidden")),
+                "created": p.get("created", 0), "edited": p.get("edited", 0)}
 
     def in_dir(self, vdir):
         """Записи в папке vdir -> список entry для /api/ls."""
@@ -246,6 +275,7 @@ class Posts:
         except OSError:
             return "не удалось сохранить картинку"
         p["img"] = True
+        p["iphash"] = self.iphash(request)   # для модерации: чей это адрес (хэш)
         p["edited"] = int(time.time())
         self.dirty = True
         self._enforce_store_cap()
@@ -275,6 +305,58 @@ class Posts:
             return "удалить может только автор"
         self._rm_media(pid)
         del self.posts[pid]
+        self.dirty = True
+        self.save()
+        return None
+
+    # ---------- модерация ----------
+    def _report_count(self, p):
+        # число РАЗНЫХ жалобщиков, кроме самого автора (чтобы нельзя было накрутить на себе)
+        return len([u for u in p.get("reports", {}) if u != str(p["uid"])])
+
+    def is_hidden(self, pid):
+        p = self.posts.get(pid)
+        return bool(p and p.get("hidden"))
+
+    def report(self, request, pid):
+        u = self.user_of(request)
+        if not u:
+            return None, "войдите в чат, чтобы пожаловаться"
+        p = self.posts.get(pid)
+        if not p or not p.get("img"):
+            return None, "жаловаться не на что"
+        uid = u[0]
+        if uid != p["uid"]:   # на свою запись жаловаться бессмысленно — просто игнорируем
+            p.setdefault("reports", {})[str(uid)] = int(time.time())
+        cnt = self._report_count(p)
+        if cnt >= REPORT_HIDE and not p.get("hidden"):
+            p["hidden"] = True   # прячем картинку до решения админа
+        self.dirty = True
+        self.save()
+        return {"hidden": bool(p.get("hidden")), "count": cnt}, None
+
+    def admin_list(self):
+        """Записи с жалобами — для ревью. Сначала самые «горячие»."""
+        out = []
+        for pid, p in self.posts.items():
+            reps = p.get("reports")
+            if not reps:
+                continue
+            out.append({"id": pid, "dir": p["dir"], "name": p["name"],
+                        "author": p["nick"], "uid": p["uid"], "iphash": p.get("iphash", ""),
+                        "text": p.get("text", ""), "img": bool(p.get("img")),
+                        "hidden": bool(p.get("hidden")), "count": self._report_count(p),
+                        "reported_at": sorted(int(t) for t in reps.values()),
+                        "created": p.get("created", 0)})
+        out.sort(key=lambda r: (-r["count"], -r["created"]))
+        return out
+
+    def admin_set_hidden(self, pid, hidden):
+        """Админ: вернуть картинку или оставить скрытой. Жалобы не трогаем."""
+        p = self.posts.get(pid)
+        if not p:
+            return "нет такой записи"
+        p["hidden"] = bool(hidden)
         self.dirty = True
         self.save()
         return None

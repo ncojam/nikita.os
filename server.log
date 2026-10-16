@@ -1789,3 +1789,5 @@ nikita.os запущена: http://127.0.0.1:8000  (Ctrl+C — останови�
 [16/Oct/2026 23:47:41] 127.0.0.1 "GET /grab/GTA6.iso?size=284686671872 HTTP/1.1" 200
 [17/Oct/2026 00:07:51] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
 [17/Oct/2026 00:07:51] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
+[17/Oct/2026 00:20:29] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
+[17/Oct/2026 00:20:29] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200

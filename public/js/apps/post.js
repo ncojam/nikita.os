@@ -82,11 +82,17 @@ async function openPost(path) {
               (data.edited && data.edited !== data.created ? " · изм." : "") })));
         wrap.append(head);
         if (data.text) wrap.append(el("div", { className: "post-text", textContent: data.text }));
-        if (data.img) {
+        if (data.img && data.img_hidden) {
+          wrap.append(el("div", { className: "post-hidden", textContent: "🚫 Картинка скрыта на проверке" }));
+        } else if (data.img) {
           const im = el("img", { className: "post-img", src: "/media/" + data.id + "?t=" + (data.edited || data.created),
             alt: "картинка записи", loading: "lazy" });
           im.onerror = () => im.remove();
           wrap.append(im);
+        }
+        if (!mine && nick && data.img && !data.img_hidden) {
+          wrap.append(el("div", { className: "post-actions" },
+            el("button", { className: "btn small", textContent: "🚩 Пожаловаться (NSFW)", onclick: report })));
         }
         if (mine) {
           const act = el("div", { className: "post-actions" },
@@ -132,6 +138,16 @@ async function openPost(path) {
         if (!r.ok) return notify("Не вышло убрать");
         data.img = false; data.edited = Math.floor(Date.now() / 1000);
         changed(parentOf(path)); renderView();
+      }
+
+      async function report() {
+        if (!confirm("Пожаловаться на картинку как на непотребство (NSFW)?")) return;
+        const r = await fetch("/api/posts/" + data.id + "/report", { method: "POST" });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) return notify(d.error || "Не отправилось");
+        if (d.hidden) { data.img_hidden = true; changed(parentOf(path)); renderView();
+          notify("Жалоба принята — картинка скрыта на проверке"); }
+        else notify("Жалоба отправлена");
       }
 
       async function del() {
@@ -203,4 +219,20 @@ function createPost(dir, onDone) {
     } });
 }
 
-export { openPost, createPost };
+/* пожаловаться на запись по пути (из контекстного меню файла) */
+async function reportPostByPath(path) {
+  try {
+    const r = await fetch(fsUrl(path), { cache: "no-store" });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    if (!d.img || d.img_hidden) return notify("Жаловаться не на что");
+    if (!confirm("Пожаловаться на картинку как на непотребство (NSFW)?")) return;
+    const rr = await fetch("/api/posts/" + d.id + "/report", { method: "POST" });
+    const rd = await rr.json().catch(() => ({}));
+    if (!rr.ok) return notify(rd.error || "Не отправилось");
+    notify(rd.hidden ? "Жалоба принята — картинка скрыта на проверке" : "Жалоба отправлена");
+    if (rd.hidden) changed(parentOf(path));
+  } catch { notify("Не удалось пожаловаться"); }
+}
+
+export { openPost, createPost, reportPostByPath };
