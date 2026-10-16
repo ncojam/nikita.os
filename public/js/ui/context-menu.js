@@ -4,6 +4,7 @@ import { D, EASE, REDUCED } from "../core/anim.js";
 import { baseName, el, fsUrl, parentOf } from "../core/util.js";
 import { DESKTOP, Desktop } from "../desktop.js";
 import { openAbout, openPath } from "../open.js";
+import { createPost } from "../apps/post.js";
 import { GitHub } from "../remote/github.js";
 import { VFS } from "../core/vfs.js";
 import { canTouch, deleteIcons, newFolder, pickAndUpload, renameIcon } from "./fs-dnd.js";
@@ -180,6 +181,7 @@ export function init_ui_context_menu() {
           "-",
           g.canEdit?.() && { label: "Новая папка", icon: "📁", run: g.mkdir },
           g.canEdit?.() && { label: "Загрузить файлы…", icon: "⤒", run: g.upload },
+          !rm && { label: "Создать запись", icon: "📝", run: () => createPost(g.path(), g.refresh) },
           "-",
           { label: "Копировать путь папки", icon: "⎘", run: () => copyText(g.path(), "Путь скопирован") },
           { label: "Открыть в новом окне", icon: "⧉", run: () => openExplorer(g.path()) },
@@ -203,6 +205,7 @@ export function init_ui_context_menu() {
         if (p) Desktop.putAt([baseName(p)], ...Desktop.cellAt(x, y));
       } },
       VFS.ready && { label: "Загрузить файлы…", icon: "⤒", run: () => pickAndUpload(DESKTOP) },
+      { label: "Создать запись", icon: "📝", run: () => createPost(DESKTOP, () => Desktop.load(true)) },
       { label: "Упорядочить значки", icon: "▦", run: () => { Desktop.pos = {}; Desktop.savePos(); Desktop.layout(); } },
       "-",
       { label: "Открыть папку рабочего стола", icon: "📂", run: () => openPath(DESKTOP) },

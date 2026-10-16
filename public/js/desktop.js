@@ -133,6 +133,8 @@ export function init_desktop() {
     },
   });
   VFS.onChange(info => { if (info?.reset) Desktop.pos = {}; Desktop.load(true); });
+  // общие записи («твиты») на рабочем столе поменялись
+  addEventListener("nos-posts-changed", e => { if (!e.detail || e.detail.dir === DESKTOP) Desktop.load(true); });
   addEventListener("resize", () => Desktop.layout());
 
   // клик по пустому рабочему столу снимает фокус с окон — горячие клавиши идут рабочему столу

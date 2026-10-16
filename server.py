@@ -278,6 +278,12 @@ async def api_ls(request):
         entries = await asyncio.to_thread(scan)
     except PermissionError:
         return json_response({"error": "Нет прав на чтение папки"}, 403)
+    # подмешиваем общие записи («твиты»), живущие в этой папке
+    posts = request.app["posts"].in_dir(virtual)
+    if posts:
+        have = {e["name"] for e in entries}
+        entries += [e for e in posts if e["name"] not in have]
+        entries.sort(key=lambda e: (e["type"] != "dir", natural_key(e["name"])))
     return json_response({"path": virtual, "entries": entries})
 
 
@@ -285,6 +291,12 @@ async def api_entry(request):
     virtual = qpath(request)
     p = resolve_inside(FS_ROOT, virtual)
     if p is None or not p.exists():
+        # может, это виртуальный файл записи
+        pid, post = request.app["posts"].by_vpath(virtual)
+        if post:
+            return json_response({"path": virtual, "exists": True, "name": post["name"],
+                                  "type": "file", "size": request.app["posts"]._size(pid, post),
+                                  "mtime": post.get("edited") or post.get("created", 0), "post": True})
         return json_response({"path": virtual, "exists": False})
     st = p.stat()
     return json_response({
@@ -396,6 +408,59 @@ async def serve_grab(request):
     return resp
 
 
+# ======================= записи («твиты») =======================
+
+_PID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+async def _json_body(request):
+    try:
+        return await request.json()
+    except (ValueError, TypeError):
+        return {}
+
+
+async def api_posts_create(request):
+    body = await _json_body(request)
+    pid, err = request.app["posts"].create(request, body.get("dir"), body.get("name"), body.get("text"))
+    if err:
+        return json_response({"error": err}, 400)
+    post = request.app["posts"].posts[pid]
+    return json_response({"id": pid, "path": request.app["posts"].vpath(post), "name": post["name"]})
+
+
+async def api_posts_edit(request):
+    body = await _json_body(request)
+    err = request.app["posts"].edit(request, request.match_info["id"], body.get("text", ""))
+    return json_response({"error": err}, 403 if err else 200) if err else json_response({"ok": True})
+
+
+async def api_posts_delete(request):
+    err = request.app["posts"].delete(request, request.match_info["id"])
+    return json_response({"error": err}, 403) if err else json_response({"ok": True})
+
+
+async def api_posts_image(request):
+    data = await request.read()
+    err = request.app["posts"].set_image(request, request.match_info["id"], data)
+    return json_response({"error": err}, 400) if err else json_response({"ok": True})
+
+
+async def api_posts_image_del(request):
+    err = request.app["posts"].drop_image(request, request.match_info["id"])
+    return json_response({"error": err}, 403) if err else json_response({"ok": True})
+
+
+async def serve_media(request):
+    pid = request.match_info["id"]
+    if not _PID_RE.match(pid):
+        raise web.HTTPNotFound()
+    f = request.app["posts"].media_path(pid)
+    if not f.is_file():
+        raise web.HTTPNotFound()
+    return web.FileResponse(f, headers={"Content-Type": "image/jpeg", "Cache-Control": "no-cache"})
+
+
 # ======================= файлы =======================
 
 # Сжатые файлы веб-сборок (Unity: Game.wasm.br, Game.data.gz): отдаём как есть,
@@ -407,6 +472,13 @@ INNER_CTYPE = {".js": "application/javascript", ".wasm": "application/wasm", ".d
 async def serve_fs(request):
     p = resolve_inside(FS_ROOT, request.match_info["tail"])
     if p is None or not p.is_file() or not os.access(p, os.R_OK):
+        # не реальный файл — может, это виртуальный файл записи: отдаём его JSON
+        posts = request.app["posts"]
+        pid, post = posts.by_vpath("/" + request.match_info["tail"])
+        if post:
+            return web.Response(body=posts.file_json(pid, post),
+                                headers={"Content-Type": "application/json; charset=utf-8",
+                                         "Cache-Control": "no-store"})
         raise web.HTTPNotFound()
     headers = {"Content-Type": text_ctype(p)}
     enc = ENCODED.get(p.suffix.lower())
@@ -501,7 +573,7 @@ async def on_cleanup(app):
 
 
 def make_app():
-    app = web.Application(client_max_size=64 * 1024)  # тела запросов нам не нужны
+    app = web.Application(client_max_size=256 * 1024)  # тела маленькие; потолок — под сжатые картинки записей
     app["plays"] = Plays(DATA_DIR / "plays.json")
     app.on_response_prepare.append(add_headers)
     app.on_startup.append(on_startup)
@@ -514,6 +586,15 @@ def make_app():
     from chat import Chat
     app["chat"] = Chat(DATA_DIR / "chat.db", client_ip)
     app["chat"].routes(app)
+    # записи («твиты») — общий слой; авторизация через аккаунт чата
+    from posts import Posts
+    app["posts"] = Posts(DATA_DIR, app["chat"].user_by_token)
+    app.router.add_post("/api/posts", api_posts_create)
+    app.router.add_patch("/api/posts/{id}", api_posts_edit)
+    app.router.add_delete("/api/posts/{id}", api_posts_delete)
+    app.router.add_post("/api/posts/{id}/image", api_posts_image)
+    app.router.add_delete("/api/posts/{id}/image", api_posts_image_del)
+    app.router.add_get("/media/{id}", serve_media)
     app.router.add_get("/fs/{tail:.*}", serve_fs)
     app.router.add_get("/{tail:.*}", serve_public)
     return app

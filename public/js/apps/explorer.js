@@ -44,6 +44,10 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
       makeIconsDraggable(grid, () => cur);
       makeDropTarget(grid, { dir: () => remote ? null : cur });
       const off = VFS.onChange(() => { if (!root.isConnected) return off(); load(); });
+      // общие записи («твиты») поменялись в этой папке — перечитать
+      const onPosts = e => { if (!root.isConnected) return removeEventListener("nos-posts-changed", onPosts);
+        if (!e.detail || e.detail.dir === cur) load(true); };
+      addEventListener("nos-posts-changed", onPosts);
 
       const go = (p, push = true) => {
         if (push && p !== cur) { history.push(cur); future = []; }

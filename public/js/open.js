@@ -3,6 +3,7 @@ import { Player } from "./apps/player.js";
 import { openSettings } from "./apps/settings.js";
 import { openChat } from "./apps/chat.js";
 import { openFakeDL } from "./apps/fakedl.js";
+import { openPost } from "./apps/post.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";
@@ -17,6 +18,7 @@ function openFile(path, link = null) {
   const opts = { title: link?.name || name, icon: link?.icon || GLYPH[kind], key: "file:" + path };
 
   if (kind === "link") return Links.open(path);
+  if (kind === "post") return openPost(path);
   if (kind === "audio") return Player.open(path);
   if (kind === "video") return WM.open({ ...opts, width: 800, height: 500, render(c, w) {
     const v = el("video", { src: url, controls: true, autoplay: true });
