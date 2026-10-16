@@ -526,21 +526,39 @@ html, body {
 }
 
 /* ================= «загрузчик» (fakedl, прикол) ================= */
-.fdl { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
-.fdl-file { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; word-break: break-all; }
+.fdl { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; position: relative; height: 100%; box-sizing: border-box; }
+.fdl-file { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
 .fdl-glyph { font-size: 26px; flex: none; }
+.fdl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fdl-info-btn { flex: none; width: 24px; height: 24px; border: 0; border-radius: 50%;
+  background: rgba(255,255,255,0.08); color: var(--muted); font-size: 14px; cursor: pointer;
+  display: grid; place-items: center; transition: background-color .15s, color .15s; }
+.fdl-info-btn:hover { background: rgba(255,255,255,0.16); color: var(--text); }
 .fdl-bar { height: 14px; border-radius: 8px; background: rgba(255,255,255,0.08);
-  border: 1px solid var(--glass-border); overflow: hidden; }
+  border: 1px solid var(--glass-border); overflow: hidden; flex: none; }
 .fdl-fill { height: 100%; width: 0; border-radius: 8px;
-  background: linear-gradient(90deg, var(--accent), #b9d0ff);
-  background-size: 28px 28px; transition: width .4s linear;
-  box-shadow: 0 0 12px rgba(138,180,255,0.45);
-  animation: fdl-stripes 1s linear infinite;
+  box-shadow: 0 0 12px rgba(138,180,255,0.45); transition: width .4s linear;
   background-image: linear-gradient(90deg, var(--accent), #b9d0ff),
-    repeating-linear-gradient(45deg, rgba(255,255,255,.18) 0 8px, transparent 8px 16px); }
+    repeating-linear-gradient(45deg, rgba(255,255,255,.18) 0 8px, transparent 8px 16px);
+  background-size: 100% 100%, 28px 28px;
+  animation: fdl-stripes 1s linear infinite; }
 @keyframes fdl-stripes { to { background-position: 0 0, 28px 0; } }
-.fdl-pct { text-align: center; font: 600 15px ui-monospace, monospace; letter-spacing: .3px; }
-.fdl-stats { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.fdl-pct { text-align: center; font: 600 15px ui-monospace, monospace; letter-spacing: .3px; flex: none; }
+.fdl-stats { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); flex: none; }
 .fdl-line { font-variant-numeric: tabular-nums; }
-.fdl-joke { margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--glass-border);
-  font-size: 11.5px; color: var(--muted); text-align: center; font-style: italic; }
+.fdl-log { margin-top: 2px; padding: 8px 10px; border-radius: 10px; flex: 1; min-height: 0; overflow: hidden;
+  background: rgba(0,0,0,0.28); border: 1px solid var(--glass-border);
+  font: 11.5px/1.5 ui-monospace, monospace; color: #8fd8a6; }
+.fdl-log-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .55; }
+.fdl-log-row:last-child { opacity: 1; }
+
+/* панель-признание поверх окна */
+.fdl-info { position: absolute; inset: 10px; border-radius: 14px; padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 10px; overflow: auto;
+  background: var(--glass-bg-strong); animation: fdl-pop .2s var(--ease, ease); z-index: 2; }
+@keyframes fdl-pop { from { opacity: 0; transform: scale(.97); } }
+.fdl-info h3 { margin: 0; }
+.fdl-info p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
+.fdl-info-cap { color: var(--muted) !important; font-size: 12px !important; }
+.fdl-info-img { max-width: 100%; border-radius: 10px; align-self: center; }
+.fdl-info .btn { align-self: flex-start; margin-top: 4px; }

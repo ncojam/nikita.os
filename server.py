@@ -326,6 +326,76 @@ async def api_listen(request):
     return json_response({"path": vpath, "plays": plays.get(vpath), "counted": counted})
 
 
+# ======================= прикол: «качалка», которая не докачается =======================
+# Отдаём браузеру ответ с огромным Content-Length и роняем в него байты по капле.
+# Файл честно появляется в менеджере загрузок и ползёт — но до конца не доедет никогда.
+# На async-сервере висящее соединение дёшево (сокет + спящая корутина, без отдельного потока),
+# но не бесплатно, поэтому держим жёсткие лимиты, чтобы этим нельзя было заддосить.
+DL_FAKE_SIZE = 284 * 1024**3 + 700 * 1024**2             # ~284.7 ГБ по умолчанию
+DL_BYTE_EVERY = float(os.environ.get("NOS_DL_EVERY", "20"))    # байт раз в N секунд (≥30 с режет nginx send_timeout)
+DL_MAX_SECONDS = int(os.environ.get("NOS_DL_MAXSEC", "1800"))  # дольше 30 мин одно соединение не живёт
+DL_MAX_TOTAL = int(os.environ.get("NOS_DL_MAX", "48"))         # всего одновременных «загрузок»
+DL_MAX_PER_IP = int(os.environ.get("NOS_DL_MAX_IP", "3"))      # с одного адреса
+_dl_total = 0
+_dl_per_ip = {}
+_DL_NAME_RE = re.compile(r"[^\w.\- ]")
+
+
+async def serve_grab(request):
+    global _dl_total
+    ip = client_ip(request)
+    if _dl_total >= DL_MAX_TOTAL or _dl_per_ip.get(ip, 0) >= DL_MAX_PER_IP:
+        raise web.HTTPTooManyRequests(text="Слишком много загрузок — попробуйте позже")
+
+    name = _DL_NAME_RE.sub("_", request.match_info["name"])[:80] or "download.iso"
+    try:
+        size = int(request.query.get("size", DL_FAKE_SIZE))
+    except ValueError:
+        size = DL_FAKE_SIZE
+    size = max(1, min(size, 1 << 50))  # потолок 1 ПБ — без безумных чисел
+
+    # поддержка «докачки»: браузер переподключается с Range — продолжаем с нужного места
+    start = 0
+    m = re.match(r"bytes=(\d+)-", request.headers.get("Range", ""))
+    if m:
+        start = min(int(m.group(1)), size - 1)
+    remaining = size - start
+
+    resp = web.StreamResponse(status=206 if start else 200, headers={
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": f'attachment; filename="{name}"',
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+    })
+    resp.content_length = remaining
+    if start:
+        resp.headers["Content-Range"] = f"bytes {start}-{size - 1}/{size}"
+    resp.force_close()  # Content-Length не доберём — соединение одноразовое, не держим keep-alive
+
+    _dl_total += 1
+    _dl_per_ip[ip] = _dl_per_ip.get(ip, 0) + 1
+    try:
+        await resp.prepare(request)
+        deadline = time.monotonic() + DL_MAX_SECONDS
+        sent = 0
+        while sent < remaining and time.monotonic() < deadline:
+            await asyncio.sleep(DL_BYTE_EVERY)
+            await resp.write(b"\0")
+            sent += 1
+        # выходим молча: байты не добраны, браузер оставит загрузку «приостановленной»
+        # (её можно возобновить — вернётся с Range и покапает снова)
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    finally:
+        _dl_total -= 1
+        left = _dl_per_ip.get(ip, 1) - 1
+        if left > 0:
+            _dl_per_ip[ip] = left
+        else:
+            _dl_per_ip.pop(ip, None)
+    return resp
+
+
 # ======================= файлы =======================
 
 # Сжатые файлы веб-сборок (Unity: Game.wasm.br, Game.data.gz): отдаём как есть,
@@ -440,6 +510,7 @@ def make_app():
     app.router.add_get("/api/entry", api_entry)
     app.router.add_get("/api/find", api_find)
     app.router.add_post("/api/listen", api_listen)
+    app.router.add_get("/grab/{name}", serve_grab)  # прикол: «качалка», которая не докачается
     from chat import Chat
     app["chat"] = Chat(DATA_DIR / "chat.db", client_ip)
     app["chat"].routes(app)

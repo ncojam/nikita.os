@@ -1685,3 +1685,7 @@ nikita.os запущена: http://127.0.0.1:8000  (Ctrl+C — останови�
 [16/Oct/2026 23:08:29] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
 [16/Oct/2026 23:17:10] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
 [16/Oct/2026 23:17:10] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
+[16/Oct/2026 23:19:49] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
+[16/Oct/2026 23:19:49] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
+[16/Oct/2026 23:26:06] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
+[16/Oct/2026 23:26:06] 127.0.0.1 "GET /api/ls?path=%2Fhome%2Fnikita%2FDesktop HTTP/1.1" 200
