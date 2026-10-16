@@ -8,7 +8,8 @@ import { notify } from "./notify.js";
 const MIME = "application/x-nikita-paths";
 let dragging = null; // { paths, from, icons }
 
-const canTouch = meta => !!meta?.path && !meta.remote && !meta.builtin;
+// ufs — общие серверные папки: их нельзя двигать/переименовывать/удалять локально (только автор, через сервер)
+const canTouch = meta => !!meta?.path && !meta.remote && !meta.builtin && !meta.ufs;
 const isFolder = ic => ic?.meta && ic.meta.type === "dir" && canTouch(ic.meta);
 
 /* иконки в box можно тянуть; dir() — папка, которую показывает box */

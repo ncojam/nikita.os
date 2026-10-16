@@ -5,6 +5,7 @@ import { baseName, el, fsUrl, parentOf } from "../core/util.js";
 import { DESKTOP, Desktop } from "../desktop.js";
 import { openAbout, openPath } from "../open.js";
 import { createPost, reportPostByPath } from "../apps/post.js";
+import { createServerFolder, deleteServerFolder } from "../remote/userfolders.js";
 import { GitHub } from "../remote/github.js";
 import { VFS } from "../core/vfs.js";
 import { canTouch, deleteIcons, newFolder, pickAndUpload, renameIcon } from "./fs-dnd.js";
@@ -90,6 +91,7 @@ const fileMenu = icons => {
     one?.kind === "rom" && { label: "Играть", icon: "🕹️", run: () => icons[0].open() },
     one?.kind === "flash" && { label: "Играть", icon: "⚡", run: () => icons[0].open() },
     one?.kind === "post" && one.path && { label: "Пожаловаться (NSFW)", icon: "🚩", run: () => reportPostByPath(one.path) },
+    one?.ufs && one.type === "dir" && { label: "Удалить папку (общая)", icon: "🗑", run: () => deleteServerFolder(one.path, one.name) },
     "-",
     files.length && { label: files.length > 1 ? `Скачать (${files.length})` : "Скачать", icon: "⬇",
       run: () => files.forEach((m, k) => setTimeout(() => download(m.path), k * 300)) },
@@ -180,7 +182,8 @@ export function init_ui_context_menu() {
           { label: "Выделить всё", icon: "▦", hint: "Ctrl+A", run: g.selectAll },
           { label: "Вверх", icon: "↑", hint: "Backspace", disabled: !g.canUp(), run: g.up },
           "-",
-          g.canEdit?.() && { label: "Новая папка", icon: "📁", run: g.mkdir },
+          g.canEdit?.() && { label: "Новая папка (у меня)", icon: "📁", run: g.mkdir },
+          !rm && { label: "Новая папка (общая)", icon: "🌐", run: () => createServerFolder(g.path()) },
           g.canEdit?.() && { label: "Загрузить файлы…", icon: "⤒", run: g.upload },
           !rm && { label: "Создать запись", icon: "📝", run: () => createPost(g.path(), g.refresh) },
           "-",
@@ -201,10 +204,11 @@ export function init_ui_context_menu() {
     // рабочий стол
     Ctx.show(x, y, [
       { label: "Обновить", icon: "⟳", run: () => Desktop.load(true) },
-      VFS.ready && { label: "Новая папка", icon: "📁", run: async () => {
+      VFS.ready && { label: "Новая папка (у меня)", icon: "📁", run: async () => {
         const p = await newFolder(DESKTOP);
         if (p) Desktop.putAt([baseName(p)], ...Desktop.cellAt(x, y));
       } },
+      { label: "Новая папка (общая)", icon: "🌐", run: () => createServerFolder(DESKTOP) },
       VFS.ready && { label: "Загрузить файлы…", icon: "⤒", run: () => pickAndUpload(DESKTOP) },
       { label: "Создать запись", icon: "📝", run: () => createPost(DESKTOP, () => Desktop.load(true)) },
       { label: "Упорядочить значки", icon: "▦", run: () => { Desktop.pos = {}; Desktop.savePos(); Desktop.layout(); } },

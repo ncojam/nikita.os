@@ -18,6 +18,7 @@ function makeIcon(glyph, label, onOpen, meta = null) {
   // свои (не серверные) иконки можно таскать между папками — см. ui/fs-dnd.js
   if (meta?.path && !meta.remote && !meta.builtin) ic.draggable = true;
   if (meta?.local) { ic.classList.add("is-local"); ic.title = "Только у вас в браузере"; }
+  if (meta?.ufs) { ic.classList.add("is-ufs"); ic.title = "Общая папка — видят все"; }
   ic.open = () => {
     WM.origin = { rect: ic.getBoundingClientRect(), t: performance.now() };
     onOpen();

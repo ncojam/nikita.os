@@ -1,19 +1,20 @@
-import { baseName, el, fsUrl, parentOf } from "../core/util.js";
+import { baseName, el, fsUrl, joinPath, parentOf } from "../core/util.js";
+import { VFS } from "../core/vfs.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
 
 /* ================= записи («твиты») =================
- * Запись — виртуальный файл «Имя.запись» в общей ФС (живёт на сервере, слой posts.py).
- * Создавать может любой вошедший в чат; текст и картинку правит только автор.
- * Картинку жмём в браузере (canvas → 256px JPEG-шакал) и шлём готовой — сервер валидирует.
- *
- * Фаза 1: одна картинка на запись, вложение внутри карточки. Перемещения, ярлыки,
- * картинки как отдельные файлы и «пуф»-анимация — Фаза 2.
+ * Запись — файл «Имя.запись» в общей ФС.
+ *  • В СЕРВЕРНОЙ папке (fs/ufs) — общая запись (слой posts.py): видят все, правит только автор.
+ *  • В ЛОКАЛЬНОЙ (браузерной) папке — локальный ЧЕРНОВИК: живёт в браузере, только у вас.
+ * Картинку жмём в браузере (canvas → 256px JPEG-шакал). На сервер — отдельным файлом,
+ * в черновик — data-URL внутри самого файла записи.
  */
 const TEXT_MAX = 560;
-const IMG_DIM = 256;             // максимальная сторона
-const IMG_LIMIT = 60 * 1024;    // держимся ниже серверного потолка (64 КБ)
+const IMG_DIM = 256;
+const IMG_LIMIT = 60 * 1024;
 
+const now = () => Math.floor(Date.now() / 1000);
 const fmtStamp = ts => {
   const d = new Date(ts * 1000);
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" }) + " " +
@@ -24,6 +25,10 @@ async function myNick() {
   try { const r = await fetch("/api/chat/me", { cache: "no-store" }); if (r.ok) return (await r.json()).nick; } catch {}
   return null;
 }
+
+const blobToDataURL = blob => new Promise((res, rej) => {
+  const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob);
+});
 
 /* сжать картинку шакалом: вписать в IMG_DIM, JPEG с понижением качества до лимита. Blob | null */
 async function shrink(src) {
@@ -41,11 +46,10 @@ async function shrink(src) {
       blob = await new Promise(res => cv.toBlob(res, "image/jpeg", q));
       if (blob && blob.size <= IMG_LIMIT) return blob;
     }
-    return blob; // последний (самый сжатый) — сервер добьёт отказом, если всё равно велик
+    return blob;
   } finally { URL.revokeObjectURL(url); }
 }
 
-// выбрать картинку с компьютера → сжать
 function pickImage() {
   return new Promise(res => {
     const inp = el("input", { type: "file", accept: "image/*" });
@@ -58,49 +62,55 @@ const changed = dir => window.dispatchEvent(new CustomEvent("nos-posts-changed",
 
 /* ---------- просмотр записи ---------- */
 async function openPost(path) {
-  const url = fsUrl(path);
   WM.open({ title: baseName(path).replace(/\.запись$/, ""), icon: "📝", width: 440, height: 420,
     key: "post:" + path, async render(c, w) {
       const wrap = el("div", { className: "post", textContent: "Загрузка…" });
       c.append(wrap);
       let data, nick;
       try {
-        const r = await fetch(url, { cache: "no-store" });
+        const r = await fetch(fsUrl(path), { cache: "no-store" });
         if (!r.ok) throw new Error("запись не найдена");
         data = await r.json();
       } catch (e) { wrap.textContent = "Ошибка: " + e.message; return; }
-      nick = await myNick();
+      const draft = data.draft === true;      // локальный черновик (в браузере)
+      if (!draft) nick = await myNick();
       renderView();
 
+      // сохранить черновик на диск: upload не перезаписывает по тому же имени, поэтому remove+write
+      async function persist() {
+        await VFS.remove([path]).catch(() => {});
+        await VFS.writeFile(path, JSON.stringify(data), "application/json");
+      }
+
       function renderView() {
-        const mine = nick && nick === data.author;
+        const mine = draft || (nick && nick === data.author);
+        const imgSrc = draft ? (typeof data.img === "string" ? data.img : null)
+          : (data.img && !data.img_hidden ? "/media/" + data.id + "?t=" + (data.edited || data.created) : null);
+        const imgHidden = !draft && data.img && data.img_hidden;
         wrap.replaceChildren();
-        const head = el("div", { className: "post-head" },
-          el("span", { className: "post-ava", textContent: "👤" }),
-          el("div", {}, el("div", { className: "post-author", textContent: data.author }),
-            el("div", { className: "post-time", textContent: fmtStamp(data.edited || data.created) +
-              (data.edited && data.edited !== data.created ? " · изм." : "") })));
-        wrap.append(head);
+        const when = draft ? " · только у вас"
+          : (data.edited && data.edited !== data.created ? " · изм." : "");
+        wrap.append(el("div", { className: "post-head" },
+          el("span", { className: "post-ava", textContent: draft ? "📝" : "👤" }),
+          el("div", {}, el("div", { className: "post-author", textContent: draft ? "Черновик" : data.author }),
+            el("div", { className: "post-time", textContent: fmtStamp(data.edited || data.created) + when }))));
         if (data.text) wrap.append(el("div", { className: "post-text", textContent: data.text }));
-        if (data.img && data.img_hidden) {
-          wrap.append(el("div", { className: "post-hidden", textContent: "🚫 Картинка скрыта на проверке" }));
-        } else if (data.img) {
-          const im = el("img", { className: "post-img", src: "/media/" + data.id + "?t=" + (data.edited || data.created),
-            alt: "картинка записи", loading: "lazy" });
+        if (imgHidden) wrap.append(el("div", { className: "post-hidden", textContent: "🚫 Картинка скрыта на проверке" }));
+        else if (imgSrc) {
+          const im = el("img", { className: "post-img", src: imgSrc, alt: "картинка записи", loading: "lazy" });
           im.onerror = () => im.remove();
           wrap.append(im);
         }
-        if (!mine && nick && data.img && !data.img_hidden) {
+        if (!draft && !mine && nick && data.img && !data.img_hidden) {
           wrap.append(el("div", { className: "post-actions" },
             el("button", { className: "btn small", textContent: "🚩 Пожаловаться (NSFW)", onclick: report })));
         }
         if (mine) {
-          const act = el("div", { className: "post-actions" },
+          wrap.append(el("div", { className: "post-actions" },
             el("button", { className: "btn small", textContent: "✎ Изменить текст", onclick: editText }),
             el("button", { className: "btn small", textContent: data.img ? "🖼 Сменить картинку" : "🖼 Добавить картинку", onclick: setImage }),
             data.img && el("button", { className: "btn small", textContent: "Убрать картинку", onclick: dropImage }),
-            el("button", { className: "btn small danger", textContent: "🗑 Удалить", onclick: del }));
-          wrap.append(act);
+            el("button", { className: "btn small danger", textContent: "🗑 Удалить", onclick: del })));
         }
       }
 
@@ -111,11 +121,16 @@ async function openPost(path) {
         const cancel = el("button", { className: "btn small", textContent: "Отмена", onclick: renderView });
         save.onclick = async () => {
           save.disabled = true;
+          if (draft) {
+            data.text = ta.value.trim(); data.edited = now();
+            try { await persist(); } catch (e) { notify("⚠ " + e.message); save.disabled = false; return; }
+            return renderView();
+          }
           const r = await fetch("/api/posts/" + data.id, { method: "PATCH",
             headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value }) });
           const d = await r.json().catch(() => ({}));
           if (!r.ok) { notify(d.error || "Не сохранилось"); save.disabled = false; return; }
-          data.text = ta.value.trim(); data.edited = Math.floor(Date.now() / 1000);
+          data.text = ta.value.trim(); data.edited = now();
           changed(parentOf(path)); renderView();
         };
         wrap.append(ta, el("div", { className: "post-actions" }, cancel, save));
@@ -125,18 +140,28 @@ async function openPost(path) {
       async function setImage() {
         const blob = await pickImage();
         if (!blob) return;
+        if (draft) {
+          data.img = await blobToDataURL(blob); data.edited = now();
+          try { await persist(); } catch (e) { return notify("⚠ " + e.message); }
+          return renderView();
+        }
         const r = await fetch("/api/posts/" + data.id + "/image", { method: "POST",
           headers: { "Content-Type": "application/octet-stream" }, body: blob });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) return notify(d.error || "Картинка не принята");
-        data.img = true; data.edited = Math.floor(Date.now() / 1000);
+        data.img = true; data.edited = now();
         changed(parentOf(path)); renderView();
       }
 
       async function dropImage() {
+        if (draft) {
+          data.img = null; data.edited = now();
+          try { await persist(); } catch (e) { return notify("⚠ " + e.message); }
+          return renderView();
+        }
         const r = await fetch("/api/posts/" + data.id + "/image", { method: "DELETE" });
         if (!r.ok) return notify("Не вышло убрать");
-        data.img = false; data.edited = Math.floor(Date.now() / 1000);
+        data.img = false; data.edited = now();
         changed(parentOf(path)); renderView();
       }
 
@@ -151,6 +176,11 @@ async function openPost(path) {
       }
 
       async function del() {
+        if (draft) {
+          if (!confirm("Удалить черновик? (он только у вас)")) return;
+          try { await VFS.remove([path]); } catch (e) { return notify("⚠ " + e.message); }
+          notify("Черновик удалён"); return WM.close(w);
+        }
         if (!confirm("Удалить запись? Это навсегда и для всех.")) return;
         const r = await fetch("/api/posts/" + data.id, { method: "DELETE" });
         const d = await r.json().catch(() => ({}));
@@ -173,30 +203,47 @@ function createPost(dir, onDone) {
       const attach = el("button", { className: "btn small", textContent: "🖼 Прикрепить картинку" });
       const drop = el("div", { className: "post-drop", textContent: "…или перетащи картинку сюда" });
       const publish = el("button", { className: "btn primary", textContent: "Опубликовать" });
-      const where = el("div", { className: "hint", textContent: "Появится в папке: " + dir });
+      const where = el("div", { className: "hint", textContent: "Папка: " + dir });
 
       const showPrev = () => {
         preview.replaceChildren();
         if (!imgBlob) return;
-        const im = el("img", { className: "post-img", src: URL.createObjectURL(imgBlob) });
-        preview.append(im, el("button", { className: "btn small", textContent: "Убрать картинку",
-          onclick: () => { imgBlob = null; showPrev(); } }));
+        preview.append(el("img", { className: "post-img", src: URL.createObjectURL(imgBlob) }),
+          el("button", { className: "btn small", textContent: "Убрать картинку", onclick: () => { imgBlob = null; showPrev(); } }));
       };
       attach.onclick = async () => { const b = await pickImage(); if (b) { imgBlob = b; showPrev(); } };
-      const onDrop = async e => {
+      drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+      drop.ondragleave = () => drop.classList.remove("over");
+      drop.ondrop = async e => {
         e.preventDefault(); drop.classList.remove("over");
         const f = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith("image/"));
         if (f) { imgBlob = await shrink(f).catch(() => null); showPrev(); }
       };
-      drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
-      drop.ondragleave = () => drop.classList.remove("over");
-      drop.ondrop = onDrop;
+
+      // в локальной папке запись становится черновиком — подскажем это
+      VFS.isLocal(dir).then(loc => {
+        if (loc) { publish.textContent = "Сохранить черновик";
+          where.textContent = "Локальная папка: " + dir + " — это будет черновик, только у вас"; }
+      }).catch(() => {});
 
       publish.onclick = async () => {
         const text = ta.value.trim();
-        if (!text && !imgBlob) return notify("Пустую запись не публикуем");
+        if (!text && !imgBlob) return notify("Пустую запись не делаем");
         publish.disabled = true;
         const base = (text.split("\n")[0] || "Запись").slice(0, 24).trim() || "Запись";
+        const local = VFS.ready && await VFS.isLocal(dir).catch(() => false);
+
+        if (local) {   // ---- локальный черновик ----
+          const draft = { draft: true, text, img: imgBlob ? await blobToDataURL(imgBlob) : null,
+            created: now(), edited: now() };
+          try { await VFS.writeFile(joinPath(dir, base + ".запись"), JSON.stringify(draft), "application/json"); }
+          catch (e) { notify("⚠ " + e.message); publish.disabled = false; return; }
+          notify("Черновик сохранён (только у вас)");
+          WM.close(w); onDone?.();
+          return;
+        }
+
+        // ---- серверная публикация ----
         const r = await fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dir, name: base, text }) });
         const d = await r.json().catch(() => ({}));
@@ -208,8 +255,7 @@ function createPost(dir, onDone) {
         }
         changed(dir);
         notify("Опубликовано");
-        WM.close(w);
-        onDone?.();
+        WM.close(w); onDone?.();
         openPost(d.path);
       };
 
@@ -225,6 +271,7 @@ async function reportPostByPath(path) {
     const r = await fetch(fsUrl(path), { cache: "no-store" });
     if (!r.ok) throw new Error();
     const d = await r.json();
+    if (d.draft) return notify("Это ваш черновик — на него не жалуются");
     if (!d.img || d.img_hidden) return notify("Жаловаться не на что");
     if (!confirm("Пожаловаться на картинку как на непотребство (NSFW)?")) return;
     const rr = await fetch("/api/posts/" + d.id + "/report", { method: "POST" });
