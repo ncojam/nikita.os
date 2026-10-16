@@ -1,0 +1,300 @@
+diff --git a/public/js/apps/fakedl.js b/public/js/apps/fakedl.js
+new file mode 100644
+index 0000000..263a622
+--- /dev/null
++++ b/public/js/apps/fakedl.js
+@@ -0,0 +1,139 @@
++import { el, fmtSize, fmtTime, fsUrl } from "../core/util.js";
++import { WM } from "../wm.js";
++
++/* ================= «загрузчик» (прикол) =================
++ * Ярлык .lnk запускает это приложение:
++ *   { "name": "GTA VI", "icon": "🧲", "app": "fakedl",
++ *     "file": "GTA6.iso", "size": 284686671872 }   // size в байтах — по желанию
++ *
++ * Окно-пульт рисует «живую» загрузку (бар, скорость, ETA, торрент-лог), а параллельно
++ * дёргает /grab/<file> — браузер получает ответ с огромным Content-Length и начинает
++ * настоящую загрузку, которая капает по байту и не докачается никогда. Файл честно
++ * висит в менеджере загрузок.
++ *
++ * Признание, что это шутка, спрятано за кнопкой ⓘ (см. CONFESSION) — так захотел автор.
++ * Отключить реальную струйку в браузер: добавить в ярлык "real": false.
++ */
++
++const BYTES_PER_MIN = 1;                                  // как быстро «капает» в окне-пульте
++const DEFAULT_SIZE = 284 * 1073741824 + 700 * 1048576;    // ~284.7 ГБ, как большая игра
++const CONFESSION_IMG = "/home/nikita/Games/Pinkshake/TemplateData/me_when_i_try_to_inform_people.png";
++
++// чуть «живая» скорость вокруг базовой — чтобы цифры дрожали как по-настоящему
++const jitter = base => base * (0.4 + Math.random() * 1.2);
++
++// строки фейкового торрент-лога — выглядят серьёзно, но при чтении абсурдны
++const LOG_LINES = [
++  () => `Подключение к пиру ${1 + (Math.random() * 9 | 0)} из ${(8000 + Math.random() * 4000 | 0).toLocaleString("ru-RU")}…`,
++  () => `Рукопожатие с трекером (попытка ${1 + (Math.random() * 40 | 0)})…`,
++  () => `Проверка целостности блока #${(Math.random() * 271040 | 0).toLocaleString("ru-RU")}…`,
++  () => `Ожидание сидов (в сети: ${Math.random() < 0.85 ? 0 : 1})…`,
++  () => `Запрашиваю кусок ${1 + (Math.random() * 3 | 0)} из 271 040 у ${Math.random() < 0.7 ? 0 : 1} пиров…`,
++  () => `Пир ${Math.random() * 254 + 1 | 0}.${Math.random() * 254 | 0}.${Math.random() * 254 | 0}.${Math.random() * 254 | 0} отключился`,
++  () => `DHT: найдено узлов — ${(Math.random() * 3 | 0)}`,
++  () => `Оптимистичная разблокировка пира… пир не отвечает`,
++  () => `Перезапрашиваю метаданные (${(Math.random() * 100 | 0)} %)…`,
++  () => `Выбор самого быстрого источника из ${Math.random() < 0.9 ? 0 : 1}…`,
++];
++
++// ETA в человеческом виде: при такой скорости секунды бессмысленны
++const humanEta = s => {
++  const years = s / (365.25 * 24 * 3600);
++  if (years >= 1) return years.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " лет";
++  const days = s / (24 * 3600);
++  if (days >= 1) return days.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " дн.";
++  return fmtTime(s);
++};
++
++function openFakeDL(link = {}) {
++  const total = Number.isFinite(link.size) && link.size > 0 ? link.size : DEFAULT_SIZE;
++  const file = link.file || (link.name ? link.name + ".iso" : "download.iso");
++
++  WM.open({ title: "Загрузка: " + file, icon: link.icon || "🧲", width: 480, height: 360,
++    key: "fakedl:" + file,
++    render(c, w) {
++      let done = 0;
++
++      const bar = el("div", { className: "fdl-bar" }, el("div", { className: "fdl-fill" }));
++      const fill = bar.firstChild;
++      const pct = el("div", { className: "fdl-pct", textContent: "0,0 %" });
++      const sizes = el("div", { className: "fdl-line" });
++      const speed = el("div", { className: "fdl-line" });
++      const eta = el("div", { className: "fdl-line" });
++      const logBox = el("div", { className: "fdl-log" });
++
++      const info = el("button", { className: "fdl-info-btn", title: "Что это?", textContent: "ⓘ" });
++
++      c.append(el("div", { className: "fdl" },
++        el("div", { className: "fdl-file" },
++          el("span", { className: "fdl-glyph", textContent: "💿" }),
++          el("span", { className: "fdl-name", textContent: file }),
++          info),
++        bar, pct,
++        el("div", { className: "fdl-stats" }, sizes, speed, eta),
++        logBox));
++
++      const render = () => {
++        const frac = Math.min(done / total, 1);
++        fill.style.width = (frac * 100).toFixed(4) + "%";
++        pct.textContent = (frac * 100).toLocaleString("ru-RU",
++          { minimumFractionDigits: 1, maximumFractionDigits: 7 }) + " %";
++        sizes.textContent = `${fmtSize(done)} из ${fmtSize(total)}`;
++        speed.textContent = "Скорость: " + fmtSize(jitter(BYTES_PER_MIN / 60)) + "/с";
++        eta.textContent = "Осталось: " + humanEta((total - done) / (BYTES_PER_MIN / 60));
++      };
++
++      const pushLog = () => {
++        const row = el("div", { className: "fdl-log-row",
++          textContent: LOG_LINES[Math.random() * LOG_LINES.length | 0]() });
++        logBox.append(row);
++        while (logBox.children.length > 7) logBox.firstChild.remove();
++        logBox.scrollTop = logBox.scrollHeight;
++      };
++
++      render();
++      pushLog(); pushLog();
++
++      const tick = setInterval(() => {
++        done = Math.min(total, done + jitter(BYTES_PER_MIN / 60));
++        render();
++      }, 1000);
++      const logTimer = setInterval(pushLog, 2500);
++
++      // ---- настоящая струйка в браузер: файл появится в менеджере загрузок ----
++      if (link.real !== false) {
++        try {
++          const a = el("a", { href: "/grab/" + encodeURIComponent(file) + "?size=" + total });
++          document.body.append(a); a.click(); a.remove();
++        } catch {}
++      }
++
++      // ---- признание (спрятано за ⓘ) ----
++      info.onclick = () => openConfession(c);
++
++      w.onClose = () => { clearInterval(tick); clearInterval(logTimer); };
++    }});
++}
++
++/* панель-признание поверх окна */
++function openConfession(host) {
++  if (host.querySelector(".fdl-info")) return;
++  const img = el("img", { className: "fdl-info-img", src: fsUrl(CONFESSION_IMG),
++    alt: "программист в момент предупреждения" });
++  img.onerror = () => img.remove();
++
++  const close = el("button", { className: "btn small", textContent: "Ладно, понял" });
++  const panel = el("div", { className: "fdl-info glass" },
++    el("h3", { textContent: "💬 Честно говоря…" }),
++    el("p", { textContent: "Привет. Это писал живой программист — тот, кого наняли сделать эту кнопку. " +
++      "По-честному: скачивать тут нечего. «Файл» капает по байту, чтобы просто подольше повисеть в загрузках, " +
++      "и не докачается никогда — даже если оставить комп включённым на пару тысяч лет." }),
++    el("p", { textContent: "Я хотел написать это крупными буквами прямо в окне. Автор сказал: «убери, спрячь " +
++      "куда-нибудь поглубже, пусть сами ищут». Ну вот, спрятал — сюда. Раз ты докопался, ты молодец." }),
++    el("p", { className: "fdl-info-cap", textContent: "Вот так я выглядел, когда пытался всех предупредить:" }),
++    img, close);
++  close.onclick = () => panel.remove();
++  host.append(panel);
++}
++
++export { openFakeDL };
+diff --git a/public/js/open.js b/public/js/open.js
+index 3a48b61..6d88ba9 100644
+--- a/public/js/open.js
++++ b/public/js/open.js
+@@ -2,6 +2,7 @@ import { openExplorer } from "./apps/explorer.js";
+ import { Player } from "./apps/player.js";
+ import { openSettings } from "./apps/settings.js";
+ import { openChat } from "./apps/chat.js";
++import { openFakeDL } from "./apps/fakedl.js";
+ import { GLYPH, kindOf } from "./core/types.js";
+ import { baseName, el, fsUrl } from "./core/util.js";
+ import { GitHub } from "./remote/github.js";
+@@ -92,6 +93,7 @@ const APPS = {
+   about: () => openAbout(),
+   chat: () => openChat(),
+   explorer: l => openExplorer(l.path || "/home/nikita"),
++  fakedl: l => openFakeDL(l),
+ };
+ 
+ const Links = {
+diff --git a/public/style.css b/public/style.css
+index e20a824..a6d0021 100644
+--- a/public/style.css
++++ b/public/style.css
+@@ -524,3 +524,41 @@ html, body {
+   content: ""; position: absolute; left: -3px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%;
+   background: #7be3a1; box-shadow: 0 0 0 2px rgba(14,14,18,.9);
+ }
++
++/* ================= «загрузчик» (fakedl, прикол) ================= */
++.fdl { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; position: relative; height: 100%; box-sizing: border-box; }
++.fdl-file { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
++.fdl-glyph { font-size: 26px; flex: none; }
++.fdl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.fdl-info-btn { flex: none; width: 24px; height: 24px; border: 0; border-radius: 50%;
++  background: rgba(255,255,255,0.08); color: var(--muted); font-size: 14px; cursor: pointer;
++  display: grid; place-items: center; transition: background-color .15s, color .15s; }
++.fdl-info-btn:hover { background: rgba(255,255,255,0.16); color: var(--text); }
++.fdl-bar { height: 14px; border-radius: 8px; background: rgba(255,255,255,0.08);
++  border: 1px solid var(--glass-border); overflow: hidden; flex: none; }
++.fdl-fill { height: 100%; width: 0; border-radius: 8px;
++  box-shadow: 0 0 12px rgba(138,180,255,0.45); transition: width .4s linear;
++  background-image: linear-gradient(90deg, var(--accent), #b9d0ff),
++    repeating-linear-gradient(45deg, rgba(255,255,255,.18) 0 8px, transparent 8px 16px);
++  background-size: 100% 100%, 28px 28px;
++  animation: fdl-stripes 1s linear infinite; }
++@keyframes fdl-stripes { to { background-position: 0 0, 28px 0; } }
++.fdl-pct { text-align: center; font: 600 15px ui-monospace, monospace; letter-spacing: .3px; flex: none; }
++.fdl-stats { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); flex: none; }
++.fdl-line { font-variant-numeric: tabular-nums; }
++.fdl-log { margin-top: 2px; padding: 8px 10px; border-radius: 10px; flex: 1; min-height: 0; overflow: hidden;
++  background: rgba(0,0,0,0.28); border: 1px solid var(--glass-border);
++  font: 11.5px/1.5 ui-monospace, monospace; color: #8fd8a6; }
++.fdl-log-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .55; }
++.fdl-log-row:last-child { opacity: 1; }
++
++/* панель-признание поверх окна */
++.fdl-info { position: absolute; inset: 10px; border-radius: 14px; padding: 18px 20px;
++  display: flex; flex-direction: column; gap: 10px; overflow: auto;
++  background: var(--glass-bg-strong); animation: fdl-pop .2s var(--ease, ease); z-index: 2; }
++@keyframes fdl-pop { from { opacity: 0; transform: scale(.97); } }
++.fdl-info h3 { margin: 0; }
++.fdl-info p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
++.fdl-info-cap { color: var(--muted) !important; font-size: 12px !important; }
++.fdl-info-img { max-width: 100%; border-radius: 10px; align-self: center; }
++.fdl-info .btn { align-self: flex-start; margin-top: 4px; }
+diff --git a/server.py b/server.py
+index 7c214ff..9ff765d 100644
+--- a/server.py
++++ b/server.py
+@@ -326,6 +326,76 @@ async def api_listen(request):
+     return json_response({"path": vpath, "plays": plays.get(vpath), "counted": counted})
+ 
+ 
++# ======================= прикол: «качалка», которая не докачается =======================
++# Отдаём браузеру ответ с огромным Content-Length и роняем в него байты по капле.
++# Файл честно появляется в менеджере загрузок и ползёт — но до конца не доедет никогда.
++# На async-сервере висящее соединение дёшево (сокет + спящая корутина, без отдельного потока),
++# но не бесплатно, поэтому держим жёсткие лимиты, чтобы этим нельзя было заддосить.
++DL_FAKE_SIZE = 284 * 1024**3 + 700 * 1024**2             # ~284.7 ГБ по умолчанию
++DL_BYTE_EVERY = float(os.environ.get("NOS_DL_EVERY", "20"))    # байт раз в N секунд (≥30 с режет nginx send_timeout)
++DL_MAX_SECONDS = int(os.environ.get("NOS_DL_MAXSEC", "1800"))  # дольше 30 мин одно соединение не живёт
++DL_MAX_TOTAL = int(os.environ.get("NOS_DL_MAX", "48"))         # всего одновременных «загрузок»
++DL_MAX_PER_IP = int(os.environ.get("NOS_DL_MAX_IP", "3"))      # с одного адреса
++_dl_total = 0
++_dl_per_ip = {}
++_DL_NAME_RE = re.compile(r"[^\w.\- ]")
++
++
++async def serve_grab(request):
++    global _dl_total
++    ip = client_ip(request)
++    if _dl_total >= DL_MAX_TOTAL or _dl_per_ip.get(ip, 0) >= DL_MAX_PER_IP:
++        raise web.HTTPTooManyRequests(text="Слишком много загрузок — попробуйте позже")
++
++    name = _DL_NAME_RE.sub("_", request.match_info["name"])[:80] or "download.iso"
++    try:
++        size = int(request.query.get("size", DL_FAKE_SIZE))
++    except ValueError:
++        size = DL_FAKE_SIZE
++    size = max(1, min(size, 1 << 50))  # потолок 1 ПБ — без безумных чисел
++
++    # поддержка «докачки»: браузер переподключается с Range — продолжаем с нужного места
++    start = 0
++    m = re.match(r"bytes=(\d+)-", request.headers.get("Range", ""))
++    if m:
++        start = min(int(m.group(1)), size - 1)
++    remaining = size - start
++
++    resp = web.StreamResponse(status=206 if start else 200, headers={
++        "Content-Type": "application/octet-stream",
++        "Content-Disposition": f'attachment; filename="{name}"',
++        "Accept-Ranges": "bytes",
++        "Cache-Control": "no-store",
++    })
++    resp.content_length = remaining
++    if start:
++        resp.headers["Content-Range"] = f"bytes {start}-{size - 1}/{size}"
++    resp.force_close()  # Content-Length не доберём — соединение одноразовое, не держим keep-alive
++
++    _dl_total += 1
++    _dl_per_ip[ip] = _dl_per_ip.get(ip, 0) + 1
++    try:
++        await resp.prepare(request)
++        deadline = time.monotonic() + DL_MAX_SECONDS
++        sent = 0
++        while sent < remaining and time.monotonic() < deadline:
++            await asyncio.sleep(DL_BYTE_EVERY)
++            await resp.write(b"\0")
++            sent += 1
++        # выходим молча: байты не добраны, браузер оставит загрузку «приостановленной»
++        # (её можно возобновить — вернётся с Range и покапает снова)
++    except (ConnectionResetError, asyncio.CancelledError):
++        pass
++    finally:
++        _dl_total -= 1
++        left = _dl_per_ip.get(ip, 1) - 1
++        if left > 0:
++            _dl_per_ip[ip] = left
++        else:
++            _dl_per_ip.pop(ip, None)
++    return resp
++
++
+ # ======================= файлы =======================
+ 
+ # Сжатые файлы веб-сборок (Unity: Game.wasm.br, Game.data.gz): отдаём как есть,
+@@ -440,6 +510,7 @@ def make_app():
+     app.router.add_get("/api/entry", api_entry)
+     app.router.add_get("/api/find", api_find)
+     app.router.add_post("/api/listen", api_listen)
++    app.router.add_get("/grab/{name}", serve_grab)  # прикол: «качалка», которая не докачается
+     from chat import Chat
+     app["chat"] = Chat(DATA_DIR / "chat.db", client_ip)
+     app["chat"].routes(app)
