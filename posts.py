@@ -19,11 +19,15 @@
 """
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
+import shutil
 import time
 from pathlib import Path
+
+log = logging.getLogger("nikita.os")
 
 # ---- лимиты (можно переопределить переменными окружения) ----
 TEXT_MAX = int(os.environ.get("NOS_POST_TEXT_MAX", "560"))          # длина текста записи
@@ -102,8 +106,8 @@ def validate_jpeg(data):
 class Posts:
     """Хранилище записей. user_of(request) -> (uid, nick) | None (берём из chat.user_by_token)."""
 
-    def __init__(self, data_dir, user_of, client_ip=None):
-        self.data_dir = Path(data_dir)
+    def __init__(self, ufs_root, user_of, client_ip=None, old_dir=None):
+        self.data_dir = Path(ufs_root)        # всё пользовательское живёт под /ufs
         self.media = self.data_dir / "media"
         self.path = self.data_dir / "posts.json"
         self.user_of = user_of
@@ -111,12 +115,33 @@ class Posts:
         self.posts = {}
         self.rate = {}   # uid -> время последнего создания
         self.dirty = False
+        self.dir_ok = None            # колбэк от server: существует ли общая папка (fs|ufs)
+        self._migrate(old_dir)         # разовый перенос старого хранилища из /data в /ufs
         self.salt = self._load_salt()  # для хэша IP при модерации — переживает перезапуск
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             self.posts = {k: v for k, v in raw.get("posts", {}).items() if isinstance(v, dict)}
         except (FileNotFoundError, ValueError, OSError):
             pass
+
+    def _migrate(self, old_dir):
+        """Переезд posts.json/media/mod_salt из старого /data под /ufs (один раз)."""
+        if not old_dir:
+            return
+        old = Path(old_dir)
+        if old.resolve() == self.data_dir.resolve():
+            return
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            for name in ("posts.json", "mod_salt"):
+                src, dst = old / name, self.data_dir / name
+                if src.exists() and not dst.exists():
+                    shutil.move(str(src), str(dst))
+            src_media, dst_media = old / "media", self.media
+            if src_media.is_dir() and not dst_media.exists():
+                shutil.move(str(src_media), str(dst_media))
+        except OSError as e:
+            log.warning("перенос записей в /ufs не удался: %s", e)
 
     def _load_salt(self):
         sp = self.data_dir / "mod_salt"
@@ -233,6 +258,10 @@ class Posts:
         if now - last < CREATE_EVERY:
             return None, "слишком часто — подождите пару секунд"
         vdir = "/" + str(vdir or "/").strip("/")
+        # запись можно создать только в существующей общей папке (fs или ufs),
+        # не в локальной браузерной — там это должен быть локальный черновик
+        if self.dir_ok and not self.dir_ok(vdir):
+            return None, "здесь нельзя создать запись (это локальная папка?)"
         name = self._free_name(vdir, clean_name(base))
         pid = secrets.token_urlsafe(9)
         self.posts[pid] = {"dir": vdir, "name": name, "uid": uid, "nick": nick,
@@ -308,6 +337,20 @@ class Posts:
         self.dirty = True
         self.save()
         return None
+
+    def purge_dir(self, vprefix):
+        """Снести все записи в папке vprefix и её поддереве (при удалении папки владельцем)."""
+        vprefix = "/" + vprefix.strip("/")
+        pref = vprefix.rstrip("/") + "/"
+        gone = [pid for pid, p in self.posts.items()
+                if ("/" + p["dir"].strip("/")) == vprefix or ("/" + p["dir"].strip("/")).startswith(pref)]
+        for pid in gone:
+            self._rm_media(pid)
+            self.posts.pop(pid, None)
+        if gone:
+            self.dirty = True
+            self.save()
+        return len(gone)
 
     # ---------- модерация ----------
     def _report_count(self, p):

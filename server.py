@@ -40,6 +40,8 @@ BASE = Path(__file__).resolve().parent
 PUBLIC = (BASE / "public").resolve()
 FS_ROOT = Path(os.environ.get("NOS_FS") or BASE / "fs").resolve()
 DATA_DIR = Path(os.environ.get("NOS_DATA") or BASE / "data").resolve()
+# пользовательский (писучий) корень: папки, записи и картинки живут здесь, под /data
+UFS_ROOT = Path(os.environ.get("NOS_UFS") or DATA_DIR / "ufs").resolve()
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
 TRUST_PROXY = os.environ.get("TRUST_PROXY") == "1"
@@ -127,6 +129,28 @@ def virtual_of(p):
     """Реальный путь внутри fs -> виртуальный ("/home/nikita/x.mp3")."""
     rel = p.relative_to(FS_ROOT).as_posix()
     return "/" if rel == "." else "/" + rel
+
+
+# ---- сшивка /fs (канон) и /ufs (пользовательское) в один вид ----
+def unified_dir_exists(app, v):
+    v = "/" + v.strip("/")
+    if v == "/":
+        return True
+    pf = resolve_inside(FS_ROOT, v)
+    if pf and pf.is_dir():
+        return True
+    return app["folders"].dir_exists(v)
+
+
+def unified_name_taken(app, v):
+    v = "/" + v.strip("/")
+    pf = resolve_inside(FS_ROOT, v)
+    if pf and pf.exists():
+        return True
+    if app["folders"].entry_exists(v):
+        return True
+    _, post = app["posts"].by_vpath(v)
+    return bool(post)
 
 
 def qpath(request):
@@ -246,44 +270,60 @@ def client_ip(request):
 
 async def api_ls(request):
     virtual = qpath(request)
-    p = resolve_inside(FS_ROOT, virtual)
-    if p is None:
+    pf = resolve_inside(FS_ROOT, virtual)
+    folders = request.app["folders"]
+    pu = folders.real(virtual)
+    if pf is None and pu is None:
         return json_response({"error": "Доступ запрещён"}, 403)
-    if not p.exists():
-        return json_response({"error": "Нет такой папки"}, 404)
-    if not p.is_dir():
+    fs_dir = bool(pf and pf.is_dir())
+    ufs_dir = bool(pu and pu.is_dir())
+    if pf and pf.exists() and not pf.is_dir():
         return json_response({"error": "Это не папка"}, 400)
+    if not fs_dir and not ufs_dir and virtual != "/":
+        return json_response({"error": "Нет такой папки"}, 404)
 
     def scan():
         plays = request.app["plays"]
-        out = []
-        for c in sorted(p.iterdir(), key=lambda c: (not c.is_dir(), natural_key(c.name))):
-            if c.name.startswith("."):
-                continue
-            try:
-                st = c.stat()
-            except OSError:
-                continue
-            e = {"name": c.name, "type": "dir" if c.is_dir() else "file",
-                 "size": st.st_size if c.is_file() else 0, "mtime": int(st.st_mtime)}
-            if e["type"] == "file" and c.suffix.lower() in AUDIO_EXT:
+        by_name = {}
+        # 1) канон /fs — он главнее при коллизии имён
+        if fs_dir:
+            for c in pf.iterdir():
+                if c.name.startswith("."):
+                    continue
                 try:
-                    e["plays"] = plays.get(virtual_of(c.resolve()))
-                except ValueError:
-                    pass
-            out.append(e)
-        return out
+                    st = c.stat()
+                except OSError:
+                    continue
+                e = {"name": c.name, "type": "dir" if c.is_dir() else "file",
+                     "size": st.st_size if c.is_file() else 0, "mtime": int(st.st_mtime)}
+                if e["type"] == "file" and c.suffix.lower() in AUDIO_EXT:
+                    try:
+                        e["plays"] = plays.get(virtual_of(c.resolve()))
+                    except ValueError:
+                        pass
+                by_name[c.name] = e
+        # 2) пользовательский /ufs — только то, чего нет в каноне
+        if ufs_dir:
+            for c in pu.iterdir():
+                if c.name.startswith(".") or c.name in by_name:
+                    continue
+                try:
+                    st = c.stat()
+                except OSError:
+                    continue
+                by_name[c.name] = {"name": c.name, "type": "dir" if c.is_dir() else "file",
+                                   "size": st.st_size if c.is_file() else 0, "mtime": int(st.st_mtime),
+                                   "ufs": True}
+        return list(by_name.values())
 
     try:
         entries = await asyncio.to_thread(scan)
     except PermissionError:
         return json_response({"error": "Нет прав на чтение папки"}, 403)
-    # подмешиваем общие записи («твиты»), живущие в этой папке
-    posts = request.app["posts"].in_dir(virtual)
-    if posts:
-        have = {e["name"] for e in entries}
-        entries += [e for e in posts if e["name"] not in have]
-        entries.sort(key=lambda e: (e["type"] != "dir", natural_key(e["name"])))
+    # 3) общие записи («твиты») в этой папке
+    have = {e["name"] for e in entries}
+    entries += [e for e in request.app["posts"].in_dir(virtual) if e["name"] not in have]
+    entries.sort(key=lambda e: (e["type"] != "dir", natural_key(e["name"])))
     return json_response({"path": virtual, "entries": entries})
 
 
@@ -291,7 +331,15 @@ async def api_entry(request):
     virtual = qpath(request)
     p = resolve_inside(FS_ROOT, virtual)
     if p is None or not p.exists():
-        # может, это виртуальный файл записи
+        # пользовательская папка/файл из /ufs
+        pu = request.app["folders"].real(virtual)
+        if pu and pu.exists():
+            st = pu.stat()
+            return json_response({"path": virtual, "exists": True, "name": pu.name,
+                                  "type": "dir" if pu.is_dir() else "file",
+                                  "size": st.st_size if pu.is_file() else 0,
+                                  "mtime": int(st.st_mtime), "ufs": True})
+        # виртуальный файл записи
         pid, post = request.app["posts"].by_vpath(virtual)
         if post:
             return json_response({"path": virtual, "exists": True, "name": post["name"],
@@ -451,6 +499,25 @@ async def api_posts_image_del(request):
     return json_response({"error": err}, 403) if err else json_response({"ok": True})
 
 
+# ---- пользовательские папки (/ufs) ----
+async def api_folders_create(request):
+    import userfs
+    body = await _json_body(request)
+    parent = "/" + str(body.get("parent") or "/").strip("/")
+    name = body.get("name")
+    v = "/" + (parent.rstrip("/") + "/" + userfs.clean_name(name)).strip("/") if name else parent
+    exists = unified_dir_exists(request.app, parent)
+    taken = bool(name) and unified_name_taken(request.app, v)
+    path, err = request.app["folders"].create(request, parent, name, exists, taken)
+    return json_response({"error": err}, 400) if err else json_response({"path": path})
+
+
+async def api_folders_delete(request):
+    body = await _json_body(request)
+    err = request.app["folders"].delete(request, str(body.get("path") or ""))
+    return json_response({"error": err}, 403) if err else json_response({"ok": True})
+
+
 async def serve_media(request):
     pid = request.match_info["id"]
     if not _PID_RE.match(pid):
@@ -497,11 +564,16 @@ INNER_CTYPE = {".js": "application/javascript", ".wasm": "application/wasm", ".d
 
 
 async def serve_fs(request):
-    p = resolve_inside(FS_ROOT, request.match_info["tail"])
+    tail = request.match_info["tail"]
+    p = resolve_inside(FS_ROOT, tail)
     if p is None or not p.is_file() or not os.access(p, os.R_OK):
-        # не реальный файл — может, это виртуальный файл записи: отдаём его JSON
+        # 1) реальный файл из /ufs (картинки появятся в Фазе 2b)
+        pu = request.app["folders"].real("/" + tail)
+        if pu and pu.is_file() and os.access(pu, os.R_OK):
+            return web.FileResponse(pu, chunk_size=256 * 1024, headers={"Content-Type": text_ctype(pu)})
+        # 2) виртуальный файл записи — отдаём его JSON
         posts = request.app["posts"]
-        pid, post = posts.by_vpath("/" + request.match_info["tail"])
+        pid, post = posts.by_vpath("/" + tail)
         if post:
             return web.Response(body=posts.file_json(pid, post),
                                 headers={"Content-Type": "application/json; charset=utf-8",
@@ -615,7 +687,12 @@ def make_app():
     app["chat"].routes(app)
     # записи («твиты») — общий слой; авторизация через аккаунт чата
     from posts import Posts
-    app["posts"] = Posts(DATA_DIR, app["chat"].user_by_token, client_ip)
+    from userfs import Folders
+    app["posts"] = Posts(UFS_ROOT, app["chat"].user_by_token, client_ip, old_dir=DATA_DIR)
+    app["folders"] = Folders(UFS_ROOT, app["chat"].user_by_token, app["posts"].purge_dir)
+    app["posts"].dir_ok = lambda v: unified_dir_exists(app, v)   # запись — только в общей папке
+    app.router.add_post("/api/folders", api_folders_create)
+    app.router.add_post("/api/folders/delete", api_folders_delete)
     app.router.add_post("/api/posts", api_posts_create)
     app.router.add_patch("/api/posts/{id}", api_posts_edit)
     app.router.add_delete("/api/posts/{id}", api_posts_delete)
