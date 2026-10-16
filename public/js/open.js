@@ -2,6 +2,7 @@ import { openExplorer } from "./apps/explorer.js";
 import { Player } from "./apps/player.js";
 import { openSettings } from "./apps/settings.js";
 import { openChat } from "./apps/chat.js";
+import { openFakeDL } from "./apps/fakedl.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";
@@ -92,6 +93,7 @@ const APPS = {
   about: () => openAbout(),
   chat: () => openChat(),
   explorer: l => openExplorer(l.path || "/home/nikita"),
+  fakedl: l => openFakeDL(l),
 };
 
 const Links = {

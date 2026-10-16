@@ -524,3 +524,23 @@ html, body {
   content: ""; position: absolute; left: -3px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%;
   background: #7be3a1; box-shadow: 0 0 0 2px rgba(14,14,18,.9);
 }
+
+/* ================= «загрузчик» (fakedl, прикол) ================= */
+.fdl { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.fdl-file { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; word-break: break-all; }
+.fdl-glyph { font-size: 26px; flex: none; }
+.fdl-bar { height: 14px; border-radius: 8px; background: rgba(255,255,255,0.08);
+  border: 1px solid var(--glass-border); overflow: hidden; }
+.fdl-fill { height: 100%; width: 0; border-radius: 8px;
+  background: linear-gradient(90deg, var(--accent), #b9d0ff);
+  background-size: 28px 28px; transition: width .4s linear;
+  box-shadow: 0 0 12px rgba(138,180,255,0.45);
+  animation: fdl-stripes 1s linear infinite;
+  background-image: linear-gradient(90deg, var(--accent), #b9d0ff),
+    repeating-linear-gradient(45deg, rgba(255,255,255,.18) 0 8px, transparent 8px 16px); }
+@keyframes fdl-stripes { to { background-position: 0 0, 28px 0; } }
+.fdl-pct { text-align: center; font: 600 15px ui-monospace, monospace; letter-spacing: .3px; }
+.fdl-stats { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.fdl-line { font-variant-numeric: tabular-nums; }
+.fdl-joke { margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--glass-border);
+  font-size: 11.5px; color: var(--muted); text-align: center; font-style: italic; }
