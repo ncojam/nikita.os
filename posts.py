@@ -30,14 +30,24 @@ from pathlib import Path
 log = logging.getLogger("nikita.os")
 
 # ---- лимиты (можно переопределить переменными окружения) ----
+TITLE_MAX = int(os.environ.get("NOS_POST_TITLE_MAX", "80"))         # длина названия записи
 TEXT_MAX = int(os.environ.get("NOS_POST_TEXT_MAX", "560"))          # длина текста записи
 IMG_MAX_BYTES = int(os.environ.get("NOS_POST_IMG_MAX", str(64 * 1024)))  # потолок размера картинки
 IMG_MAX_DIM = int(os.environ.get("NOS_POST_IMG_DIM", "256"))        # сторона картинки, px
 STORE_CAP = int(os.environ.get("NOS_POST_STORE_CAP", str(200 * 1024 * 1024)))  # весь склад картинок
-PER_USER_MAX = int(os.environ.get("NOS_POST_PER_USER", "60"))       # записей на пользователя
-CREATE_EVERY = float(os.environ.get("NOS_POST_CREATE_EVERY", "5"))  # не чаще раза в N секунд на пользователя
+PER_USER_MAX = int(os.environ.get("NOS_POST_PER_USER", "60"))       # записей на пользователя (жёсткий потолок)
+# антиспам по частоте: пока во всей системе меньше BOOST_UNTIL постов — «разгон» (раз в BOOST_EVERY),
+# дальше обычный режим: один пост в сутки (UTC-календарные)
+BOOST_UNTIL = int(os.environ.get("NOS_POST_BOOST_UNTIL", "64"))
+BOOST_EVERY = float(os.environ.get("NOS_POST_BOOST_EVERY", str(30 * 60)))  # 30 минут
+DAY = 24 * 3600
 REPORT_HIDE = int(os.environ.get("NOS_POST_REPORT_HIDE", "2"))      # сколько РАЗНЫХ жалобщиков прячут картинку
 NAME_SUFFIX = ".запись"
+
+
+def clean_title(s):
+    s = _CTRL.sub("", str(s or "").replace("\n", " ")).strip()
+    return s[:TITLE_MAX].strip()
 
 _BAD = re.compile(r"[/\\\x00]")
 # тот же набор управляющих/невидимых символов, что чистит чат
@@ -107,7 +117,10 @@ class Posts:
     """Хранилище записей. user_of(request) -> (uid, nick) | None (берём из chat.user_by_token)."""
 
     def __init__(self, ufs_root, user_of, client_ip=None, old_dir=None):
-        self.data_dir = Path(ufs_root)        # всё пользовательское живёт под /ufs
+        self.base = Path(ufs_root)
+        # внутреннее (индекс, соль, картинки) — в .meta: имя с точкой НЕ отдаётся в веб,
+        # но на диске под /ufs админу видно. Снаружи ни mod_salt, ни posts.json не скачать.
+        self.data_dir = self.base / ".meta"
         self.media = self.data_dir / "media"
         self.path = self.data_dir / "posts.json"
         self.user_of = user_of
@@ -116,7 +129,8 @@ class Posts:
         self.rate = {}   # uid -> время последнего создания
         self.dirty = False
         self.dir_ok = None            # колбэк от server: существует ли общая папка (fs|ufs)
-        self._migrate(old_dir)         # разовый перенос старого хранилища из /data в /ufs
+        # забираем хранилище из прежних (отдававшихся!) мест в закрытый .meta
+        self._migrate([self.base, Path(old_dir) if old_dir else None])
         self.salt = self._load_salt()  # для хэша IP при модерации — переживает перезапуск
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
@@ -124,24 +138,26 @@ class Posts:
         except (FileNotFoundError, ValueError, OSError):
             pass
 
-    def _migrate(self, old_dir):
-        """Переезд posts.json/media/mod_salt из старого /data под /ufs (один раз)."""
-        if not old_dir:
-            return
-        old = Path(old_dir)
-        if old.resolve() == self.data_dir.resolve():
-            return
+    def _migrate(self, old_dirs):
+        """Перенести posts.json/media/mod_salt из прежних мест в закрытый .meta (один раз)."""
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
-            for name in ("posts.json", "mod_salt"):
-                src, dst = old / name, self.data_dir / name
-                if src.exists() and not dst.exists():
-                    shutil.move(str(src), str(dst))
-            src_media, dst_media = old / "media", self.media
-            if src_media.is_dir() and not dst_media.exists():
-                shutil.move(str(src_media), str(dst_media))
         except OSError as e:
-            log.warning("перенос записей в /ufs не удался: %s", e)
+            log.warning("не создать .meta: %s", e)
+            return
+        for old in old_dirs:
+            if not old or old.resolve() == self.data_dir.resolve():
+                continue
+            try:
+                for name in ("posts.json", "mod_salt"):
+                    src, dst = old / name, self.data_dir / name
+                    if src.is_file() and not dst.exists():
+                        shutil.move(str(src), str(dst))
+                src_media = old / "media"
+                if src_media.is_dir() and not self.media.exists():
+                    shutil.move(str(src_media), str(self.media))
+            except OSError as e:
+                log.warning("перенос записей в .meta не удался: %s", e)
 
     def _load_salt(self):
         sp = self.data_dir / "mod_salt"
@@ -202,7 +218,7 @@ class Posts:
         return (d + "/" + p["name"]) if d else "/" + p["name"]
 
     def public(self, pid, p):
-        return {"id": pid, "author": p["nick"], "text": p.get("text", ""),
+        return {"id": pid, "author": p["nick"], "title": p.get("title", ""), "text": p.get("text", ""),
                 "img": bool(p.get("img")), "img_hidden": bool(p.get("hidden")),
                 "created": p.get("created", 0), "edited": p.get("edited", 0)}
 
@@ -248,23 +264,37 @@ class Posts:
                 return cand
         return base + "-" + secrets.token_hex(3) + NAME_SUFFIX
 
-    def create(self, request, vdir, base, text):
+    def _last_post_time(self, uid):
+        return max((p.get("created", 0) for p in self.posts.values() if p["uid"] == uid), default=0)
+
+    def create(self, request, vdir, title, text):
         u = self.user_of(request)
         if not u:
             return None, "нужно войти в чат"
         uid, nick = u
         now = time.time()
-        last = self.rate.get(uid, 0)
-        if now - last < CREATE_EVERY:
-            return None, "слишком часто — подождите пару секунд"
+        # антиспам по частоте: разгон (раз в 30 мин), пока в системе мало постов; дальше — раз в сутки
+        last = self._last_post_time(uid)
+        if len(self.posts) < BOOST_UNTIL:
+            if now - last < BOOST_EVERY:
+                mins = int((BOOST_EVERY - (now - last)) / 60) + 1
+                return None, f"пока можно один пост в 30 минут — подождите ещё ~{mins} мин"
+        else:
+            # один пост за UTC-календарные сутки
+            today = int(now) // DAY
+            if last and int(last) // DAY == today:
+                return None, "сегодня вы уже постили — следующий можно завтра (по UTC)"
+        title = clean_title(title)
+        if not title:
+            return None, "у записи должно быть название"
         vdir = "/" + str(vdir or "/").strip("/")
         # запись можно создать только в существующей общей папке (fs или ufs),
         # не в локальной браузерной — там это должен быть локальный черновик
         if self.dir_ok and not self.dir_ok(vdir):
             return None, "здесь нельзя создать запись (это локальная папка?)"
-        name = self._free_name(vdir, clean_name(base))
+        name = self._free_name(vdir, clean_name(title))
         pid = secrets.token_urlsafe(9)
-        self.posts[pid] = {"dir": vdir, "name": name, "uid": uid, "nick": nick,
+        self.posts[pid] = {"dir": vdir, "name": name, "title": title, "uid": uid, "nick": nick,
                            "text": clean_text(text), "img": False,
                            "created": int(now), "edited": int(now)}
         self.rate[uid] = now
@@ -419,13 +449,24 @@ class Posts:
             self.posts.pop(pid, None)
 
     def _enforce_store_cap(self):
-        # пока склад картинок больше потолка — сносим самые старые записты с картинками
+        # склад переполнен — чистим по старшинству. Сначала снимаем КАРТИНКИ у старых постов
+        # (текст живёт дальше), и лишь если и этого мало — удаляем сами старые посты.
         if self.store_size() <= STORE_CAP:
             return
         with_img = sorted((p.get("created", 0), pid) for pid, p in self.posts.items() if p.get("img"))
         for _, pid in with_img:
             if self.store_size() <= STORE_CAP:
                 break
-            self._rm_media(pid)
-            self.posts.pop(pid, None)
+            self._rm_media(pid)              # сносим только файл картинки
+            self.posts[pid]["img"] = False   # пост остаётся, картинки у него больше нет
+            self.posts[pid]["img_gc"] = True
             self.dirty = True
+        # если всё ещё над лимитом (картинок уже нет, а весит много — вряд ли, но подстрахуемся):
+        if self.store_size() > STORE_CAP:
+            old = sorted((p.get("created", 0), pid) for pid, p in self.posts.items())
+            for _, pid in old:
+                if self.store_size() <= STORE_CAP:
+                    break
+                self._rm_media(pid)
+                self.posts.pop(pid, None)
+                self.dirty = True

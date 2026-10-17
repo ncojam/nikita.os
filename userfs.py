@@ -22,7 +22,7 @@ import shutil
 import time
 from pathlib import Path
 
-MAX_PER_USER = int(os.environ.get("NOS_UFS_MAX_FOLDERS", "4"))
+MAX_PER_USER = int(os.environ.get("NOS_UFS_MAX_FOLDERS", "2"))
 MAX_DEPTH = int(os.environ.get("NOS_UFS_MAX_DEPTH", "5"))
 MAX_SUB = int(os.environ.get("NOS_UFS_MAX_SUB", "1"))
 
@@ -46,21 +46,32 @@ class Folders:
     """user_of(request) -> (uid, nick) | None. purge_dir(vprefix) сносит записи внутри (из posts)."""
 
     def __init__(self, ufs_root, user_of, purge_dir=None):
-        self.root = Path(ufs_root)
+        self.root = Path(ufs_root)           # каталоги папок — здесь (отдаются в веб)
         self.user_of = user_of
         self.purge_dir = purge_dir           # колбэк: удалить записи в поддереве
-        self.path = self.root / "folders.json"
+        self.meta = self.root / ".meta"      # индекс владения — в закрытом .meta
+        self.path = self.meta / "folders.json"
         self.map = {}                        # vpath -> {uid, nick, created}
+        self._migrate()                      # забрать folders.json из прежнего (отдававшегося) места
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             self.map = {k: v for k, v in raw.items() if isinstance(v, dict) and "uid" in v}
         except (OSError, ValueError):
             pass
 
+    def _migrate(self):
+        old = self.root / "folders.json"
+        try:
+            self.meta.mkdir(parents=True, exist_ok=True)
+            if old.is_file() and not self.path.exists():
+                shutil.move(str(old), str(self.path))
+        except OSError:
+            pass
+
     # ---------- диск ----------
     def save(self):
         try:
-            self.root.mkdir(parents=True, exist_ok=True)
+            self.meta.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.map, ensure_ascii=False, indent=1), encoding="utf-8")
             os.replace(tmp, self.path)

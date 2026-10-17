@@ -10,6 +10,7 @@ import { WM } from "../wm.js";
  * Картинку жмём в браузере (canvas → 256px JPEG-шакал). На сервер — отдельным файлом,
  * в черновик — data-URL внутри самого файла записи.
  */
+const TITLE_MAX = 80;
 const TEXT_MAX = 560;
 const IMG_DIM = 256;
 const IMG_LIMIT = 60 * 1024;
@@ -94,6 +95,7 @@ async function openPost(path) {
           el("span", { className: "post-ava", textContent: draft ? "📝" : "👤" }),
           el("div", {}, el("div", { className: "post-author", textContent: draft ? "Черновик" : data.author }),
             el("div", { className: "post-time", textContent: fmtStamp(data.edited || data.created) + when }))));
+        if (data.title) wrap.append(el("div", { className: "post-title", textContent: data.title }));
         if (data.text) wrap.append(el("div", { className: "post-text", textContent: data.text }));
         if (imgHidden) wrap.append(el("div", { className: "post-hidden", textContent: "🚫 Картинка скрыта на проверке" }));
         else if (imgSrc) {
@@ -197,6 +199,8 @@ function createPost(dir, onDone) {
   WM.open({ title: "Новая запись", icon: "📝", width: 440, height: 400, key: "post-new:" + dir,
     render(c, w) {
       let imgBlob = null;
+      const titleInput = el("input", { className: "post-title-input", type: "text", maxLength: TITLE_MAX,
+        placeholder: "Название записи" });
       const ta = el("textarea", { className: "post-edit", rows: 5, maxLength: TEXT_MAX,
         placeholder: "Что нового? (до " + TEXT_MAX + " символов)" });
       const preview = el("div", { className: "post-prev" });
@@ -227,14 +231,16 @@ function createPost(dir, onDone) {
       }).catch(() => {});
 
       publish.onclick = async () => {
+        const title = titleInput.value.trim();
         const text = ta.value.trim();
+        if (!title) return notify("Дайте записи название");
         if (!text && !imgBlob) return notify("Пустую запись не делаем");
         publish.disabled = true;
-        const base = (text.split("\n")[0] || "Запись").slice(0, 24).trim() || "Запись";
         const local = VFS.ready && await VFS.isLocal(dir).catch(() => false);
 
         if (local) {   // ---- локальный черновик ----
-          const draft = { draft: true, text, img: imgBlob ? await blobToDataURL(imgBlob) : null,
+          const base = title.slice(0, 40).replace(/[/\\\x00]/g, "") || "Черновик";
+          const draft = { draft: true, title, text, img: imgBlob ? await blobToDataURL(imgBlob) : null,
             created: now(), edited: now() };
           try { await VFS.writeFile(joinPath(dir, base + ".запись"), JSON.stringify(draft), "application/json"); }
           catch (e) { notify("⚠ " + e.message); publish.disabled = false; return; }
@@ -245,7 +251,7 @@ function createPost(dir, onDone) {
 
         // ---- серверная публикация ----
         const r = await fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dir, name: base, text }) });
+          body: JSON.stringify({ dir, title, text }) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { notify(d.error || "Не опубликовалось"); publish.disabled = false; return; }
         if (imgBlob) {
@@ -259,9 +265,9 @@ function createPost(dir, onDone) {
         openPost(d.path);
       };
 
-      c.append(el("div", { className: "post-new" }, ta, el("div", { className: "post-new-row" }, attach), preview, drop, where,
+      c.append(el("div", { className: "post-new" }, titleInput, ta, el("div", { className: "post-new-row" }, attach), preview, drop, where,
         el("div", { className: "post-actions" }, publish)));
-      ta.focus();
+      titleInput.focus();
     } });
 }
 

@@ -470,7 +470,8 @@ async def _json_body(request):
 
 async def api_posts_create(request):
     body = await _json_body(request)
-    pid, err = request.app["posts"].create(request, body.get("dir"), body.get("name"), body.get("text"))
+    title = body.get("title") or body.get("name")   # name — для совместимости
+    pid, err = request.app["posts"].create(request, body.get("dir"), title, body.get("text"))
     if err:
         return json_response({"error": err}, 400)
     post = request.app["posts"].posts[pid]
