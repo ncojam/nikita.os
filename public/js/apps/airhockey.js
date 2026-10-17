@@ -61,15 +61,15 @@ function openAirHockey() {
       cv.onpointermove = e => {
         const r = cv.getBoundingClientRect();
         const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-        const active = y <= TOP_ACTIVE || y >= BOT_ACTIVE;
-        if (active && (x < 0 || x > 1)) return;
+        const active = (y <= TOP_ACTIVE || y >= BOT_ACTIVE) && x >= 0 && x <= 1;
+        cv.classList.toggle("playing", active && canPlay);   // курсор прячем только когда играешь
         if (active) {
           inActive = true;
           if (canPlay) sendMove(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)));
-          else { playNah(); }
-        } else if (inActive) { inActive = false; sendLeave(); }
+          else playNah();
+        } else if (inActive) { inActive = false; cv.classList.remove("playing"); sendLeave(); }
       };
-      cv.onpointerleave = () => { if (inActive) { inActive = false; sendLeave(); } };
+      cv.onpointerleave = () => { cv.classList.remove("playing"); if (inActive) { inActive = false; sendLeave(); } };
 
       /* ---------- отрисовка ---------- */
       function draw() {
@@ -77,12 +77,18 @@ function openAirHockey() {
         ctx.clearRect(0, 0, W, H);
         // поле
         ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.fillRect(0, 0, W, H);
-        // мёртвая зона (середина) и активные зоны
-        ctx.fillStyle = "rgba(138,180,255,0.07)";
+        // активные зоны (у ворот) — ярче, с подписью; середина — мёртвая
+        ctx.fillStyle = "rgba(138,180,255,0.13)";
         ctx.fillRect(0, 0, W, TOP_ACTIVE * H);
         ctx.fillRect(0, BOT_ACTIVE * H, W, (1 - BOT_ACTIVE) * H);
-        ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.setLineDash([6, 6]);
+        ctx.strokeStyle = "rgba(138,180,255,0.4)"; ctx.setLineDash([5, 5]);
+        line(0, TOP_ACTIVE * H, W, TOP_ACTIVE * H);
+        line(0, BOT_ACTIVE * H, W, BOT_ACTIVE * H);
+        ctx.strokeStyle = "rgba(255,255,255,0.1)";
         line(0, 0.5 * H, W, 0.5 * H); ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(138,180,255,0.5)"; ctx.font = "11px system-ui"; ctx.textAlign = "center";
+        ctx.fillText("игровая зона", W / 2, TOP_ACTIVE * H - 6);
+        ctx.fillText("игровая зона", W / 2, BOT_ACTIVE * H + 16);
         // ворота
         ctx.strokeStyle = "rgba(123,227,161,0.9)"; ctx.lineWidth = 4;
         line(GOAL_L * W, 2, GOAL_R * W, 2);
