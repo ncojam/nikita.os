@@ -6,8 +6,6 @@ import { WM } from "../wm.js";
  * Мышь в активной зоне = играешь (сервер даёт слот). Нет мест → звук nah.wav.
  * Вся физика и счёт — на сервере, клиент рисует состояние и шлёт позицию курсора.
  */
-const TOP_ACTIVE = 0.25, BOT_ACTIVE = 0.75;
-const GOAL_L = 0.33, GOAL_R = 0.67;
 const PAD_H = 0.022, BALL_R = 0.02;
 const NAH = "/apps/airhockey/nah.wav";
 
@@ -23,14 +21,17 @@ function openAirHockey() {
       const ctx = cv.getContext("2d");
       let state = { ball: { x: .5, y: .5 }, pads: [], pw: .22, score: { top: 0, bottom: 0 }, last: [], players: 0, cap: 8 };
       let W = 0, H = 0;
+      let TOP_ACTIVE = 0.35, BOT_ACTIVE = 0.65, GOAL_L = 0.33, GOAL_R = 0.67;   // придут из hello
       const nah = new Audio(NAH); nah.volume = 0.6;
       let nahCooldown = 0, canPlay = false;
 
-      function resize() {
+      // размер backing store с учётом плотности пикселей — иначе «мыло» на HiDPI
+      function fitCanvas() {
         const r = cv.getBoundingClientRect();
-        W = cv.width = Math.round(r.width); H = cv.height = Math.round(r.height);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+        if (w !== W || h !== H) { W = cv.width = w; H = cv.height = h; }
       }
-      const ro = new ResizeObserver(resize); ro.observe(cv);
 
       /* ---------- WebSocket ---------- */
       let ws = null, closed = false;
@@ -40,7 +41,11 @@ function openAirHockey() {
         ws.onmessage = e => {
           let d; try { d = JSON.parse(e.data); } catch { return; }
           if (d.t === "state") state = d;
-          else if (d.t === "hello") { canPlay = d.can_play; if (!canPlay) hint.textContent = "Войди в чат, чтобы играть (счёт по нику)"; }
+          else if (d.t === "hello") {
+            canPlay = d.can_play;
+            if (typeof d.top === "number") { TOP_ACTIVE = d.top; BOT_ACTIVE = d.bot; GOAL_L = d.goalL; GOAL_R = d.goalR; }
+            hint.textContent = canPlay ? "Веди курсор в светлую зону у ворот" : "Войди в чат, чтобы играть (счёт по нику)";
+          }
           else if (d.t === "full") { playNah(); hint.textContent = "Все места заняты — подожди, пока кто-то выйдет"; }
           else if (d.t === "need_login") { canPlay = false; hint.textContent = "Войди в чат, чтобы играть"; }
         };
@@ -73,6 +78,7 @@ function openAirHockey() {
 
       /* ---------- отрисовка ---------- */
       function draw() {
+        fitCanvas();
         if (!W || !H) { raf = requestAnimationFrame(draw); return; }
         ctx.clearRect(0, 0, W, H);
         // поле
@@ -86,9 +92,6 @@ function openAirHockey() {
         line(0, BOT_ACTIVE * H, W, BOT_ACTIVE * H);
         ctx.strokeStyle = "rgba(255,255,255,0.1)";
         line(0, 0.5 * H, W, 0.5 * H); ctx.setLineDash([]);
-        ctx.fillStyle = "rgba(138,180,255,0.5)"; ctx.font = "11px system-ui"; ctx.textAlign = "center";
-        ctx.fillText("игровая зона", W / 2, TOP_ACTIVE * H - 6);
-        ctx.fillText("игровая зона", W / 2, BOT_ACTIVE * H + 16);
         // ворота
         ctx.strokeStyle = "rgba(123,227,161,0.9)"; ctx.lineWidth = 4;
         line(GOAL_L * W, 2, GOAL_R * W, 2);
@@ -126,12 +129,12 @@ function openAirHockey() {
         hudRaf = requestAnimationFrame(renderHud);
       }
 
-      resize();
+      fitCanvas();
       connect();
       let raf = requestAnimationFrame(draw);
       let hudRaf = requestAnimationFrame(renderHud);
       w.onClose = () => { closed = true; cancelAnimationFrame(raf); cancelAnimationFrame(hudRaf);
-        ro.disconnect(); try { ws?.close(); } catch {} };
+        try { ws?.close(); } catch {} };
     } });
 }
 

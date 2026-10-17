@@ -32,8 +32,11 @@ PAD_H = 0.022                        # толщина платформы
 BALL_R = 0.02
 BALL_V0 = 0.55                       # стартовая скорость мяча (единиц поля в секунду)
 BALL_VMAX = 1.3
-TOP_ACTIVE = 0.25                    # верхняя активная зона: [0, 0.25]
-BOT_ACTIVE = 0.75                    # нижняя активная зона: [0.75, 1]
+# активная зона = 70% от половины стола (половина = 0.5 → активная 0.35 у края).
+# Потом будем менять геймплейно, поэтому вынесено в одно место.
+ACTIVE_FRAC = float(os.environ.get("NOS_AIR_ACTIVE", "0.7"))
+TOP_ACTIVE = 0.5 * ACTIVE_FRAC       # верхняя активная зона: [0, TOP_ACTIVE]
+BOT_ACTIVE = 1.0 - 0.5 * ACTIVE_FRAC # нижняя активная зона: [BOT_ACTIVE, 1]
 
 
 def clamp(v, a, b):
@@ -239,7 +242,8 @@ class AirHockey:
             # зритель без ника: покажем состояние, но слот не дадим
         p = Player(ws, nick or "?")
         self.conns[ws] = p
-        await ws.send_str(json.dumps({"t": "hello", "cap": MAX_PLAYERS, "can_play": bool(nick)}))
+        await ws.send_str(json.dumps({"t": "hello", "cap": MAX_PLAYERS, "can_play": bool(nick),
+                                      "top": TOP_ACTIVE, "bot": BOT_ACTIVE, "goalL": GOAL_L, "goalR": GOAL_R}))
         self.ensure_loop()
         try:
             async for msg in ws:
