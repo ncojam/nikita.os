@@ -656,10 +656,8 @@ html, body {
 .air-row { display: flex; align-items: center; gap: 8px; }
 .air-row .air-last { flex: 1; }
 .air-lb-btn { flex: none; }
-.air-lb { position: absolute; inset: 12px; z-index: 6; border-radius: 14px; padding: 16px 18px;
-  display: flex; flex-direction: column; gap: 10px; background: var(--glass-bg-strong); }
-.air-lb-h { font-weight: 700; font-size: 16px; }
-.air-lb-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.air-lb2 { height: 100%; box-sizing: border-box; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.air-lb2 .btn { align-self: flex-end; }
 .air-lb-row { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 8px; background: rgba(255,255,255,0.05); }
 .air-lb-rank { color: var(--muted); width: 28px; }
 .air-lb-nick { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

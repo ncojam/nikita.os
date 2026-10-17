@@ -69,7 +69,7 @@ DEFAULT_DESKTOP = {
     "02 Projects.lnk": {"name": "Projects", "icon": "📁", "open": "/home/nikita/Projects"},
     "03 Graveblood.lnk": {"name": "Graveblood", "icon": "🕹️",
                           "open": "/home/nikita/Projects/Graveblood 0.0.1.1.5.2 demo.gba"},
-    "08 Аэрохоккей.lnk": {"name": "Аэро-арканоид", "icon": "🏒", "app": "airhockey"},
+    "08 Джус.lnk": {"name": "Джус", "icon": "🍒", "app": "airhockey"},
     "09 Настройки.lnk": {"name": "Настройки", "icon": "⚙️", "app": "settings"},
 }
 

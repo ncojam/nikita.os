@@ -46,7 +46,7 @@ function shake(node, amp, dur = 420) {
 }
 
 function openAirHockey() {
-  WM.open({ title: "Аэро-арканоид", icon: "🏒", width: 560, height: 680, key: "airhockey",
+  WM.open({ title: "Джус", icon: "🍒", width: 560, height: 680, key: "airhockey",
     render(c, w) {
       const cv = el("canvas", { className: "air-cv" });
       const score = el("div", { className: "air-score" });
@@ -313,28 +313,40 @@ function openAirHockey() {
         hudRaf = requestAnimationFrame(renderHud);
       }
 
-      async function openLeaderboard() {
-        if (c.querySelector(".air-lb")) return;
-        const body = el("div", { className: "air-lb-body", textContent: "Загрузка…" });
-        const panel = el("div", { className: "air-lb glass" },
-          el("div", { className: "air-lb-h", textContent: "🏆 Лидерборд" }), body,
-          el("button", { className: "btn small", textContent: "Закрыть", onclick: () => panel.remove() }));
-        c.append(panel);
-        const section = (title, rows, unit) => {
-          const box = el("div", { className: "air-lb-sec" }, el("div", { className: "air-lb-sec-h", textContent: title }));
-          if (!rows.length) box.append(el("div", { className: "air-lb-empty", textContent: "пока пусто" }));
-          else rows.forEach((e, i) => box.append(el("div", { className: "air-lb-row" },
-            el("span", { className: "air-lb-rank", textContent: (i + 1) + "." }),
-            el("span", { className: "air-lb-nick", textContent: e.nick }),
-            el("span", { className: "air-lb-pts" + (e.points < 0 ? " neg" : ""), textContent: e.points + (unit || "") }))));
-          return box;
-        };
-        try {
-          const r = await fetch("/api/air/leaderboard", { cache: "no-store" });
-          const d = await r.json();
-          body.replaceChildren(section("⚽ Очки (гол +1, в свои −1)", d.board || []),
-            section("🔥 Лучшее комбо", d.combo || [], "×"));
-        } catch { body.textContent = "Не удалось загрузить"; }
+      function openLeaderboard() {
+        const lw = 300, lh = 440;
+        const win = WM.open({ title: "Лидерборд — Джус", icon: "🏆", width: lw, height: lh, key: "air-lb",
+          render(cc) {
+            const body = el("div", { className: "air-lb-body", textContent: "Загрузка…" });
+            const refresh = el("button", { className: "btn small", textContent: "⟳ Обновить", onclick: () => load() });
+            cc.append(el("div", { className: "air-lb2" }, body, refresh));
+            const section = (title, rows, unit) => {
+              const box = el("div", { className: "air-lb-sec" }, el("div", { className: "air-lb-sec-h", textContent: title }));
+              if (!rows.length) box.append(el("div", { className: "air-lb-empty", textContent: "пока пусто" }));
+              else rows.forEach((e, i) => box.append(el("div", { className: "air-lb-row" },
+                el("span", { className: "air-lb-rank", textContent: (i + 1) + "." }),
+                el("span", { className: "air-lb-nick", textContent: e.nick }),
+                el("span", { className: "air-lb-pts" + (e.points < 0 ? " neg" : ""), textContent: e.points + (unit || "") }))));
+              return box;
+            };
+            async function load() {
+              body.textContent = "Загрузка…";
+              try {
+                const r = await fetch("/api/air/leaderboard", { cache: "no-store" });
+                const d = await r.json();
+                body.replaceChildren(section("⚽ Очки (гол +1, в свои −1)", d.board || []),
+                  section("🔥 Лучшее комбо", d.combo || [], "×"));
+              } catch { body.textContent = "Не удалось загрузить"; }
+            }
+            load();
+          } });
+        // ставим окно РЯДОМ с игрой (справа, иначе слева/снизу — чтобы не перекрывать поле)
+        const g = w.node.getBoundingClientRect();
+        let left = g.right + 12;
+        if (left + lw > innerWidth - 10) left = g.left - lw - 12;
+        if (left < 10) left = Math.max(10, innerWidth - lw - 10);
+        let top = Math.max(10, Math.min(g.top, innerHeight - 70 - lh));
+        Object.assign(win.node.style, { left: left + "px", top: top + "px" });
       }
 
       fitCanvas(); connect();
