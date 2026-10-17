@@ -326,10 +326,13 @@ class AirHockey:
             if g:
                 self._score(g[0], b["touch"], g[1]); remove.append(b)
             elif b["bounces"] >= SPLIT_AT and len(self.balls) + len(add) - len(remove) < MAX_BALLS:
-                b["bounces"] = 0                 # расщепление: второй мяч с лёгким боковым оффсетом
-                a = math.atan2(b["vy"], b["vx"]) + random.choice((-1, 1)) * 0.22
+                b["bounces"] = 0                 # расщепление: ОБА мяча расходятся от текущего курса
                 sp = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5
-                add.append(self._newball(math.cos(a) * sp, math.sin(a) * sp, b["x"], b["y"], b["touch"]))
+                base = math.atan2(b["vy"], b["vx"])
+                dv = 0.3 + random.uniform(0, 0.12)   # угол расхождения
+                b["vx"], b["vy"] = math.cos(base - dv) * sp, math.sin(base - dv) * sp
+                add.append(self._newball(math.cos(base + dv) * sp, math.sin(base + dv) * sp,
+                                         b["x"], b["y"], b["touch"]))
         for b in remove:
             self.balls.remove(b)
         self.balls += add
