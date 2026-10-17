@@ -16,7 +16,7 @@ const Snd = {
   init() {
     if (this.ctx) return;
     try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
-    for (const n of ["click", "goal", "goal10th", "goal100th", "goal150th"]) {
+    for (const n of ["click", "wall", "goal", "goal10th", "goal100th", "goal150th"]) {
       fetch(SND + n + ".wav").then(r => r.arrayBuffer()).then(a => this.ctx.decodeAudioData(a))
         .then(b => { this.buf[n] = b; }).catch(() => {});
     }
@@ -50,9 +50,11 @@ function openAirHockey() {
     render(c, w) {
       const cv = el("canvas", { className: "air-cv" });
       const score = el("div", { className: "air-score" });
+      const lbBtn = el("button", { className: "btn small air-lb-btn", textContent: "🏆 Лидерборд", onclick: openLeaderboard });
       const feed = el("div", { className: "air-last" });
       const hint = el("div", { className: "air-hint", textContent: "Веди курсор в светлую зону у ворот" });
-      c.append(el("div", { className: "air" }, score, cv, feed, hint));
+      c.append(el("div", { className: "air" }, score, cv,
+        el("div", { className: "air-row" }, feed, lbBtn), hint));
 
       const ctx = cv.getContext("2d");
       let W = 0, H = 0;
@@ -64,7 +66,7 @@ function openAirHockey() {
       let srv = { ball: { x: .5, y: .5, vx: 0, vy: 0 }, pads: [], pw: .22,
                   score: { top: 0, bottom: 0 }, last: [], players: 0, cap: 8, gid: 0, hid: 0, goal: null };
       let srvT = performance.now();
-      let lastGid = 0, lastHid = 0;
+      let lastGid = 0, lastHid = 0, lastWid = 0;
       const pstate = new Map();   // nick -> {rx, ry, prevX, angle, angVel}
       const myTarget = { x: .5, y: .9, active: false };
 
@@ -85,13 +87,14 @@ function openAirHockey() {
           if (d.t === "state") {
             srv = d; srvT = performance.now();
             if (d.hid !== lastHid) { lastHid = d.hid; Snd.play("click", true); }
+            if (d.wid !== lastWid) { lastWid = d.wid; Snd.play("wall", true); }
             if (d.gid !== lastGid) { lastGid = d.gid; onGoal(d.goal); }
           } else if (d.t === "hello") {
             canPlay = d.can_play;
             if (typeof d.top === "number") { TOP_ACTIVE = d.top; BOT_ACTIVE = d.bot; GOAL_L = d.goalL; GOAL_R = d.goalR; }
-            hint.textContent = canPlay ? "Веди курсор в светлую зону у ворот" : "Войди в чат, чтобы играть (счёт по нику)";
+            hint.textContent = d.anon ? "Играешь анонимно — в счёте будет случайный номер (войди в чат для ника)"
+                                      : "Веди курсор в светлую зону у ворот";
           } else if (d.t === "full") { playNah(); hint.textContent = "Все места заняты — подожди, пока кто-то выйдет"; }
-          else if (d.t === "need_login") { canPlay = false; hint.textContent = "Войди в чат, чтобы играть"; }
         };
         ws.onclose = () => { if (!closed) setTimeout(connect, 2000); };
       }
@@ -259,7 +262,35 @@ function openAirHockey() {
         const dt = (now - srvT) / 1000;
         const bx = clamp01(srv.ball.x + srv.ball.vx * dt) * W;
         const by = clamp01(srv.ball.y + srv.ball.vy * dt) * H;
-        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bx, by, BALL_R * Math.min(W, H), 0, 7); ctx.fill();
+        const R = BALL_R * Math.min(W, H);
+        const sp = Math.hypot(srv.ball.vx, srv.ball.vy);
+        const f = Math.max(0, Math.min(1, (sp - 0.6) / 1.8));   // 0 медленно … 1 быстро
+        // цвет свечения: жёлтый → зелёный с ростом скорости
+        const hue = 55 + f * 95;        // 55°(жёлтый) → 150°(зелёный)
+        const glow = `hsl(${hue} 100% 60%)`;
+        // заострённый хвост по направлению движения
+        if (sp > 0.05) {
+          const ang = Math.atan2(srv.ball.vy, srv.ball.vx);
+          const tl = R * (2 + f * 6);   // длина хвоста растёт со скоростью
+          ctx.save(); ctx.translate(bx, by); ctx.rotate(ang);
+          const grad = ctx.createLinearGradient(0, 0, -tl, 0);
+          grad.addColorStop(0, glow); grad.addColorStop(1, "transparent");
+          ctx.fillStyle = grad; ctx.beginPath();
+          ctx.moveTo(0, -R * 0.9); ctx.lineTo(-tl, 0); ctx.lineTo(0, R * 0.9); ctx.closePath(); ctx.fill();
+          ctx.restore();
+        }
+        // свечение + ядро
+        ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = R * (1.5 + f * 4);
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
+        ctx.fillStyle = glow; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
+        ctx.restore();
+        // кольцо запуска после гола: сужается, подсказывая момент старта
+        if (srv.launch_in > 0 && srv.freeze > 0) {
+          const t = srv.launch_in / srv.freeze;            // 1 → 0
+          ctx.strokeStyle = `hsla(${hue} 100% 65% / ${0.4 + 0.5 * (1 - t)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(0.5 * W, 0.5 * H, R + t * R * 6, 0, 7); ctx.stroke();
+        }
         raf = requestAnimationFrame(draw);
       }
       const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -276,6 +307,24 @@ function openAirHockey() {
           ...srv.last.map(s => el("span", { className: "air-nick" + (s.own ? " own" : ""),
             textContent: s.nick + (s.own ? " (в свои)" : "") })));
         hudRaf = requestAnimationFrame(renderHud);
+      }
+
+      async function openLeaderboard() {
+        if (c.querySelector(".air-lb")) return;
+        const panel = el("div", { className: "air-lb glass" }, el("div", { className: "air-lb-h", textContent: "🏆 Лидерборд" }),
+          el("div", { className: "air-lb-list", textContent: "Загрузка…" }));
+        const list = panel.querySelector(".air-lb-list");
+        panel.append(el("button", { className: "btn small", textContent: "Закрыть", onclick: () => panel.remove() }));
+        c.append(panel);
+        try {
+          const r = await fetch("/api/air/leaderboard", { cache: "no-store" });
+          const { board } = await r.json();
+          if (!board.length) { list.textContent = "Пока пусто — забивайте голы!"; return; }
+          list.replaceChildren(...board.map((e, i) => el("div", { className: "air-lb-row" },
+            el("span", { className: "air-lb-rank", textContent: (i + 1) + "." }),
+            el("span", { className: "air-lb-nick", textContent: e.nick }),
+            el("span", { className: "air-lb-pts" + (e.points < 0 ? " neg" : ""), textContent: e.points }))));
+        } catch { list.textContent = "Не удалось загрузить"; }
       }
 
       fitCanvas(); connect();

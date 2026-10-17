@@ -32,8 +32,10 @@ PAD_W0 = 0.22                        # ширина платформы при о
 PAD_WMIN = 0.06
 PAD_H = 0.022                        # толщина платформы
 BALL_R = 0.02
-BALL_V0 = 0.55                       # стартовая скорость мяча (единиц поля в секунду)
-BALL_VMAX = 1.3
+BALL_V0 = float(os.environ.get("NOS_AIR_V0", "0.75"))    # стартовая скорость мяча (единиц поля в сек)
+BALL_VMAX = float(os.environ.get("NOS_AIR_VMAX", "2.4")) # потолок скорости
+BOUNCE_GAIN = float(os.environ.get("NOS_AIR_GAIN", "0.035"))  # +к скорости за каждый отскок
+FREEZE = float(os.environ.get("NOS_AIR_FREEZE", "0.6"))  # пауза после гола (была 1.2)
 # активная зона = 70% от половины стола (половина = 0.5 → активная 0.35 у края).
 # Потом будем менять геймплейно, поэтому вынесено в одно место.
 ACTIVE_FRAC = float(os.environ.get("NOS_AIR_ACTIVE", "0.7"))
@@ -73,8 +75,10 @@ class AirHockey:
         self.gid = 0              # счётчик голов (клиент по нему триггерит эффекты)
         self.goal_event = None    # последний гол: {side, x, own, nick, score}
         self.hid = 0              # счётчик ударов по платформе (для звука click)
+        self.wid = 0              # счётчик ударов о стену (для звука wall)
+        self.board = {}           # лидерборд: nick -> очки (гол +1, в свои -1)
         self._save_at = 0.0       # троттлинг записи на диск
-        self._load()              # счёт и забившие переживают перезапуск
+        self._load()              # счёт, забившие и лидерборд переживают перезапуск
         self._kick(1)
 
     # ---------- сохранение счёта (переживает рестарт/деплой) ----------
@@ -86,6 +90,7 @@ class AirHockey:
             sc = d.get("score", {})
             self.score = {"top": int(sc.get("top", 0)), "bottom": int(sc.get("bottom", 0))}
             self.last = [x for x in d.get("last", []) if isinstance(x, dict)][:3]
+            self.board = {str(k): int(v) for k, v in d.get("board", {}).items()}
         except (OSError, ValueError, TypeError):
             pass
 
@@ -98,7 +103,8 @@ class AirHockey:
         self._save_at = now
         try:
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"score": self.score, "last": self.last}, ensure_ascii=False), encoding="utf-8")
+            tmp.write_text(json.dumps({"score": self.score, "last": self.last, "board": self.board},
+                                      ensure_ascii=False), encoding="utf-8")
             os.replace(tmp, self.path)
         except OSError:
             pass
@@ -118,23 +124,39 @@ class AirHockey:
                      "vy": (direction or random.choice((-1, 1))) * BALL_V0}
         self.last_touch = None
 
+    def _rand_ip(self):
+        return ".".join(str(random.randint(1, 254)) for _ in range(4))
+
     def _goal(self, side):
         """side — в какие ворота влетел мяч ('top' | 'bottom')."""
         gx = self.ball["x"]            # где пересёк линию ворот (для эпицентра тряски)
         self.score[side] = min(SCORE_MAX, self.score[side] + 1)
-        nick, own = None, False
+        own = False
+        label = self._rand_ip()        # имя забившего по умолчанию — случайный «IP» (аноним)
         if self.last_touch:
-            nick, tside = self.last_touch
+            tnick, tside = self.last_touch
             own = (tside == side)      # коснувшийся был на стороне этих ворот → свой гол
-            self.last.insert(0, {"nick": nick, "own": own})
-            del self.last[3:]
+            if tnick:                  # залогинен — настоящий ник + лидерборд (гол +1, свой -1)
+                label = tnick
+                self.board[tnick] = self.board.get(tnick, 0) + (-1 if own else 1)
+        self.last.insert(0, {"nick": label, "own": own})
+        del self.last[3:]
         self.gid += 1
         self.goal_event = {"side": side, "x": round(gx, 4), "own": own,
-                           "nick": nick, "score": self.score[side]}
-        self.reset_at = time.monotonic() + 1.2
+                           "nick": label, "score": self.score[side]}
+        self.reset_at = time.monotonic() + FREEZE
         self.ball["vx"] = self.ball["vy"] = 0.0
         self.ball["x"], self.ball["y"] = 0.5, 0.5
         self._save()
+
+    def _boost(self):
+        b = self.ball
+        sp = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5
+        if sp <= 1e-6:
+            return
+        target = min(BALL_VMAX, sp * (1 + BOUNCE_GAIN))
+        b["vx"] *= target / sp
+        b["vy"] *= target / sp
 
     def _bounce_paddle(self, p, w):
         """Отражение мяча от платформы игрока p (горизонтальный брусок w×PAD_H)."""
@@ -160,13 +182,9 @@ class AirHockey:
         if vn < 0:
             b["vx"] -= 2 * vn * nx
             b["vy"] -= 2 * vn * ny
-        # «английский» от смещения по платформе + лёгкий разгон
+        # «английский» от смещения по платформе + разгон за отскок
         b["vx"] += (b["x"] - p.x) / hw * 0.25
-        sp = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5
-        boost = min(BALL_VMAX, sp * 1.03)
-        if sp > 1e-6:
-            b["vx"] *= boost / sp
-            b["vy"] *= boost / sp
+        self._boost()
         self.last_touch = (p.nick, p.side)
         return True
 
@@ -178,26 +196,36 @@ class AirHockey:
             self.reset_at = 0.0
             self._kick()
         b = self.ball
-        b["x"] += b["vx"] * DT
-        b["y"] += b["vy"] * DT
-        # боковые стены
-        if b["x"] < BALL_R:
-            b["x"] = BALL_R; b["vx"] = abs(b["vx"])
-        elif b["x"] > 1 - BALL_R:
-            b["x"] = 1 - BALL_R; b["vx"] = -abs(b["vx"])
-        # верх/низ: гол в створе, иначе стена
-        for edge, side in ((0.0, "top"), (1.0, "bottom")):
-            if (side == "top" and b["y"] < BALL_R) or (side == "bottom" and b["y"] > 1 - BALL_R):
-                if GOAL_L < b["x"] < GOAL_R:
-                    self._goal(side)
-                    return
-                b["y"] = BALL_R if side == "top" else 1 - BALL_R
-                b["vy"] = abs(b["vy"]) if side == "top" else -abs(b["vy"])
-        # платформы
+        # субшаги: быстрый мяч не проскакивает сквозь платформу/стену (анти-туннелинг)
+        speed = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5
+        n = max(1, min(24, int(speed * DT / (BALL_R * 0.6)) + 1))
+        sdt = DT / n
         w = self.pad_w()
-        for p in self.pads.values():
-            if p.active and self._bounce_paddle(p, w):
-                self.hid += 1
+        for _ in range(n):
+            b["x"] += b["vx"] * sdt
+            b["y"] += b["vy"] * sdt
+            # боковые стены
+            if b["x"] < BALL_R:
+                b["x"] = BALL_R; b["vx"] = abs(b["vx"]); self._wall()
+            elif b["x"] > 1 - BALL_R:
+                b["x"] = 1 - BALL_R; b["vx"] = -abs(b["vx"]); self._wall()
+            # верх/низ: гол в створе, иначе стена
+            for side in ("top", "bottom"):
+                if (side == "top" and b["y"] < BALL_R) or (side == "bottom" and b["y"] > 1 - BALL_R):
+                    if GOAL_L < b["x"] < GOAL_R:
+                        self._goal(side)
+                        return
+                    b["y"] = BALL_R if side == "top" else 1 - BALL_R
+                    b["vy"] = abs(b["vy"]) if side == "top" else -abs(b["vy"])
+                    self._wall()
+            # платформы
+            for p in self.pads.values():
+                if p.active and self._bounce_paddle(p, w):
+                    self.hid += 1
+
+    def _wall(self):
+        self.wid += 1
+        self._boost()
 
     # ---------- состояние для клиента ----------
     def snapshot(self, me_ws):
@@ -210,7 +238,9 @@ class AirHockey:
                          "vx": round(self.ball["vx"], 4), "vy": round(self.ball["vy"], 4)},
                 "pw": round(w, 4), "pads": pads, "score": self.score, "last": self.last,
                 "players": self.active_count(), "cap": MAX_PLAYERS,
-                "gid": self.gid, "goal": self.goal_event, "hid": self.hid}
+                "gid": self.gid, "goal": self.goal_event, "hid": self.hid, "wid": self.wid,
+                "launch_in": round(max(0.0, self.reset_at - time.monotonic()), 3) if self.reset_at else 0.0,
+                "freeze": FREEZE}
 
     # ---------- цикл ----------
     async def run(self):
@@ -290,11 +320,9 @@ class AirHockey:
             return web.json_response({"error": "Чужой Origin"}, status=403)
         ws = web.WebSocketResponse(heartbeat=25, max_msg_size=4 * 1024)
         await ws.prepare(request)
-        if not nick:
-            await ws.send_str(json.dumps({"t": "need_login"}))
-            # зритель без ника: покажем состояние, но слот не дадим
         self.conns[ws] = nick
-        await ws.send_str(json.dumps({"t": "hello", "cap": MAX_PLAYERS, "can_play": bool(nick),
+        # играть можно всем; аноним в счёте показывается случайным «IP» (генерится на каждый гол)
+        await ws.send_str(json.dumps({"t": "hello", "cap": MAX_PLAYERS, "can_play": True, "anon": not nick,
                                       "top": TOP_ACTIVE, "bot": BOT_ACTIVE, "goalL": GOAL_L, "goalR": GOAL_R}))
         self.ensure_loop()
         try:
@@ -305,16 +333,17 @@ class AirHockey:
                     d = json.loads(msg.data)
                 except ValueError:
                     continue
-                if not nick:
-                    if d.get("t") == "move":
-                        await self._send(ws, {"t": "need_login"})
-                    continue
-                await self.handle(ws, nick, d)
+                await self.handle(ws, nick, d)   # nick может быть None (аноним)
         finally:
             self.conns.pop(ws, None)
             for k in [k for k in self.pads if k[0] is ws]:
                 self.pads.pop(k, None)
         return ws
 
+    async def api_leaderboard(self, request):
+        top = sorted(self.board.items(), key=lambda kv: (-kv[1], kv[0]))[:50]
+        return web.json_response({"board": [{"nick": n, "points": p} for n, p in top]})
+
     def routes(self, app):
         app.router.add_get("/api/air/ws", self.ws_handler)
+        app.router.add_get("/api/air/leaderboard", self.api_leaderboard)
