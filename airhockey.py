@@ -19,12 +19,14 @@ import json
 import os
 import random
 import time
+from pathlib import Path
 
 from aiohttp import web, WSMsgType
 
 FPS = 30
 DT = 1.0 / FPS
 MAX_PLAYERS = int(os.environ.get("NOS_AIR_MAX", "8"))
+SCORE_MAX = int(os.environ.get("NOS_AIR_SCORE_MAX", "999999"))  # потолок счёта команды
 GOAL_L, GOAL_R = 0.33, 0.67         # створ ворот по x
 PAD_W0 = 0.22                        # ширина платформы при одном игроке
 PAD_WMIN = 0.06
@@ -57,8 +59,9 @@ class Player:
 
 
 class AirHockey:
-    def __init__(self, user_of):
+    def __init__(self, user_of, data_dir=None):
         self.user_of = user_of
+        self.path = (Path(data_dir) / "air.json") if data_dir else None
         self.conns = {}           # ws -> nick (жизненный цикл соединения)
         self.pads = {}            # (ws, kind) -> Player; у коннекта может быть 2 платформы
         self.loop_task = None
@@ -70,7 +73,35 @@ class AirHockey:
         self.gid = 0              # счётчик голов (клиент по нему триггерит эффекты)
         self.goal_event = None    # последний гол: {side, x, own, nick, score}
         self.hid = 0              # счётчик ударов по платформе (для звука click)
+        self._save_at = 0.0       # троттлинг записи на диск
+        self._load()              # счёт и забившие переживают перезапуск
         self._kick(1)
+
+    # ---------- сохранение счёта (переживает рестарт/деплой) ----------
+    def _load(self):
+        if not self.path:
+            return
+        try:
+            d = json.loads(self.path.read_text(encoding="utf-8"))
+            sc = d.get("score", {})
+            self.score = {"top": int(sc.get("top", 0)), "bottom": int(sc.get("bottom", 0))}
+            self.last = [x for x in d.get("last", []) if isinstance(x, dict)][:3]
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def _save(self, force=False):
+        if not self.path:
+            return
+        now = time.monotonic()
+        if not force and now - self._save_at < 2.0:   # не чаще раза в 2 с
+            return
+        self._save_at = now
+        try:
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"score": self.score, "last": self.last}, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
 
     # ---------- слоты ----------
     def active_count(self):
@@ -90,7 +121,7 @@ class AirHockey:
     def _goal(self, side):
         """side — в какие ворота влетел мяч ('top' | 'bottom')."""
         gx = self.ball["x"]            # где пересёк линию ворот (для эпицентра тряски)
-        self.score[side] += 1
+        self.score[side] = min(SCORE_MAX, self.score[side] + 1)
         nick, own = None, False
         if self.last_touch:
             nick, tside = self.last_touch
@@ -103,6 +134,7 @@ class AirHockey:
         self.reset_at = time.monotonic() + 1.2
         self.ball["vx"] = self.ball["vy"] = 0.0
         self.ball["x"], self.ball["y"] = 0.5, 0.5
+        self._save()
 
     def _bounce_paddle(self, p, w):
         """Отражение мяча от платформы игрока p (горизонтальный брусок w×PAD_H)."""
@@ -195,6 +227,7 @@ class AirHockey:
                 await asyncio.sleep(DT)
         finally:
             self.loop_task = None
+            self._save(force=True)   # арена опустела — зафиксируем счёт
 
     def ensure_loop(self):
         if self.loop_task is None and self.conns:

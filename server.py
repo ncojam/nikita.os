@@ -705,7 +705,7 @@ def make_app():
     app["posts"].on_gone = app["chat"].drop_comments  # удалили пост → снести его комнату комментов
     # аэро-арканоид — общая арена (игровой цикл спит, пока нет игроков)
     from airhockey import AirHockey
-    app["air"] = AirHockey(app["chat"].user_by_token)
+    app["air"] = AirHockey(app["chat"].user_by_token, DATA_DIR)
     app["air"].routes(app)
     app.router.add_post("/api/folders", api_folders_create)
     app.router.add_post("/api/folders/delete", api_folders_delete)
