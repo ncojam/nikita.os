@@ -66,6 +66,9 @@ class AirHockey:
         self.last = []            # последние забившие: [{nick, own}]
         self.last_touch = None    # (nick, side) кто последним коснулся мяча
         self.reset_at = 0.0       # пауза после гола до
+        self.gid = 0              # счётчик голов (клиент по нему триггерит эффекты)
+        self.goal_event = None    # последний гол: {side, x, own, nick, score}
+        self.hid = 0              # счётчик ударов по платформе (для звука click)
         self._kick(1)
 
     # ---------- слоты ----------
@@ -85,12 +88,17 @@ class AirHockey:
 
     def _goal(self, side):
         """side — в какие ворота влетел мяч ('top' | 'bottom')."""
+        gx = self.ball["x"]            # где пересёк линию ворот (для эпицентра тряски)
         self.score[side] += 1
+        nick, own = None, False
         if self.last_touch:
             nick, tside = self.last_touch
-            own = (tside == side)   # коснувшийся был на стороне этих ворот → свой гол
+            own = (tside == side)      # коснувшийся был на стороне этих ворот → свой гол
             self.last.insert(0, {"nick": nick, "own": own})
             del self.last[3:]
+        self.gid += 1
+        self.goal_event = {"side": side, "x": round(gx, 4), "own": own,
+                           "nick": nick, "score": self.score[side]}
         self.reset_at = time.monotonic() + 1.2
         self.ball["vx"] = self.ball["vy"] = 0.0
         self.ball["x"], self.ball["y"] = 0.5, 0.5
@@ -155,8 +163,8 @@ class AirHockey:
         # платформы
         w = self.pad_w()
         for p in self.conns.values():
-            if p.active:
-                self._bounce_paddle(p, w)
+            if p.active and self._bounce_paddle(p, w):
+                self.hid += 1
 
     # ---------- состояние для клиента ----------
     def snapshot(self, me_ws):
@@ -164,9 +172,12 @@ class AirHockey:
         pads = [{"x": round(p.x, 4), "y": round(p.y, 4), "side": p.side,
                  "me": p.ws is me_ws, "nick": p.nick}
                 for p in self.conns.values() if p.active]
-        return {"t": "state", "ball": {"x": round(self.ball["x"], 4), "y": round(self.ball["y"], 4)},
+        return {"t": "state",
+                "ball": {"x": round(self.ball["x"], 4), "y": round(self.ball["y"], 4),
+                         "vx": round(self.ball["vx"], 4), "vy": round(self.ball["vy"], 4)},
                 "pw": round(w, 4), "pads": pads, "score": self.score, "last": self.last,
-                "players": self.active_count(), "cap": MAX_PLAYERS}
+                "players": self.active_count(), "cap": MAX_PLAYERS,
+                "gid": self.gid, "goal": self.goal_event, "hid": self.hid}
 
     # ---------- цикл ----------
     async def run(self):

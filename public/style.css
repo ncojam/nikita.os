@@ -651,3 +651,5 @@ html, body {
 .air-nick { background: rgba(255,255,255,0.08); border-radius: 6px; padding: 1px 7px; }
 .air-nick.own { background: rgba(255,80,80,0.18); color: #ff9a9a; }
 .air-hint { font-size: 11.5px; color: var(--muted); text-align: center; }
+.air-goal.jub10 { color: var(--accent); text-shadow: 0 0 10px rgba(138,180,255,0.7); }
+.air-goal.jub100 { color: #ffd166; text-shadow: 0 0 12px rgba(255,209,102,0.8); }
