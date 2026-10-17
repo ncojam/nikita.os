@@ -95,8 +95,8 @@ function openAirHockey() {
         };
         ws.onclose = () => { if (!closed) setTimeout(connect, 2000); };
       }
-      const sendMove = (x, y) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "move", x, y })); };
-      const sendLeave = () => { if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "leave" })); };
+      const sendMove = (x, y, slot) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "move", x, y, slot })); };
+      const sendLeave = slot => { if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "leave", slot })); };
       function playNah() { const t = performance.now(); if (t < nahCooldown) return; nahCooldown = t + 1500;
         try { nah.currentTime = 0; nah.play().catch(() => {}); } catch {} }
 
@@ -123,9 +123,9 @@ function openAirHockey() {
         }
       }
 
-      /* ---------- ввод мыши ---------- */
-      let inActive = false;
-      cv.onpointermove = e => {
+      /* ---------- ввод мыши/тача ---------- */
+      let inActive = false, mouseSide = null;
+      function applyPointer(e) {
         Snd.init();
         const r = cv.getBoundingClientRect();
         const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
@@ -133,12 +133,63 @@ function openAirHockey() {
         cv.classList.toggle("playing", active && canPlay);
         if (active) {
           inActive = true;
+          mouseSide = y <= TOP_ACTIVE ? "top" : "bottom";
           myTarget.x = Math.max(0, Math.min(1, x)); myTarget.y = Math.max(0, Math.min(1, y)); myTarget.active = canPlay;
-          if (canPlay) sendMove(myTarget.x, myTarget.y); else playNah();
-        } else if (inActive) { inActive = false; myTarget.active = false; cv.classList.remove("playing"); sendLeave(); }
-      };
-      cv.onpointerleave = () => { cv.classList.remove("playing"); if (inActive) { inActive = false; myTarget.active = false; sendLeave(); } };
-      cv.onpointerdown = () => Snd.init();
+          if (canPlay) sendMove(myTarget.x, myTarget.y, "m"); else playNah();
+        } else if (inActive) { inActive = false; mouseSide = null; myTarget.active = false; cv.classList.remove("playing"); sendLeave("m"); }
+      }
+      cv.onpointermove = applyPointer;
+      cv.onpointerdown = e => { focused = true; applyPointer(e); };   // тап на мобилке = поставить платформу
+      cv.onpointerleave = () => { cv.classList.remove("playing"); if (inActive) { inActive = false; mouseSide = null; myTarget.active = false; sendLeave("m"); } };
+
+      /* ---------- клавиатурная вторая платформа (A/D) ----------
+       * Жёсткая, у ворот на стороне НАПРОТИВ мыши. Линейное ускорение, не выходит за край. */
+      const KB_ACCEL = 2.4, KB_VMAX = 1.6, KB_FRICTION = 6;   // единиц поля в сек
+      const kb = { x: 0.5, vx: 0, active: false, lastInput: 0, left: false, right: false };
+      let focused = true, kbSendT = 0;
+      const opp = s => s === "top" ? "bottom" : "top";
+
+      function onKey(e, down) {
+        if (closed || !focused) return;
+        const ae = document.activeElement;
+        if (ae && /^(INPUT|TEXTAREA)$/.test(ae.tagName)) return;   // не мешаем печатать
+        if (e.code === "KeyA") { kb.left = down; }
+        else if (e.code === "KeyD") { kb.right = down; }
+        else return;
+        e.preventDefault();
+        if (down && canPlay) { kb.active = true; kb.lastInput = performance.now(); Snd.init(); }
+      }
+      const kd = e => onKey(e, true), ku = e => onKey(e, false);
+      document.addEventListener("keydown", kd); document.addEventListener("keyup", ku);
+      // фокус игры: клик по окну игры включает клаву, клик вне — выключает
+      const focusOn = e => { focused = w.node.contains(e.target); };
+      document.addEventListener("pointerdown", focusOn, true);
+
+      function stepKB(dt) {
+        if (!canPlay) { kb.active = false; return; }
+        const side = mouseSide ? opp(mouseSide) : "top";   // напротив мыши (или сверху по умолчанию)
+        // ускорение от клавиш, трение когда ничего не нажато
+        if (kb.left) kb.vx -= KB_ACCEL * dt;
+        if (kb.right) kb.vx += KB_ACCEL * dt;
+        if (!kb.left && !kb.right) {
+          const f = KB_FRICTION * dt;
+          kb.vx = Math.abs(kb.vx) <= f ? 0 : kb.vx - Math.sign(kb.vx) * f;
+        }
+        kb.vx = Math.max(-KB_VMAX, Math.min(KB_VMAX, kb.vx));
+        const hw = srv.pw / 2;
+        kb.x += kb.vx * dt;
+        if (kb.x < hw) { kb.x = hw; kb.vx = 0; }             // не за край окна
+        else if (kb.x > 1 - hw) { kb.x = 1 - hw; kb.vx = 0; }
+        if (kb.left || kb.right) kb.lastInput = performance.now();
+        // отпускаем слот после 3с бездействия и остановки
+        if (!kb.active) return;
+        if (!kb.left && !kb.right && Math.abs(kb.vx) < 1e-3 && performance.now() - kb.lastInput > 3000) {
+          kb.active = false; sendLeave("k"); return;
+        }
+        const yEdge = side === "top" ? PAD_H / 2 + 0.001 : 1 - PAD_H / 2 - 0.001;
+        const now = performance.now();
+        if (now - kbSendT > 30) { kbSendT = now; sendMove(kb.x, yEdge, "k"); }   // ~30/сек серверу
+      }
 
       /* ---------- отрисовка ---------- */
       function drawPaddle(cx, cy, pw, ph, angle, bend, color) {
@@ -160,6 +211,7 @@ function openAirHockey() {
         const now = performance.now();
         const fdt = Math.min(0.05, (now - prevT) / 1000); prevT = now;
         if (!W || !H) { raf = requestAnimationFrame(draw); return; }
+        stepKB(fdt);
         ctx.clearRect(0, 0, W, H);
         // поле
         ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.fillRect(0, 0, W, H);
@@ -177,21 +229,27 @@ function openAirHockey() {
         const pw = srv.pw * W, ph = PAD_H * H;
         const seen = new Set();
         for (const p of srv.pads) {
-          seen.add(p.nick);
-          let st = pstate.get(p.nick);
-          if (!st) { st = { rx: p.x, ry: p.y, prevX: p.x, angle: 0, angVel: 0 }; pstate.set(p.nick, st); }
-          // цель позиции: своя платформа — локальный курсор (без задержки), чужие — к серверной
-          const tx = (p.me && myTarget.active) ? myTarget.x : p.x;
-          const ty = (p.me && myTarget.active) ? myTarget.y : p.y;
+          const id = p.nick + ":" + (p.kind || "m");
+          seen.add(id);
+          let st = pstate.get(id);
+          if (!st) { st = { rx: p.x, ry: p.y, prevX: p.x, angle: 0, angVel: 0 }; pstate.set(id, st); }
+          const rigid = p.kind === "k";   // клавиатурная — жёсткая, без наклона и гибкости
+          // своя мышиная платформа — по локальному курсору; клавиатурная — по локальному kb; чужие — к серверной
+          const mine = p.me && p.kind !== "k" && myTarget.active;
+          const tx = p.me && p.kind === "k" ? kb.x : (mine ? myTarget.x : p.x);
+          const ty = p.me && p.kind === "k" ? p.y : (mine ? myTarget.y : p.y);
           const k = p.me ? 0.6 : 0.25;
           st.rx += (tx - st.rx) * k; st.ry += (ty - st.ry) * k;
-          // скорость по X → целевой наклон; пружина с демпфером (дуга «отыгрывает»)
-          const vx = (st.rx - st.prevX) / Math.max(fdt, 1e-3); st.prevX = st.rx;
-          const target = Math.max(-0.5, Math.min(0.5, vx * 1.1));
-          st.angVel += ((target - st.angle) * 55 - st.angVel * 9) * fdt;
-          st.angle += st.angVel * fdt;
-          const bend = Math.max(-ph, Math.min(ph, st.angVel * ph * 0.25));
-          drawPaddle(st.rx * W, st.ry * H, pw, ph, st.angle, bend, p.me ? "#8ab4ff" : "rgba(255,255,255,0.7)");
+          if (rigid) { st.angle = 0; st.angVel = 0; st.prevX = st.rx; }
+          else {
+            const vx = (st.rx - st.prevX) / Math.max(fdt, 1e-3); st.prevX = st.rx;
+            const target = Math.max(-0.5, Math.min(0.5, vx * 1.1));
+            st.angVel += ((target - st.angle) * 55 - st.angVel * 9) * fdt;
+            st.angle += st.angVel * fdt;
+          }
+          const bend = rigid ? 0 : Math.max(-ph, Math.min(ph, st.angVel * ph * 0.25));
+          const color = p.me ? (rigid ? "#7be3a1" : "#8ab4ff") : "rgba(255,255,255,0.7)";
+          drawPaddle(st.rx * W, st.ry * H, pw, ph, st.angle, bend, color);
           if (!p.me && p.nick) { ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = Math.round(ph * 0.9) + "px system-ui";
             ctx.textAlign = "center"; ctx.fillText(p.nick, st.rx * W, st.ry * H - ph); }
         }
@@ -223,7 +281,9 @@ function openAirHockey() {
       fitCanvas(); connect();
       let raf = requestAnimationFrame(draw);
       let hudRaf = requestAnimationFrame(renderHud);
-      w.onClose = () => { closed = true; cancelAnimationFrame(raf); cancelAnimationFrame(hudRaf); try { ws?.close(); } catch {} };
+      w.onClose = () => { closed = true; cancelAnimationFrame(raf); cancelAnimationFrame(hudRaf);
+        document.removeEventListener("keydown", kd); document.removeEventListener("keyup", ku);
+        document.removeEventListener("pointerdown", focusOn, true); try { ws?.close(); } catch {} };
     } });
 }
 

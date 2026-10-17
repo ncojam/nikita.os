@@ -44,22 +44,23 @@ def clamp(v, a, b):
 
 
 class Player:
-    __slots__ = ("ws", "nick", "x", "y", "side", "active", "last_move")
+    __slots__ = ("ws", "nick", "kind", "x", "y", "side", "active")
 
-    def __init__(self, ws, nick):
+    def __init__(self, ws, nick, kind="m"):
         self.ws = ws
         self.nick = nick
+        self.kind = kind         # "m" — мышь/тач, "k" — клавиатура (вторая платформа)
         self.x = 0.5
         self.y = 0.9
         self.side = "bottom"
-        self.active = False      # держит ли слот (курсор в активной зоне)
-        self.last_move = 0.0
+        self.active = False      # держит ли слот (курсор/клавиши в активной зоне)
 
 
 class AirHockey:
     def __init__(self, user_of):
         self.user_of = user_of
-        self.conns = {}           # ws -> Player
+        self.conns = {}           # ws -> nick (жизненный цикл соединения)
+        self.pads = {}            # (ws, kind) -> Player; у коннекта может быть 2 платформы
         self.loop_task = None
         self.ball = {"x": 0.5, "y": 0.5, "vx": 0.0, "vy": 0.0}
         self.score = {"top": 0, "bottom": 0}
@@ -73,7 +74,7 @@ class AirHockey:
 
     # ---------- слоты ----------
     def active_count(self):
-        return sum(1 for p in self.conns.values() if p.active)
+        return sum(1 for p in self.pads.values() if p.active)
 
     def pad_w(self):
         n = max(1, self.active_count())
@@ -162,16 +163,16 @@ class AirHockey:
                 b["vy"] = abs(b["vy"]) if side == "top" else -abs(b["vy"])
         # платформы
         w = self.pad_w()
-        for p in self.conns.values():
+        for p in self.pads.values():
             if p.active and self._bounce_paddle(p, w):
                 self.hid += 1
 
     # ---------- состояние для клиента ----------
     def snapshot(self, me_ws):
         w = self.pad_w()
-        pads = [{"x": round(p.x, 4), "y": round(p.y, 4), "side": p.side,
+        pads = [{"x": round(p.x, 4), "y": round(p.y, 4), "side": p.side, "kind": p.kind,
                  "me": p.ws is me_ws, "nick": p.nick}
-                for p in self.conns.values() if p.active]
+                for p in self.pads.values() if p.active]
         return {"t": "state",
                 "ball": {"x": round(self.ball["x"], 4), "y": round(self.ball["y"], 4),
                          "vx": round(self.ball["vx"], 4), "vy": round(self.ball["vy"], 4)},
@@ -207,8 +208,10 @@ class AirHockey:
             return "bottom"
         return None
 
-    async def handle(self, p, d):
+    async def handle(self, ws, nick, d):
         t = d.get("t")
+        kind = "k" if d.get("slot") == "k" else "m"   # m — мышь/тач, k — клавиатура
+        key = (ws, kind)
         if t == "move":
             try:
                 x = clamp(float(d.get("x")), 0.0, 1.0)
@@ -216,14 +219,18 @@ class AirHockey:
             except (TypeError, ValueError):
                 return
             side = self._in_active(y)
+            p = self.pads.get(key)
             if side is None:
-                p.active = False     # курсор ушёл в мёртвую зону/за поле
+                if p:
+                    p.active = False     # ушёл в мёртвую зону/за поле
                 return
-            if not p.active:
-                # хочет занять слот
+            if p is None or not p.active:
                 if self.active_count() >= MAX_PLAYERS:
-                    p.active = False
-                    return await self._send(p, {"t": "full"})
+                    if p:
+                        p.active = False
+                    return await self._send(ws, {"t": "full"})
+                if p is None:
+                    p = self.pads[key] = Player(ws, nick, kind)
                 p.active = True
             w = self.pad_w()
             p.side = side
@@ -231,12 +238,14 @@ class AirHockey:
             lo, hi = (0.0, TOP_ACTIVE) if side == "top" else (BOT_ACTIVE, 1.0)
             p.y = clamp(y, lo + PAD_H / 2, hi - PAD_H / 2)
         elif t == "leave":
-            p.active = False
+            p = self.pads.get(key)
+            if p:
+                p.active = False
 
-    async def _send(self, p, data):
-        if not p.ws.closed:
+    async def _send(self, ws, data):
+        if not ws.closed:
             try:
-                await p.ws.send_str(json.dumps(data, ensure_ascii=False))
+                await ws.send_str(json.dumps(data, ensure_ascii=False))
             except Exception:
                 pass
 
@@ -251,8 +260,7 @@ class AirHockey:
         if not nick:
             await ws.send_str(json.dumps({"t": "need_login"}))
             # зритель без ника: покажем состояние, но слот не дадим
-        p = Player(ws, nick or "?")
-        self.conns[ws] = p
+        self.conns[ws] = nick
         await ws.send_str(json.dumps({"t": "hello", "cap": MAX_PLAYERS, "can_play": bool(nick),
                                       "top": TOP_ACTIVE, "bot": BOT_ACTIVE, "goalL": GOAL_L, "goalR": GOAL_R}))
         self.ensure_loop()
@@ -266,11 +274,13 @@ class AirHockey:
                     continue
                 if not nick:
                     if d.get("t") == "move":
-                        await self._send(p, {"t": "need_login"})
+                        await self._send(ws, {"t": "need_login"})
                     continue
-                await self.handle(p, d)
+                await self.handle(ws, nick, d)
         finally:
             self.conns.pop(ws, None)
+            for k in [k for k in self.pads if k[0] is ws]:
+                self.pads.pop(k, None)
         return ws
 
     def routes(self, app):
