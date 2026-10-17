@@ -69,6 +69,7 @@ DEFAULT_DESKTOP = {
     "02 Projects.lnk": {"name": "Projects", "icon": "📁", "open": "/home/nikita/Projects"},
     "03 Graveblood.lnk": {"name": "Graveblood", "icon": "🕹️",
                           "open": "/home/nikita/Projects/Graveblood 0.0.1.1.5.2 demo.gba"},
+    "08 Аэрохоккей.lnk": {"name": "Аэро-арканоид", "icon": "🏒", "app": "airhockey"},
     "09 Настройки.lnk": {"name": "Настройки", "icon": "⚙️", "app": "settings"},
 }
 
@@ -702,6 +703,10 @@ def make_app():
     app["posts"].dir_ok = lambda v: unified_dir_exists(app, v)   # запись — только в общей папке
     app["chat"].posts = app["posts"]            # чату — доступ к постам (титул/проверка для комментов)
     app["posts"].on_gone = app["chat"].drop_comments  # удалили пост → снести его комнату комментов
+    # аэро-арканоид — общая арена (игровой цикл спит, пока нет игроков)
+    from airhockey import AirHockey
+    app["air"] = AirHockey(app["chat"].user_by_token)
+    app["air"].routes(app)
     app.router.add_post("/api/folders", api_folders_create)
     app.router.add_post("/api/folders/delete", api_folders_delete)
     app.router.add_post("/api/posts", api_posts_create)

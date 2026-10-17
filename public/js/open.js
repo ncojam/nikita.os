@@ -4,6 +4,7 @@ import { openSettings } from "./apps/settings.js";
 import { openChat } from "./apps/chat.js";
 import { openFakeDL } from "./apps/fakedl.js";
 import { openPost } from "./apps/post.js";
+import { openAirHockey } from "./apps/airhockey.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";
@@ -96,6 +97,7 @@ const APPS = {
   chat: () => openChat(),
   explorer: l => openExplorer(l.path || "/home/nikita"),
   fakedl: l => openFakeDL(l),
+  airhockey: () => openAirHockey(),
 };
 
 const Links = {
