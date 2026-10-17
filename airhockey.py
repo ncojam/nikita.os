@@ -36,6 +36,10 @@ BALL_V0 = float(os.environ.get("NOS_AIR_V0", "0.75"))    # стартовая с
 BALL_VMAX = float(os.environ.get("NOS_AIR_VMAX", "2.4")) # потолок скорости
 BOUNCE_GAIN = float(os.environ.get("NOS_AIR_GAIN", "0.035"))  # +к скорости за каждый отскок
 FREEZE = float(os.environ.get("NOS_AIR_FREEZE", "0.6"))  # пауза после гола (была 1.2)
+BOT_NICK = "primitiveAI"
+BOT_TRIGGER = int(os.environ.get("NOS_AIR_BOT_GOALS", "3"))   # одиночка забил столько → приходит бот
+BOT_SPEED = float(os.environ.get("NOS_AIR_BOT_SPEED", "0.6")) # скорость бота (лёгкий), units/сек
+BOT_ERR = float(os.environ.get("NOS_AIR_BOT_ERR", "0.09"))   # промах прицела бота
 # активная зона = 70% от половины стола (половина = 0.5 → активная 0.35 у края).
 # Потом будем менять геймплейно, поэтому вынесено в одно место.
 ACTIVE_FRAC = float(os.environ.get("NOS_AIR_ACTIVE", "0.7"))
@@ -77,6 +81,9 @@ class AirHockey:
         self.hid = 0              # счётчик ударов по платформе (для звука click)
         self.wid = 0              # счётчик ударов о стену (для звука wall)
         self.board = {}           # лидерборд: nick -> очки (гол +1, в свои -1)
+        self.bot = None           # Player бота primitiveAI или None
+        self.solo_goals = 0       # сколько забил одиночный игрок (копим до BOT_TRIGGER)
+        self.bot_err = 0.0        # текущий промах прицела бота
         self._save_at = 0.0       # троттлинг записи на диск
         self._load()              # счёт, забившие и лидерборд переживают перезапуск
         self._kick(1)
@@ -113,6 +120,13 @@ class AirHockey:
     def active_count(self):
         return sum(1 for p in self.pads.values() if p.active)
 
+    def human_count(self):
+        return sum(1 for p in self.pads.values() if p.active and p.kind != "bot")
+
+    def _lone_human(self):
+        hs = [p for p in self.pads.values() if p.active and p.kind != "bot"]
+        return hs[0] if len(hs) == 1 else None
+
     def pad_w(self):
         n = max(1, self.active_count())
         return clamp(PAD_W0 / (n ** 0.5), PAD_WMIN, PAD_W0)
@@ -136,9 +150,14 @@ class AirHockey:
         if self.last_touch:
             tnick, tside = self.last_touch
             own = (tside == side)      # коснувшийся был на стороне этих ворот → свой гол
-            if tnick:                  # залогинен — настоящий ник + лидерборд (гол +1, свой -1)
+            if tnick and tnick != BOT_NICK:   # залогинен — ник + лидерборд (гол +1, свой -1)
                 label = tnick
                 self.board[tnick] = self.board.get(tnick, 0) + (-1 if own else 1)
+            elif tnick == BOT_NICK:
+                label = BOT_NICK
+            # одиночный живой игрок забивает (не свой, не бот) → копим до прихода бота
+            if tnick and tnick != BOT_NICK and not own and self.bot is None and self.human_count() == 1:
+                self.solo_goals += 1
         self.last.insert(0, {"nick": label, "own": own})
         del self.last[3:]
         self.gid += 1
@@ -188,8 +207,36 @@ class AirHockey:
         self.last_touch = (p.nick, p.side)
         return True
 
+    def _manage_bot(self):
+        """Лёгкий бот primitiveAI против одиночки: приходит после BOT_TRIGGER голов."""
+        human = self._lone_human()
+        if human is None:                      # никого или двое+ — бота не держим
+            if self.bot is not None:
+                self.pads.pop(("bot", "bot"), None); self.bot = None
+            self.solo_goals = 0
+            return
+        if self.bot is None:
+            if self.solo_goals < BOT_TRIGGER:
+                return
+            self.bot = Player(None, BOT_NICK, "bot")
+            self.bot.active = True; self.bot.x = 0.5
+            self.pads[("bot", "bot")] = self.bot
+        # бот встаёт у ворот НАПРОТИВ игрока и ведёт мяч по X (лениво, с промахом)
+        side = "top" if human.side == "bottom" else "bottom"
+        self.bot.side = side
+        w = self.pad_w()
+        lo, hi = (0.0, TOP_ACTIVE) if side == "top" else (BOT_ACTIVE, 1.0)
+        self.bot.y = (lo + PAD_H / 2) if side == "top" else (hi - PAD_H / 2)
+        if random.random() < 0.03:             # промах прицела меняется изредка
+            self.bot_err = random.uniform(-BOT_ERR, BOT_ERR)
+        target = clamp(self.ball["x"] + self.bot_err, w / 2, 1 - w / 2)
+        d = target - self.bot.x
+        maxd = BOT_SPEED * DT
+        self.bot.x = clamp(self.bot.x + clamp(d, -maxd, maxd), w / 2, 1 - w / 2)
+
     def step(self):
         now = time.monotonic()
+        self._manage_bot()
         if self.reset_at:
             if now < self.reset_at:
                 return
