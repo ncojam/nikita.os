@@ -63,7 +63,7 @@ function openAirHockey() {
       const nah = new Audio(SND + "nah.wav"); nah.volume = 0.6;
 
       // серверное состояние + время получения (для экстраполяции)
-      let srv = { ball: { x: .5, y: .5, vx: 0, vy: 0 }, pads: [], pw: .22,
+      let srv = { balls: [{ x: .5, y: .5, vx: 0, vy: 0 }], pads: [], pw: .22, combo: 0,
                   score: { top: 0, bottom: 0 }, last: [], players: 0, cap: 8, gid: 0, hid: 0, goal: null };
       let srvT = performance.now();
       let lastGid = 0, lastHid = 0, lastWid = 0;
@@ -86,6 +86,7 @@ function openAirHockey() {
           let d; try { d = JSON.parse(e.data); } catch { return; }
           if (d.t === "state") {
             srv = d; srvT = performance.now();
+            if (typeof d.top === "number") { TOP_ACTIVE = d.top; BOT_ACTIVE = d.bot; }  // зона гуляет на событии
             if (d.hid !== lastHid) { lastHid = d.hid; Snd.play("click", true); }
             if (d.wid !== lastWid) { lastWid = d.wid; Snd.play("wall", true); }
             if (d.gid !== lastGid) { lastGid = d.gid; onGoal(d.goal); }
@@ -258,36 +259,37 @@ function openAirHockey() {
         }
         for (const nk of [...pstate.keys()]) if (!seen.has(nk)) pstate.delete(nk);
 
-        // мяч: экстраполяция по вектору между серверными кадрами
+        // мячи: экстраполяция по вектору между серверными кадрами
         const dt = (now - srvT) / 1000;
-        const bx = clamp01(srv.ball.x + srv.ball.vx * dt) * W;
-        const by = clamp01(srv.ball.y + srv.ball.vy * dt) * H;
         const R = BALL_R * Math.min(W, H);
-        const sp = Math.hypot(srv.ball.vx, srv.ball.vy);
-        const f = Math.max(0, Math.min(1, (sp - 0.6) / 1.8));   // 0 медленно … 1 быстро
-        // цвет свечения: жёлтый → зелёный с ростом скорости
-        const hue = 55 + f * 95;        // 55°(жёлтый) → 150°(зелёный)
-        const glow = `hsl(${hue} 100% 60%)`;
-        // заострённый хвост по направлению движения
-        if (sp > 0.05) {
-          const ang = Math.atan2(srv.ball.vy, srv.ball.vx);
-          const tl = R * (2 + f * 6);   // длина хвоста растёт со скоростью
-          ctx.save(); ctx.translate(bx, by); ctx.rotate(ang);
-          const grad = ctx.createLinearGradient(0, 0, -tl, 0);
-          grad.addColorStop(0, glow); grad.addColorStop(1, "transparent");
-          ctx.fillStyle = grad; ctx.beginPath();
-          ctx.moveTo(0, -R * 0.9); ctx.lineTo(-tl, 0); ctx.lineTo(0, R * 0.9); ctx.closePath(); ctx.fill();
+        const balls = srv.balls || [];
+        let lastHue = 90;
+        for (const ball of balls) {
+          const bx = clamp01(ball.x + ball.vx * dt) * W;
+          const by = clamp01(ball.y + ball.vy * dt) * H;
+          const sp = Math.hypot(ball.vx, ball.vy);
+          const f = Math.max(0, Math.min(1, (sp - 0.6) / 1.8));
+          const hue = 55 + f * 95; lastHue = hue;          // жёлтый → зелёный
+          const glow = `hsl(${hue} 100% 60%)`;
+          if (sp > 0.05) {
+            const ang = Math.atan2(ball.vy, ball.vx);
+            const tl = R * (2 + f * 6);
+            ctx.save(); ctx.translate(bx, by); ctx.rotate(ang);
+            const grad = ctx.createLinearGradient(0, 0, -tl, 0);
+            grad.addColorStop(0, glow); grad.addColorStop(1, "transparent");
+            ctx.fillStyle = grad; ctx.beginPath();
+            ctx.moveTo(0, -R * 0.9); ctx.lineTo(-tl, 0); ctx.lineTo(0, R * 0.9); ctx.closePath(); ctx.fill();
+            ctx.restore();
+          }
+          ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = R * (1.5 + f * 4);
+          ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
+          ctx.fillStyle = glow; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
           ctx.restore();
         }
-        // свечение + ядро
-        ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = R * (1.5 + f * 4);
-        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
-        ctx.fillStyle = glow; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
-        ctx.restore();
         // кольцо запуска после гола: сужается, подсказывая момент старта
         if (srv.launch_in > 0 && srv.freeze > 0) {
-          const t = srv.launch_in / srv.freeze;            // 1 → 0
-          ctx.strokeStyle = `hsla(${hue} 100% 65% / ${0.4 + 0.5 * (1 - t)})`;
+          const t = srv.launch_in / srv.freeze;
+          ctx.strokeStyle = `hsla(${lastHue} 100% 65% / ${0.4 + 0.5 * (1 - t)})`;
           ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(0.5 * W, 0.5 * H, R + t * R * 6, 0, 7); ctx.stroke();
         }
@@ -301,7 +303,9 @@ function openAirHockey() {
       function renderHud() {
         score.replaceChildren(
           el("span", { className: "air-goal" + goalCls(srv.score.top), textContent: "▲ " + srv.score.top }),
-          el("span", { className: "air-mid", textContent: `${srv.players}/${srv.cap} игроков` }),
+          el("span", { className: "air-mid" },
+            el("div", { textContent: `${srv.players}/${srv.cap} игроков` }),
+            srv.combo > 1 ? el("div", { className: "air-combo", textContent: "комбо ×" + srv.combo }) : el("div")),
           el("span", { className: "air-goal" + goalCls(srv.score.bottom), textContent: srv.score.bottom + " ▼" }));
         feed.replaceChildren(el("span", { className: "air-last-l", textContent: "Забили:" }),
           ...srv.last.map(s => el("span", { className: "air-nick" + (s.own ? " own" : ""),
@@ -311,20 +315,26 @@ function openAirHockey() {
 
       async function openLeaderboard() {
         if (c.querySelector(".air-lb")) return;
-        const panel = el("div", { className: "air-lb glass" }, el("div", { className: "air-lb-h", textContent: "🏆 Лидерборд" }),
-          el("div", { className: "air-lb-list", textContent: "Загрузка…" }));
-        const list = panel.querySelector(".air-lb-list");
-        panel.append(el("button", { className: "btn small", textContent: "Закрыть", onclick: () => panel.remove() }));
+        const body = el("div", { className: "air-lb-body", textContent: "Загрузка…" });
+        const panel = el("div", { className: "air-lb glass" },
+          el("div", { className: "air-lb-h", textContent: "🏆 Лидерборд" }), body,
+          el("button", { className: "btn small", textContent: "Закрыть", onclick: () => panel.remove() }));
         c.append(panel);
-        try {
-          const r = await fetch("/api/air/leaderboard", { cache: "no-store" });
-          const { board } = await r.json();
-          if (!board.length) { list.textContent = "Пока пусто — забивайте голы!"; return; }
-          list.replaceChildren(...board.map((e, i) => el("div", { className: "air-lb-row" },
+        const section = (title, rows, unit) => {
+          const box = el("div", { className: "air-lb-sec" }, el("div", { className: "air-lb-sec-h", textContent: title }));
+          if (!rows.length) box.append(el("div", { className: "air-lb-empty", textContent: "пока пусто" }));
+          else rows.forEach((e, i) => box.append(el("div", { className: "air-lb-row" },
             el("span", { className: "air-lb-rank", textContent: (i + 1) + "." }),
             el("span", { className: "air-lb-nick", textContent: e.nick }),
-            el("span", { className: "air-lb-pts" + (e.points < 0 ? " neg" : ""), textContent: e.points }))));
-        } catch { list.textContent = "Не удалось загрузить"; }
+            el("span", { className: "air-lb-pts" + (e.points < 0 ? " neg" : ""), textContent: e.points + (unit || "") }))));
+          return box;
+        };
+        try {
+          const r = await fetch("/api/air/leaderboard", { cache: "no-store" });
+          const d = await r.json();
+          body.replaceChildren(section("⚽ Очки (гол +1, в свои −1)", d.board || []),
+            section("🔥 Лучшее комбо", d.combo || [], "×"));
+        } catch { body.textContent = "Не удалось загрузить"; }
       }
 
       fitCanvas(); connect();

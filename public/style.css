@@ -666,3 +666,7 @@ html, body {
 .air-lb-pts { font-variant-numeric: tabular-nums; font-weight: 700; color: #7be3a1; }
 .air-lb-pts.neg { color: #ff9a9a; }
 .air-lb .btn { align-self: flex-end; }
+.air-combo { color: #ffd166; font-weight: 700; font-size: 12px; text-shadow: 0 0 8px rgba(255,209,102,0.7); }
+.air-lb-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.air-lb-sec-h { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.air-lb-empty { color: var(--muted); font-size: 12px; padding: 4px 8px; }
