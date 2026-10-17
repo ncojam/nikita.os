@@ -40,6 +40,10 @@ REG_PER_IP_SEC = 30 * 24 * 3600   # одна регистрация с адре�
 SESSION_TTL = 60 * 24 * 3600
 COOKIE = "nos_chat"
 SIGNAL_MAX = 8 * 1024             # размер одного WebRTC-сигнала
+COMMENT_MAX = 500                 # символов в комментарии
+COMMENT_KEEP = 500                # комментариев на пост храним
+GLOBAL_ROOM = "posts"             # виртуальная комната: лента комментов всех постов
+ROOM_RE = re.compile(r"^post:[A-Za-z0-9_-]{1,64}$")
 
 
 def clean_text(s, limit):
@@ -84,7 +88,11 @@ class ChatDB:
         CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, uid INTEGER, nick TEXT,
             text TEXT, ts INTEGER, ip TEXT);
         CREATE TABLE IF NOT EXISTS ip_log(uid INTEGER, ip TEXT, ts INTEGER, what TEXT);
+        -- комментарии к постам: pid — id поста, reply_to — id родительского коммента (или NULL)
+        CREATE TABLE IF NOT EXISTS comments(id INTEGER PRIMARY KEY, pid TEXT, uid INTEGER, nick TEXT,
+            text TEXT, ts INTEGER, ip TEXT, reply_to INTEGER);
         CREATE INDEX IF NOT EXISTS users_regip ON users(reg_ip, created);
+        CREATE INDEX IF NOT EXISTS comments_pid ON comments(pid, id);
         """)
         self.db.commit()
 
@@ -105,6 +113,9 @@ class Chat:
         self.allow = defaultdict(set)           # nick -> с кем согласен на P2P (присылает клиент)
         self.pending = defaultdict(set)         # кому -> от кого ждёт ответа запрос на личку
         self.req_times = defaultdict(deque)     # nick -> времена отправленных запросов
+        self.rooms = defaultdict(set)           # имя комнаты -> {ws}, кто сейчас её смотрит
+        self.crate = {}                         # nick -> время последнего коммента (антиспам)
+        self.posts = None                       # ссылка на Posts (ставится в make_app) — титул/проверка поста
 
     # ---------- аккаунты ----------
     def user_by_token(self, request):
@@ -235,6 +246,8 @@ class Chat:
                     continue
                 await self.handle(uid, nick, ws, data, request)
         finally:
+            for socks in self.rooms.values():   # снимаем подписки этого сокета на комнаты
+                socks.discard(ws)
             self.online[nick].discard(ws)
             if not self.online[nick]:
                 del self.online[nick]
@@ -314,6 +327,18 @@ class Chat:
             to = d.get("nick")
             if isinstance(to, str):
                 await ws.send_str(json.dumps({"t": "presence", "nick": to, "online": to in self.online}, ensure_ascii=False))
+        elif t == "sub":
+            room = d.get("room")
+            if room == GLOBAL_ROOM or (isinstance(room, str) and ROOM_RE.match(room)):
+                self.rooms[room].add(ws)
+        elif t == "unsub":
+            room = d.get("room")
+            if isinstance(room, str):
+                self.rooms.get(room, set()).discard(ws)
+        elif t == "csay":
+            await self.comment(uid, nick, ws, d, request)
+        elif t == "cdel":
+            await self.comment_del(uid, nick, d)
 
     def mutual(self, a, b):
         return b in self.allow.get(a, ()) and a in self.allow.get(b, ())
@@ -325,9 +350,114 @@ class Chat:
             await self.send_to(a, {"t": "dm_ok", "nick": b})
             await self.send_to(b, {"t": "dm_ok", "nick": a})
 
+    # ---------- комментарии к постам (комнаты) ----------
+    async def send_room(self, room, data):
+        raw = json.dumps(data, ensure_ascii=False)
+        for ws in list(self.rooms.get(room, ())):
+            if not ws.closed:
+                await ws.send_str(raw)
+
+    def _reply_preview(self, reply_to):
+        """Краткая цитата родительского коммента: {id, nick, text} или None."""
+        if not reply_to:
+            return None
+        r = self.db.q("SELECT id, nick, text FROM comments WHERE id = ?", reply_to).fetchone()
+        if not r:
+            return None
+        return {"id": r[0], "nick": r[1], "text": r[2][:120]}
+
+    async def comment(self, uid, nick, ws, d, request):
+        room = d.get("room")
+        if not isinstance(room, str) or not ROOM_RE.match(room):   # писать можно только в реальный пост
+            return await ws.send_str(json.dumps({"t": "error", "error": "Нет такой комнаты"}))
+        pid = room.split(":", 1)[1]
+        if self.posts and not self.posts.posts.get(pid):
+            return await ws.send_str(json.dumps({"t": "error", "error": "Пост не найден"}))
+        now = time.time()
+        if now - self.crate.get(nick, 0) < 2.0:
+            return await ws.send_str(json.dumps({"t": "error", "error": "Не так быстро"}))
+        text = clean_text(d.get("text"), COMMENT_MAX)
+        if not text:
+            return
+        reply_to = d.get("reply_to")
+        reply_to = reply_to if isinstance(reply_to, int) else None
+        if reply_to and not self.db.q("SELECT 1 FROM comments WHERE id = ? AND pid = ?", reply_to, pid).fetchone():
+            reply_to = None   # отвечать можно только на коммент из этого же поста
+        self.crate[nick] = now
+        ts = int(now * 1000)
+        cur = self.db.q("INSERT INTO comments(pid, uid, nick, text, ts, ip, reply_to) VALUES(?,?,?,?,?,?,?)",
+                        pid, uid, nick, text, ts, self.client_ip(request), reply_to)
+        cid = cur.lastrowid
+        # держим не больше COMMENT_KEEP комментов на пост
+        self.db.q("""DELETE FROM comments WHERE pid = ? AND id NOT IN
+                     (SELECT id FROM comments WHERE pid = ? ORDER BY id DESC LIMIT ?)""",
+                  pid, pid, COMMENT_KEEP)
+        self.db.commit()
+        title = (self.posts.posts.get(pid, {}).get("title", "") if self.posts else "")
+        msg = {"t": "cmsg", "room": room, "id": cid, "pid": pid, "title": title,
+               "nick": nick, "text": text, "ts": ts, "reply_to": reply_to,
+               "reply_preview": self._reply_preview(reply_to)}
+        await self.send_room(room, msg)             # в комнату самого поста
+        await self.send_room(GLOBAL_ROOM, msg)      # и в глобальную ленту всех постов
+
+    async def comment_del(self, uid, nick, d):
+        cid = d.get("id")
+        if not isinstance(cid, int):
+            return
+        r = self.db.q("SELECT pid, uid FROM comments WHERE id = ?", cid).fetchone()
+        if not r:
+            return
+        pid, cuid = r
+        post = self.posts.posts.get(pid) if self.posts else None
+        # удаляет автор коммента или автор поста
+        if uid != cuid and not (post and post.get("uid") == uid):
+            return
+        self.db.q("DELETE FROM comments WHERE id = ?", cid)
+        self.db.commit()
+        gone = {"t": "cdel", "room": "post:" + pid, "pid": pid, "id": cid}
+        await self.send_room("post:" + pid, gone)
+        await self.send_room(GLOBAL_ROOM, gone)
+
+    def drop_comments(self, pid):
+        """Снести комнату поста (зовётся из Posts при удалении поста)."""
+        try:
+            self.db.q("DELETE FROM comments WHERE pid = ?", pid)
+            self.db.commit()
+        except Exception:
+            pass
+
+    async def api_comments(self, request):
+        if not self.user_by_token(request):
+            return web.json_response({"error": "Не вошли"}, status=401)
+        room = request.query.get("room", "")
+        try:
+            before = int(request.query.get("before", 0)) or 2 ** 62
+            limit = max(1, min(100, int(request.query.get("limit", 50))))
+        except ValueError:
+            return web.json_response({"error": "Плохой запрос"}, status=400)
+        if room == GLOBAL_ROOM:
+            rows = self.db.q("SELECT id, pid, nick, text, ts, reply_to FROM comments WHERE id < ? "
+                             "ORDER BY id DESC LIMIT ?", before, limit).fetchall()
+        elif ROOM_RE.match(room):
+            pid = room.split(":", 1)[1]
+            rows = self.db.q("SELECT id, pid, nick, text, ts, reply_to FROM comments WHERE pid = ? AND id < ? "
+                             "ORDER BY id DESC LIMIT ?", pid, before, limit).fetchall()
+        else:
+            return web.json_response({"error": "Нет такой комнаты"}, status=400)
+        titles = {}
+        if self.posts:
+            for r in rows:
+                if r[1] not in titles:
+                    titles[r[1]] = self.posts.posts.get(r[1], {}).get("title", "")
+        out = [{"id": r[0], "pid": r[1], "title": titles.get(r[1], ""), "nick": r[2], "text": r[3],
+                "ts": r[4], "reply_to": r[5], "reply_preview": self._reply_preview(r[5])}
+               for r in reversed(rows)]
+        return web.json_response({"comments": out})
+
     def routes(self, app):
         app.router.add_post("/api/chat/auth", self.api_auth)
         app.router.add_post("/api/chat/logout", self.api_logout)
         app.router.add_get("/api/chat/me", self.api_me)
         app.router.add_get("/api/chat/history", self.api_history)
+        app.router.add_get("/api/chat/comments", self.api_comments)
         app.router.add_get("/api/chat/ws", self.api_ws)

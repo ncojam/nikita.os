@@ -478,6 +478,14 @@ async def api_posts_create(request):
     return json_response({"id": pid, "path": request.app["posts"].vpath(post), "name": post["name"]})
 
 
+async def api_posts_get(request):
+    posts = request.app["posts"]
+    p = posts.posts.get(request.match_info["id"])
+    if not p:
+        return json_response({"error": "не найдено"}, 404)
+    return json_response({**posts.public(request.match_info["id"], p), "path": posts.vpath(p)})
+
+
 async def api_posts_edit(request):
     body = await _json_body(request)
     err = request.app["posts"].edit(request, request.match_info["id"], body.get("text", ""))
@@ -692,9 +700,12 @@ def make_app():
     app["posts"] = Posts(UFS_ROOT, app["chat"].user_by_token, client_ip, old_dir=DATA_DIR)
     app["folders"] = Folders(UFS_ROOT, app["chat"].user_by_token, app["posts"].purge_dir)
     app["posts"].dir_ok = lambda v: unified_dir_exists(app, v)   # запись — только в общей папке
+    app["chat"].posts = app["posts"]            # чату — доступ к постам (титул/проверка для комментов)
+    app["posts"].on_gone = app["chat"].drop_comments  # удалили пост → снести его комнату комментов
     app.router.add_post("/api/folders", api_folders_create)
     app.router.add_post("/api/folders/delete", api_folders_delete)
     app.router.add_post("/api/posts", api_posts_create)
+    app.router.add_get("/api/posts/{id}", api_posts_get)
     app.router.add_patch("/api/posts/{id}", api_posts_edit)
     app.router.add_delete("/api/posts/{id}", api_posts_delete)
     app.router.add_post("/api/posts/{id}/image", api_posts_image)

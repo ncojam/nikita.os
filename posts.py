@@ -129,6 +129,7 @@ class Posts:
         self.rate = {}   # uid -> время последнего создания
         self.dirty = False
         self.dir_ok = None            # колбэк от server: существует ли общая папка (fs|ufs)
+        self.on_gone = None           # колбэк(pid): пост исчез — почистить его комнату комментов
         # забираем хранилище из прежних (отдававшихся!) мест в закрытый .meta
         self._migrate([self.base, Path(old_dir) if old_dir else None])
         self.salt = self._load_salt()  # для хэша IP при модерации — переживает перезапуск
@@ -364,9 +365,15 @@ class Posts:
             return "удалить может только автор"
         self._rm_media(pid)
         del self.posts[pid]
+        self._gone(pid)
         self.dirty = True
         self.save()
         return None
+
+    def _gone(self, pid):
+        if self.on_gone:
+            try: self.on_gone(pid)
+            except Exception: pass
 
     def purge_dir(self, vprefix):
         """Снести все записи в папке vprefix и её поддереве (при удалении папки владельцем)."""
@@ -377,6 +384,7 @@ class Posts:
         for pid in gone:
             self._rm_media(pid)
             self.posts.pop(pid, None)
+            self._gone(pid)
         if gone:
             self.dirty = True
             self.save()

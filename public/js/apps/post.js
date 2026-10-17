@@ -1,5 +1,6 @@
 import { baseName, el, fsUrl, joinPath, parentOf } from "../core/util.js";
 import { VFS } from "../core/vfs.js";
+import { mountComments } from "./comments.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
 
@@ -76,6 +77,21 @@ async function openPost(path) {
       const draft = data.draft === true;      // локальный черновик (в браузере)
       if (!draft) nick = await myNick();
       renderView();
+
+      // комментарии (комната поста) — только для серверных записей, и только если вошёл в чат
+      let cmt = null;
+      if (!draft && data.id) {
+        if (nick) {
+          const box = el("div", { className: "cmt-wrap" });
+          c.append(box);
+          cmt = mountComments(box, { room: "post:" + data.id, me: nick, postAuthor: data.author });
+        } else {
+          c.append(el("div", { className: "cmt-wrap" },
+            el("div", { className: "cmt-login", textContent: "Войдите в чат, чтобы комментировать" })));
+        }
+      }
+      const prevClose = w.onClose;
+      w.onClose = () => { cmt?.destroy(); prevClose?.(); };
 
       // сохранить черновик на диск: upload не перезаписывает по тому же имени, поэтому remove+write
       async function persist() {
@@ -288,4 +304,14 @@ async function reportPostByPath(path) {
   } catch { notify("Не удалось пожаловаться"); }
 }
 
-export { openPost, createPost, reportPostByPath };
+/* открыть пост по id (из глобальной ленты комментов) */
+async function openPostById(pid) {
+  try {
+    const r = await fetch("/api/posts/" + pid, { cache: "no-store" });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    openPost(d.path);
+  } catch { notify("Пост не найден (возможно, удалён)"); }
+}
+
+export { openPost, openPostById, createPost, reportPostByPath };

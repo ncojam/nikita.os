@@ -1,4 +1,6 @@
 import { el } from "../core/util.js";
+import { mountComments } from "./comments.js";
+import { openPostById } from "./post.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
 
@@ -12,6 +14,7 @@ import { WM } from "../wm.js";
  */
 const MSG_MAX = 500;
 const PUBLIC = "#общий";
+const POSTS = "#посты";   // глобальная лента комментариев всех постов
 const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
 const IP_OUT = n => `Личка идёт напрямую между браузерами (P2P), поэтому ${n} узнает ваш IP-адрес. Отправить запрос на переписку?`;
 const IP_IN = n => `${n} хочет написать вам лично. Если согласитесь, переписка пойдёт напрямую (P2P) и ${n} узнает ваш IP-адрес (а вы — его). Принять?`;
@@ -200,15 +203,24 @@ class ChatApp {
     };
     const contacts = Store.contacts();
     this.list.replaceChildren(item(PUBLIC, "🌐 Общий чат", null, false),
+      item(POSTS, "📝 Посты", null, false),
       el("div", { className: "chat-sep", textContent: contacts.length ? "Контакты" : "Контактов пока нет" }),
       ...contacts.map(n => item(n, n, this.online.has(n), true)));
   }
 
   openView(name) {
     this.view = name;
+    if (this.postsCmt) { this.postsCmt.destroy(); this.postsCmt = null; }
     this.feed.replaceChildren();
     this.renderList();
-    if (name === PUBLIC) {
+    const footer = this.input.closest(".chat-input");
+    if (footer) footer.hidden = name === POSTS;   // у ленты постов свой ввод
+    if (name === POSTS) {
+      this.head.replaceChildren(el("b", { textContent: "📝 Посты" }),
+        el("span", { className: "chat-status", textContent: "комментарии ко всем постам" }));
+      this.note.hidden = true;
+      this.postsCmt = mountComments(this.feed, { room: "posts", me: this.me, onJump: openPostById });
+    } else if (name === PUBLIC) {
       this.head.replaceChildren(el("b", { textContent: "🌐 Общий чат" }));
       this.note.hidden = true;
       this.oldest = 0; this.noMore = false;
@@ -428,6 +440,7 @@ class ChatApp {
 
   shutdown() {
     this.closed = true;
+    if (this.postsCmt) { this.postsCmt.destroy(); this.postsCmt = null; }
     try { this.ws?.close(); } catch {}
     for (const p of this.peers.values()) p.close();
     this.peers.clear();
