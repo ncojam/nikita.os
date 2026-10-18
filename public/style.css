@@ -668,3 +668,13 @@ html, body {
 .air-lb-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .air-lb-sec-h { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .air-lb-empty { color: var(--muted); font-size: 12px; padding: 4px 8px; }
+
+/* Джус в Telegram Mini App */
+.air-tg { padding: 8px; height: 100%; }
+.air-strip { flex: none; height: 16vh; min-height: 70px; border-radius: 12px; touch-action: none;
+  background: repeating-linear-gradient(90deg, rgba(138,180,255,0.10) 0 24px, rgba(138,180,255,0.05) 24px 48px);
+  border: 1px dashed rgba(138,180,255,0.4); }
+.air-strip.on { background-color: rgba(138,180,255,0.12); border-style: solid; }
+.air-lb-ov { position: fixed; inset: 0; z-index: 10; background: rgba(10,12,20,0.94); padding: 14px; box-sizing: border-box;
+  display: flex; flex-direction: column; }
+.air-lb-x { align-self: flex-end; }

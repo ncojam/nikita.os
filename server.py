@@ -610,8 +610,9 @@ async def serve_public(request):
 async def add_headers(request, response):
     h = response.headers
     # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки)
-    h["Cross-Origin-Opener-Policy"] = "same-origin"
-    h["Cross-Origin-Embedder-Policy"] = "require-corp"
+    if request.path != "/tg.html":   # Telegram Mini App: грузит telegram.org, живёт в чужом окне
+        h["Cross-Origin-Opener-Policy"] = "same-origin"
+        h["Cross-Origin-Embedder-Policy"] = "require-corp"
     h["Cross-Origin-Resource-Policy"] = "same-origin"
     h["X-Content-Type-Options"] = "nosniff"
     h["Referrer-Policy"] = "strict-origin-when-cross-origin"

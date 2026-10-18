@@ -15,12 +15,15 @@
 Авторизация игрока — через аккаунт чата (для ника в счёте); зрителям вход не нужен.
 """
 import asyncio
+import hashlib
+import hmac
 import json
 import math
 import os
 import random
 import time
 from pathlib import Path
+from urllib.parse import parse_qsl
 
 from aiohttp import web, WSMsgType
 
@@ -48,6 +51,32 @@ MAX_BALLS = int(os.environ.get("NOS_AIR_MAXBALLS", "4"))     # потолок ч
 ACTIVE_FRAC = float(os.environ.get("NOS_AIR_ACTIVE", "0.7"))
 TOP_ACTIVE = 0.5 * ACTIVE_FRAC       # верхняя активная зона: [0, TOP_ACTIVE]
 BOT_ACTIVE = 1.0 - 0.5 * ACTIVE_FRAC # нижняя активная зона: [BOT_ACTIVE, 1]
+
+
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+TG_MAX_AGE = 24 * 3600   # initData старше суток не принимаем
+
+
+def tg_nick(init_data):
+    """Проверка подписи Telegram WebApp initData → ник или None."""
+    if not TG_BOT_TOKEN or not isinstance(init_data, str) or len(init_data) > 4096:
+        return None
+    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+    got = pairs.pop("hash", "")
+    check = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+    secret = hmac.new(b"WebAppData", TG_BOT_TOKEN.encode(), hashlib.sha256).digest()
+    if not hmac.compare_digest(hmac.new(secret, check.encode(), hashlib.sha256).hexdigest(), got):
+        return None
+    try:
+        if time.time() - int(pairs.get("auth_date", 0)) > TG_MAX_AGE:
+            return None
+        u = json.loads(pairs.get("user", "{}"))
+    except (ValueError, TypeError):
+        return None
+    name = u.get("username") and "@" + u["username"] or (u.get("first_name") or "").strip()
+    if not name:
+        name = "tg" + str(u.get("id", ""))
+    return name[:24]
 
 
 def clamp(v, a, b):
@@ -448,6 +477,16 @@ class AirHockey:
                 try:
                     d = json.loads(msg.data)
                 except ValueError:
+                    continue
+                if d.get("t") == "tg":          # вход из Telegram Mini App
+                    tn = tg_nick(d.get("init"))
+                    if tn and not nick:
+                        nick = self.conns[ws] = tn
+                        for k in [k for k in self.pads if k[0] is ws]:
+                            self.pads[k].nick = nick
+                    await self._send(ws, {"t": "hello", "cap": MAX_PLAYERS, "can_play": True, "anon": not nick,
+                                          "nick": nick, "top": TOP_ACTIVE, "bot": BOT_ACTIVE,
+                                          "goalL": GOAL_L, "goalR": GOAL_R})
                     continue
                 await self.handle(ws, nick, d)   # nick может быть None (аноним)
         finally:

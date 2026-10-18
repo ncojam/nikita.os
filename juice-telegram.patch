@@ -1,0 +1,313 @@
+diff --git a/airhockey.py b/airhockey.py
+index 568501e..ea44b4f 100644
+--- a/airhockey.py
++++ b/airhockey.py
+@@ -15,12 +15,15 @@
+ Авторизация игрока — через аккаунт чата (для ника в счёте); зрителям вход не нужен.
+ """
+ import asyncio
++import hashlib
++import hmac
+ import json
+ import math
+ import os
+ import random
+ import time
+ from pathlib import Path
++from urllib.parse import parse_qsl
+ 
+ from aiohttp import web, WSMsgType
+ 
+@@ -50,6 +53,32 @@ TOP_ACTIVE = 0.5 * ACTIVE_FRAC       # верхняя активная зона:
+ BOT_ACTIVE = 1.0 - 0.5 * ACTIVE_FRAC # нижняя активная зона: [BOT_ACTIVE, 1]
+ 
+ 
++TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
++TG_MAX_AGE = 24 * 3600   # initData старше суток не принимаем
++
++
++def tg_nick(init_data):
++    """Проверка подписи Telegram WebApp initData → ник или None."""
++    if not TG_BOT_TOKEN or not isinstance(init_data, str) or len(init_data) > 4096:
++        return None
++    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
++    got = pairs.pop("hash", "")
++    check = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
++    secret = hmac.new(b"WebAppData", TG_BOT_TOKEN.encode(), hashlib.sha256).digest()
++    if not hmac.compare_digest(hmac.new(secret, check.encode(), hashlib.sha256).hexdigest(), got):
++        return None
++    try:
++        if time.time() - int(pairs.get("auth_date", 0)) > TG_MAX_AGE:
++            return None
++        u = json.loads(pairs.get("user", "{}"))
++    except (ValueError, TypeError):
++        return None
++    name = u.get("username") and "@" + u["username"] or (u.get("first_name") or "").strip()
++    if not name:
++        name = "tg" + str(u.get("id", ""))
++    return name[:24]
++
++
+ def clamp(v, a, b):
+     return a if v < a else b if v > b else v
+ 
+@@ -449,6 +478,16 @@ class AirHockey:
+                     d = json.loads(msg.data)
+                 except ValueError:
+                     continue
++                if d.get("t") == "tg":          # вход из Telegram Mini App
++                    tn = tg_nick(d.get("init"))
++                    if tn and not nick:
++                        nick = self.conns[ws] = tn
++                        for k in [k for k in self.pads if k[0] is ws]:
++                            self.pads[k].nick = nick
++                    await self._send(ws, {"t": "hello", "cap": MAX_PLAYERS, "can_play": True, "anon": not nick,
++                                          "nick": nick, "top": TOP_ACTIVE, "bot": BOT_ACTIVE,
++                                          "goalL": GOAL_L, "goalR": GOAL_R})
++                    continue
+                 await self.handle(ws, nick, d)   # nick может быть None (аноним)
+         finally:
+             self.conns.pop(ws, None)
+diff --git a/compose.yaml b/compose.yaml
+index b6fed44..8a7455a 100644
+--- a/compose.yaml
++++ b/compose.yaml
+@@ -17,6 +17,7 @@ services:
+     restart: unless-stopped        # сам поднимется после перезагрузки сервера
+     environment:
+       TRUST_PROXY: "1"            # адрес посетителя берём из X-Forwarded-For от nginx/Caddy
++      TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}   # токен бота для Telegram Mini App «Джус» (ники из Телеги)
+     volumes:
+       - ./fs:/app/fs:ro           # сайт не может ничего изменить в твоих файлах
+       - plays:/data
+diff --git a/public/js/apps/airhockey.js b/public/js/apps/airhockey.js
+index 5f32a73..712b240 100644
+--- a/public/js/apps/airhockey.js
++++ b/public/js/apps/airhockey.js
+@@ -47,14 +47,23 @@ function shake(node, amp, dur = 420) {
+ 
+ function openAirHockey() {
+   WM.open({ title: "Джус", icon: "🍒", width: 560, height: 680, key: "airhockey",
+-    render(c, w) {
++    render(c, w) { mountAirHockey(c, w); } });
++}
++
++/* opts.tg = { initData } — режим Telegram Mini App: полоса управления внизу,
++ * сторона (верх/низ) выбирается автоматически по мячу, ник — из Телеграма. */
++function mountAirHockey(c, w, opts = {}) {
++      const tg = opts.tg || null;
+       const cv = el("canvas", { className: "air-cv" });
+       const score = el("div", { className: "air-score" });
+       const lbBtn = el("button", { className: "btn small air-lb-btn", textContent: "🏆 Лидерборд", onclick: openLeaderboard });
+       const feed = el("div", { className: "air-last" });
+-      const hint = el("div", { className: "air-hint", textContent: "Веди курсор в светлую зону у ворот" });
+-      c.append(el("div", { className: "air" }, score, cv,
+-        el("div", { className: "air-row" }, feed, lbBtn), hint));
++      const HINT = tg ? "Води пальцем по полосе внизу — платформа сама встанет к нужным воротам"
++                      : "Веди курсор в светлую зону у ворот";
++      const hint = el("div", { className: "air-hint", textContent: HINT });
++      const strip = tg ? el("div", { className: "air-strip" }) : null;
++      c.append(el("div", { className: "air" + (tg ? " air-tg" : "") }, score, cv,
++        ...(strip ? [strip] : []), el("div", { className: "air-row" }, feed, lbBtn), hint));
+ 
+       const ctx = cv.getContext("2d");
+       let W = 0, H = 0;
+@@ -82,6 +91,7 @@ function openAirHockey() {
+       function connect() {
+         if (closed) return;
+         ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/air/ws");
++        ws.onopen = () => { if (tg?.initData) ws.send(JSON.stringify({ t: "tg", init: tg.initData })); };
+         ws.onmessage = e => {
+           let d; try { d = JSON.parse(e.data); } catch { return; }
+           if (d.t === "state") {
+@@ -93,8 +103,9 @@ function openAirHockey() {
+           } else if (d.t === "hello") {
+             canPlay = d.can_play;
+             if (typeof d.top === "number") { TOP_ACTIVE = d.top; BOT_ACTIVE = d.bot; GOAL_L = d.goalL; GOAL_R = d.goalR; }
+-            hint.textContent = d.anon ? "Играешь анонимно — в счёте будет случайный номер (войди в чат для ника)"
+-                                      : "Веди курсор в светлую зону у ворот";
++            hint.textContent = d.anon ? (tg ? "Не удалось войти через Телеграм — играешь анонимно"
++                                            : "Играешь анонимно — в счёте будет случайный номер (войди в чат для ника)")
++                                      : (d.nick && tg ? `Ты — ${d.nick}. ` : "") + HINT;
+           } else if (d.t === "full") { playNah(); hint.textContent = "Все места заняты — подожди, пока кто-то выйдет"; }
+         };
+         ws.onclose = () => { if (!closed) setTimeout(connect, 2000); };
+@@ -116,7 +127,7 @@ function openAirHockey() {
+         const r = cv.getBoundingClientRect();
+         const ex = r.left + g.x * r.width, ey = g.side === "top" ? r.top : r.bottom;
+         shake(w.node, 16);
+-        if (g.own) {  // свой гол — трясёт все окна, слабее и с затуханием по расстоянию
++        if (g.own && !tg) {  // свой гол — трясёт все окна, слабее и с затуханием по расстоянию
+           const diag = Math.hypot(innerWidth, innerHeight);
+           for (const win of WM.wins.values()) {
+             if (win.node === w.node || win.minimized) continue;
+@@ -142,9 +153,55 @@ function openAirHockey() {
+           if (canPlay) sendMove(myTarget.x, myTarget.y, "m"); else playNah();
+         } else if (inActive) { inActive = false; mouseSide = null; myTarget.active = false; cv.classList.remove("playing"); sendLeave("m"); }
+       }
++      if (!tg) {
+       cv.onpointermove = applyPointer;
+       cv.onpointerdown = e => { focused = true; applyPointer(e); };   // тап на мобилке = поставить платформу
+-      cv.onpointerleave = () => { cv.classList.remove("playing"); if (inActive) { inActive = false; mouseSide = null; myTarget.active = false; sendLeave("m"); } };
++      }
++      if (!tg) cv.onpointerleave = () => { cv.classList.remove("playing"); if (inActive) { inActive = false; mouseSide = null; myTarget.active = false; sendLeave("m"); } };
++
++      /* ---------- Telegram: полоса под полем ----------
++       * X пальца → X платформы; Y внутри полосы → глубина в зоне (низ полосы = у ворот).
++       * Сторону выбираем сами: те ворота, к которым ближайший по времени мяч летит. */
++      const touch = { on: false, x: 0.5, depth: 0, side: "bottom", cand: null, candT: 0, sendT: 0 };
++      if (strip) {
++        const onStrip = e => {
++          Snd.init();
++          const r = strip.getBoundingClientRect();
++          touch.x = clamp01((e.clientX - r.left) / r.width);
++          touch.depth = 1 - clamp01((e.clientY - r.top) / r.height);
++        };
++        strip.onpointerdown = e => { strip.setPointerCapture?.(e.pointerId); touch.on = true; strip.classList.add("on");
++          onStrip(e); if (!canPlay) playNah(); };
++        strip.onpointermove = e => { if (touch.on) onStrip(e); };
++        const up = () => { if (!touch.on) return; touch.on = false; strip.classList.remove("on");
++          myTarget.active = false; sendLeave("m"); };
++        strip.onpointerup = up; strip.onpointercancel = up;
++      }
++      function pickSide(now) {
++        let best = null, bestT = Infinity;
++        const dt = (now - srvT) / 1000;
++        for (const b of srv.balls || []) {
++          const y = clamp01(b.y + b.vy * dt);
++          let t, s;
++          if (Math.abs(b.vy) < 0.05) { s = y < 0.5 ? "top" : "bottom"; t = 5 + Math.min(y, 1 - y); }  // почти стоит
++          else if (b.vy < 0) { s = "top"; t = y / -b.vy; }
++          else { s = "bottom"; t = (1 - y) / b.vy; }
++          if (t < bestT) { bestT = t; best = s; }
++        }
++        if (!best || best === touch.side) { touch.cand = null; return; }
++        // гистерезис: переключаемся, только если кандидат держится 120 мс
++        if (touch.cand !== best) { touch.cand = best; touch.candT = now; }
++        else if (now - touch.candT > 120) { touch.side = best; touch.cand = null; }
++      }
++      function stepTouch(now) {
++        if (!strip) return;
++        pickSide(now);
++        if (!touch.on || !canPlay) return;
++        const d = Math.max(0.02, touch.depth);
++        const y = touch.side === "top" ? d * TOP_ACTIVE : 1 - d * (1 - BOT_ACTIVE);
++        myTarget.x = touch.x; myTarget.y = clamp01(y); myTarget.active = true;
++        if (now - touch.sendT > 30) { touch.sendT = now; sendMove(myTarget.x, myTarget.y, "m"); }
++      }
+ 
+       /* ---------- клавиатурная вторая платформа (A/D) ----------
+        * Жёсткая, у ворот на стороне НАПРОТИВ мыши. Линейное ускорение, не выходит за край. */
+@@ -215,7 +272,8 @@ function openAirHockey() {
+         const now = performance.now();
+         const fdt = Math.min(0.05, (now - prevT) / 1000); prevT = now;
+         if (!W || !H) { raf = requestAnimationFrame(draw); return; }
+-        stepKB(fdt);
++        if (!tg) stepKB(fdt);
++        stepTouch(now);
+         ctx.clearRect(0, 0, W, H);
+         // поле
+         ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.fillRect(0, 0, W, H);
+@@ -314,9 +372,17 @@ function openAirHockey() {
+       }
+ 
+       function openLeaderboard() {
++        if (tg) {
++          const ov = el("div", { className: "air-lb-ov" });
++          ov.append(el("button", { className: "btn small air-lb-x", textContent: "✕", onclick: () => ov.remove() }));
++          c.append(ov); lbRender(ov); return;
++        }
+         const lw = 300, lh = 440;
+         const win = WM.open({ title: "Лидерборд — Джус", icon: "🏆", width: lw, height: lh, key: "air-lb",
+-          render(cc) {
++          render: lbRender });
++        placeLb(win, lw, lh);
++      }
++      function lbRender(cc) {{
+             const body = el("div", { className: "air-lb-body", textContent: "Загрузка…" });
+             const refresh = el("button", { className: "btn small", textContent: "⟳ Обновить", onclick: () => load() });
+             cc.append(el("div", { className: "air-lb2" }, body, refresh));
+@@ -339,7 +405,8 @@ function openAirHockey() {
+               } catch { body.textContent = "Не удалось загрузить"; }
+             }
+             load();
+-          } });
++      }}
++      function placeLb(win, lw, lh) {
+         // ставим окно РЯДОМ с игрой (справа, иначе слева/снизу — чтобы не перекрывать поле)
+         const g = w.node.getBoundingClientRect();
+         let left = g.right + 12;
+@@ -355,7 +422,6 @@ function openAirHockey() {
+       w.onClose = () => { closed = true; cancelAnimationFrame(raf); cancelAnimationFrame(hudRaf);
+         document.removeEventListener("keydown", kd); document.removeEventListener("keyup", ku);
+         document.removeEventListener("pointerdown", focusOn, true); try { ws?.close(); } catch {} };
+-    } });
+ }
+ 
+-export { openAirHockey };
++export { openAirHockey, mountAirHockey };
+diff --git a/public/style.css b/public/style.css
+index 6988fe3..effc9a8 100644
+--- a/public/style.css
++++ b/public/style.css
+@@ -668,3 +668,13 @@ html, body {
+ .air-lb-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+ .air-lb-sec-h { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+ .air-lb-empty { color: var(--muted); font-size: 12px; padding: 4px 8px; }
++
++/* Джус в Telegram Mini App */
++.air-tg { padding: 8px; height: 100%; }
++.air-strip { flex: none; height: 16vh; min-height: 70px; border-radius: 12px; touch-action: none;
++  background: repeating-linear-gradient(90deg, rgba(138,180,255,0.10) 0 24px, rgba(138,180,255,0.05) 24px 48px);
++  border: 1px dashed rgba(138,180,255,0.4); }
++.air-strip.on { background-color: rgba(138,180,255,0.12); border-style: solid; }
++.air-lb-ov { position: fixed; inset: 0; z-index: 10; background: rgba(10,12,20,0.94); padding: 14px; box-sizing: border-box;
++  display: flex; flex-direction: column; }
++.air-lb-x { align-self: flex-end; }
+diff --git a/public/tg.html b/public/tg.html
+new file mode 100644
+index 0000000..70b88fa
+--- /dev/null
++++ b/public/tg.html
+@@ -0,0 +1,25 @@
++<!doctype html>
++<html lang="ru">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
++<title>Джус</title>
++<link rel="stylesheet" href="/style.css">
++<script src="https://telegram.org/js/telegram-web-app.js"></script>
++<style>
++  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
++  body { background: var(--tg-theme-bg-color, #0c0f18); color: var(--tg-theme-text-color, #e8ecf5); }
++  #app { height: var(--tg-viewport-stable-height, 100vh); }
++</style>
++</head>
++<body>
++<div id="app"></div>
++<script type="module">
++  import { mountAirHockey } from "/js/apps/airhockey.js";
++  const tg = window.Telegram?.WebApp;
++  try { tg.ready(); tg.expand(); tg.disableVerticalSwipes?.(); tg.requestFullscreen?.(); } catch {}
++  const app = document.getElementById("app");
++  mountAirHockey(app, { node: app }, { tg: { initData: tg?.initData || "" } });
++</script>
++</body>
++</html>
+diff --git a/server.py b/server.py
+index 97ab473..9f45058 100644
+--- a/server.py
++++ b/server.py
+@@ -610,8 +610,9 @@ async def serve_public(request):
+ async def add_headers(request, response):
+     h = response.headers
+     # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки)
+-    h["Cross-Origin-Opener-Policy"] = "same-origin"
+-    h["Cross-Origin-Embedder-Policy"] = "require-corp"
++    if request.path != "/tg.html":   # Telegram Mini App: грузит telegram.org, живёт в чужом окне
++        h["Cross-Origin-Opener-Policy"] = "same-origin"
++        h["Cross-Origin-Embedder-Policy"] = "require-corp"
+     h["Cross-Origin-Resource-Policy"] = "same-origin"
+     h["X-Content-Type-Options"] = "nosniff"
+     h["Referrer-Policy"] = "strict-origin-when-cross-origin"
