@@ -202,7 +202,8 @@ class AirHockey:
                 self.board[tnick] = self.board.get(tnick, 0) + (-1 if own else 1)
             elif tnick == BOT_NICK:
                 label = BOT_NICK
-            if tnick and tnick != BOT_NICK and not own and self.bot is None and self.human_count() == 1:
+            # одиночные голы считаем и анониму (tnick=None) — бот должен приходить и к нему
+            if tnick != BOT_NICK and not own and self.bot is None and self.human_count() == 1:
                 self.solo_goals += 1
         self.last.insert(0, {"nick": label, "own": own})
         del self.last[3:]
