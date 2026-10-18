@@ -58,7 +58,7 @@ function mountAirHockey(c, w, opts = {}) {
       const score = el("div", { className: "air-score" });
       const lbBtn = el("button", { className: "btn small air-lb-btn", textContent: "🏆 Лидерборд", onclick: openLeaderboard });
       const feed = el("div", { className: "air-last" });
-      const HINT = tg ? "Выбери сторону и води пальцем по полосе внизу"
+      const HINT = tg ? "Тапни по верхней или нижней зоне, чтобы выбрать сторону, и води пальцем по полосе внизу"
                       : "Веди курсор в светлую зону у ворот";
       const hint = el("div", { className: "air-hint", textContent: HINT });
       const strip = tg ? el("div", { className: "air-strip" }) : null;
@@ -160,31 +160,32 @@ function mountAirHockey(c, w, opts = {}) {
       if (!tg) cv.onpointerleave = () => { cv.classList.remove("playing"); if (inActive) { inActive = false; mouseSide = null; myTarget.active = false; sendLeave("m"); } };
 
       /* ---------- Telegram: полоса под полем ----------
-       * X пальца → X платформы; Y внутри полосы → глубина в зоне (низ полосы = у ворот).
-       * Сторону игрок выбирает сам кнопками (запоминается), платформа живёт только на ней. */
+       * X пальца → X платформы; Y внутри полосы → Y внутри своей зоны (без зеркала).
+       * Сторону игрок выбирает тапом по зоне поля (запоминается), платформа живёт только на ней. */
       let savedSide = null; try { savedSide = localStorage.getItem("air-tg-side"); } catch {}
-      const touch = { on: false, x: 0.5, depth: 0, side: savedSide === "top" || savedSide === "bottom" ? savedSide : null, sendT: 0 };
-      const sideBtns = {};
+      const touch = { on: false, x: 0.5, fy: 1, side: savedSide === "top" || savedSide === "bottom" ? savedSide : null, sendT: 0 };
       function setSide(sd) {
         if (touch.side && touch.side !== sd) { myTarget.active = false; sendLeave("m"); }   // старую платформу убираем
         touch.side = sd;
         try { localStorage.setItem("air-tg-side", sd); } catch {}
-        for (const k in sideBtns) sideBtns[k].classList.toggle("on", k === sd);
         strip?.classList.toggle("locked", !sd);
       }
       if (strip) {
-        const pick = el("div", { className: "air-side" },
-          sideBtns.top = el("button", { className: "btn small", textContent: "▲ Играю сверху", onclick: () => setSide("top") }),
-          sideBtns.bottom = el("button", { className: "btn small", textContent: "▼ Играю снизу", onclick: () => setSide("bottom") }));
-        strip.before(pick);
         setSide(touch.side);
+        // выбор стороны — тап по верхней или нижней зоне поля
+        cv.onpointerdown = e => {
+          Snd.init();
+          const r = cv.getBoundingClientRect();
+          const y = (e.clientY - r.top) / r.height;
+          if (y <= TOP_ACTIVE) setSide("top"); else if (y >= BOT_ACTIVE) setSide("bottom");
+        };
       }
       if (strip) {
         const onStrip = e => {
           Snd.init();
           const r = strip.getBoundingClientRect();
           touch.x = clamp01((e.clientX - r.left) / r.width);
-          touch.depth = 1 - clamp01((e.clientY - r.top) / r.height);
+          touch.fy = clamp01((e.clientY - r.top) / r.height);   // 0 — верх полосы, 1 — низ
         };
         strip.onpointerdown = e => { strip.setPointerCapture?.(e.pointerId); touch.on = true; strip.classList.add("on");
           onStrip(e); if (!canPlay || !touch.side) playNah(); };
@@ -196,8 +197,8 @@ function mountAirHockey(c, w, opts = {}) {
       function stepTouch(now) {
         if (!strip) return;
         if (!touch.on || !canPlay || !touch.side) return;
-        const d = Math.max(0.02, touch.depth);
-        const y = touch.side === "top" ? d * TOP_ACTIVE : 1 - d * (1 - BOT_ACTIVE);
+        // без зеркала: палец вверх — платформа вверх на любой стороне
+        const y = touch.side === "top" ? touch.fy * TOP_ACTIVE : BOT_ACTIVE + touch.fy * (1 - BOT_ACTIVE);
         myTarget.x = touch.x; myTarget.y = clamp01(y); myTarget.active = true;
         if (now - touch.sendT > 30) { touch.sendT = now; sendMove(myTarget.x, myTarget.y, "m"); }
       }
@@ -279,6 +280,11 @@ function mountAirHockey(c, w, opts = {}) {
         ctx.fillStyle = "rgba(138,180,255,0.13)";
         ctx.fillRect(0, 0, W, TOP_ACTIVE * H);
         ctx.fillRect(0, BOT_ACTIVE * H, W, (1 - BOT_ACTIVE) * H);
+        if (tg && touch.side) {   // своя зона ярче
+          ctx.fillStyle = "rgba(138,180,255,0.14)";
+          if (touch.side === "top") ctx.fillRect(0, 0, W, TOP_ACTIVE * H);
+          else ctx.fillRect(0, BOT_ACTIVE * H, W, (1 - BOT_ACTIVE) * H);
+        }
         ctx.strokeStyle = "rgba(138,180,255,0.4)"; ctx.setLineDash([5, 5]);
         line(0, TOP_ACTIVE * H, W, TOP_ACTIVE * H); line(0, BOT_ACTIVE * H, W, BOT_ACTIVE * H);
         ctx.strokeStyle = "rgba(255,255,255,0.1)"; line(0, 0.5 * H, W, 0.5 * H); ctx.setLineDash([]);
