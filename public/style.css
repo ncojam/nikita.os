@@ -678,3 +678,7 @@ html, body {
 .air-lb-ov { position: fixed; inset: 0; z-index: 10; background: rgba(10,12,20,0.94); padding: 14px; box-sizing: border-box;
   display: flex; flex-direction: column; }
 .air-lb-x { align-self: flex-end; }
+.air-side { display: flex; gap: 8px; flex: none; }
+.air-side .btn { flex: 1; }
+.air-side .btn.on { background: rgba(138,180,255,0.3); border-color: var(--accent); }
+.air-strip.locked { opacity: 0.4; }

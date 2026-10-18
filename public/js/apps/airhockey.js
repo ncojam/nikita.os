@@ -58,7 +58,7 @@ function mountAirHockey(c, w, opts = {}) {
       const score = el("div", { className: "air-score" });
       const lbBtn = el("button", { className: "btn small air-lb-btn", textContent: "🏆 Лидерборд", onclick: openLeaderboard });
       const feed = el("div", { className: "air-last" });
-      const HINT = tg ? "Води пальцем по полосе внизу — платформа сама встанет к нужным воротам"
+      const HINT = tg ? "Выбери сторону и води пальцем по полосе внизу"
                       : "Веди курсор в светлую зону у ворот";
       const hint = el("div", { className: "air-hint", textContent: HINT });
       const strip = tg ? el("div", { className: "air-strip" }) : null;
@@ -161,8 +161,24 @@ function mountAirHockey(c, w, opts = {}) {
 
       /* ---------- Telegram: полоса под полем ----------
        * X пальца → X платформы; Y внутри полосы → глубина в зоне (низ полосы = у ворот).
-       * Сторону выбираем сами: те ворота, к которым ближайший по времени мяч летит. */
-      const touch = { on: false, x: 0.5, depth: 0, side: "bottom", cand: null, candT: 0, sendT: 0 };
+       * Сторону игрок выбирает сам кнопками (запоминается), платформа живёт только на ней. */
+      let savedSide = null; try { savedSide = localStorage.getItem("air-tg-side"); } catch {}
+      const touch = { on: false, x: 0.5, depth: 0, side: savedSide === "top" || savedSide === "bottom" ? savedSide : null, sendT: 0 };
+      const sideBtns = {};
+      function setSide(sd) {
+        if (touch.side && touch.side !== sd) { myTarget.active = false; sendLeave("m"); }   // старую платформу убираем
+        touch.side = sd;
+        try { localStorage.setItem("air-tg-side", sd); } catch {}
+        for (const k in sideBtns) sideBtns[k].classList.toggle("on", k === sd);
+        strip?.classList.toggle("locked", !sd);
+      }
+      if (strip) {
+        const pick = el("div", { className: "air-side" },
+          sideBtns.top = el("button", { className: "btn small", textContent: "▲ Играю сверху", onclick: () => setSide("top") }),
+          sideBtns.bottom = el("button", { className: "btn small", textContent: "▼ Играю снизу", onclick: () => setSide("bottom") }));
+        strip.before(pick);
+        setSide(touch.side);
+      }
       if (strip) {
         const onStrip = e => {
           Snd.init();
@@ -171,32 +187,15 @@ function mountAirHockey(c, w, opts = {}) {
           touch.depth = 1 - clamp01((e.clientY - r.top) / r.height);
         };
         strip.onpointerdown = e => { strip.setPointerCapture?.(e.pointerId); touch.on = true; strip.classList.add("on");
-          onStrip(e); if (!canPlay) playNah(); };
+          onStrip(e); if (!canPlay || !touch.side) playNah(); };
         strip.onpointermove = e => { if (touch.on) onStrip(e); };
         const up = () => { if (!touch.on) return; touch.on = false; strip.classList.remove("on");
           myTarget.active = false; sendLeave("m"); };
         strip.onpointerup = up; strip.onpointercancel = up;
       }
-      function pickSide(now) {
-        let best = null, bestT = Infinity;
-        const dt = (now - srvT) / 1000;
-        for (const b of srv.balls || []) {
-          const y = clamp01(b.y + b.vy * dt);
-          let t, s;
-          if (Math.abs(b.vy) < 0.05) { s = y < 0.5 ? "top" : "bottom"; t = 5 + Math.min(y, 1 - y); }  // почти стоит
-          else if (b.vy < 0) { s = "top"; t = y / -b.vy; }
-          else { s = "bottom"; t = (1 - y) / b.vy; }
-          if (t < bestT) { bestT = t; best = s; }
-        }
-        if (!best || best === touch.side) { touch.cand = null; return; }
-        // гистерезис: переключаемся, только если кандидат держится 120 мс
-        if (touch.cand !== best) { touch.cand = best; touch.candT = now; }
-        else if (now - touch.candT > 120) { touch.side = best; touch.cand = null; }
-      }
       function stepTouch(now) {
         if (!strip) return;
-        pickSide(now);
-        if (!touch.on || !canPlay) return;
+        if (!touch.on || !canPlay || !touch.side) return;
         const d = Math.max(0.02, touch.depth);
         const y = touch.side === "top" ? d * TOP_ACTIVE : 1 - d * (1 - BOT_ACTIVE);
         myTarget.x = touch.x; myTarget.y = clamp01(y); myTarget.active = true;
