@@ -33,29 +33,31 @@ const blobToDataURL = blob => new Promise((res, rej) => {
 });
 
 /* сжать картинку шакалом: вписать в IMG_DIM, JPEG с понижением качества до лимита. Blob | null */
-async function shrink(src) {
+async function shrink(src, dim = IMG_DIM, limit = IMG_LIMIT) {
   const url = URL.createObjectURL(src);
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("не картинка")); i.src = url; });
     const w = img.naturalWidth, h = img.naturalHeight;
     if (!w || !h) throw new Error("пустая картинка");
-    const k = Math.min(1, IMG_DIM / Math.max(w, h));
+    const k = Math.min(1, dim / Math.max(w, h));
     const cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
     const cv = el("canvas"); cv.width = cw; cv.height = ch;
     cv.getContext("2d").drawImage(img, 0, 0, cw, ch);
     let blob = null;
-    for (const q of [0.14, 0.1, 0.07, 0.05]) {
+    // мелкая картинка («шакал» записей) — с низкого качества; крупная — начинаем приличнее
+    const qs = dim > IMG_DIM ? [0.72, 0.55, 0.4, 0.28, 0.18] : [0.14, 0.1, 0.07, 0.05];
+    for (const q of qs) {
       blob = await new Promise(res => cv.toBlob(res, "image/jpeg", q));
-      if (blob && blob.size <= IMG_LIMIT) return blob;
+      if (blob && blob.size <= limit) return blob;
     }
     return blob;
   } finally { URL.revokeObjectURL(url); }
 }
 
-function pickImage() {
+function pickImage(dim, limit) {
   return new Promise(res => {
     const inp = el("input", { type: "file", accept: "image/*" });
-    inp.onchange = async () => { const f = inp.files?.[0]; res(f ? await shrink(f).catch(() => null) : null); };
+    inp.onchange = async () => { const f = inp.files?.[0]; res(f ? await shrink(f, dim, limit).catch(() => null) : null); };
     inp.click();
   });
 }
@@ -314,4 +316,4 @@ async function openPostById(pid) {
   } catch { notify("Пост не найден (возможно, удалён)"); }
 }
 
-export { openPost, openPostById, createPost, reportPostByPath };
+export { openPost, openPostById, createPost, reportPostByPath, shrink, pickImage };

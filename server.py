@@ -70,6 +70,7 @@ DEFAULT_DESKTOP = {
     "03 Graveblood.lnk": {"name": "Graveblood", "icon": "🕹️",
                           "open": "/home/nikita/Projects/Graveblood 0.0.1.1.5.2 demo.gba"},
     "08 Джус.lnk": {"name": "Джус", "icon": "🍒", "app": "airhockey"},
+    "07 Браузер.lnk": {"name": "Браузер", "icon": "🌐", "app": "browser"},
     "09 Настройки.lnk": {"name": "Настройки", "icon": "⚙️", "app": "settings"},
 }
 
@@ -607,6 +608,10 @@ async def serve_public(request):
     return web.FileResponse(p, headers={"Content-Type": text_ctype(p)})
 
 
+async def serve_browser(request):
+    return web.FileResponse(PUBLIC / "index.html", headers={"Content-Type": "text/html; charset=utf-8"})
+
+
 async def add_headers(request, response):
     h = response.headers
     # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки)
@@ -720,6 +725,11 @@ def make_app():
     app.router.add_get("/api/mod/reports", api_mod_reports)
     app.router.add_post("/api/mod/show/{id}", api_mod_show)
     app.router.add_get("/media/{id}", serve_media)
+    # встроенный браузер: псевдо-сайты (форум Kursk Artists); аккаунт — из чата
+    from forum import Forum
+    app["forum"] = Forum(UFS_ROOT, app["chat"].user_by_token)
+    app["forum"].routes(app)
+    app.router.add_get("/browser{tail:(/.*)?}", serve_browser)  # прямые ссылки -> та же ОС, браузер откроет адрес
     app.router.add_get("/fs/{tail:.*}", serve_fs)
     app.router.add_get("/{tail:.*}", serve_public)
     return app

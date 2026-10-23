@@ -3,6 +3,7 @@ import { openSettings } from "../apps/settings.js";
 import { D, EASE } from "../core/anim.js";
 import { $ } from "../core/util.js";
 import { openAbout } from "../open.js";
+import { openBrowser } from "../apps/browser.js";
 import { WM } from "../wm.js";
 
 /* ================= пуск (с анимацией) ================= */
@@ -64,6 +65,7 @@ export function init_ui_taskbar() {
     if (b.dataset.open) openExplorer(b.dataset.open);
     if (b.dataset.app === "about") openAbout();
     if (b.dataset.app === "settings") openSettings();
+    if (b.dataset.app === "browser") openBrowser();
     toggleStart(false);
   });
 

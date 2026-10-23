@@ -4,6 +4,7 @@ import "./apps/id3.js";
 import { init_apps_player } from "./apps/player.js";
 import "./apps/settings.js";
 import "./apps/chat.js";
+import { openBrowser } from "./apps/browser.js";
 import "./core/anim.js";
 import "./core/types.js";
 import "./core/util.js";
@@ -29,5 +30,6 @@ init_ui_taskbar();
 init_ui_wallpaper();
 init_ui_context_menu();
 
-/* стартовое окно */
-openExplorer("/home/nikita/Projects");
+/* стартовое окно: прямая ссылка /browser/<адрес> открывает браузер на этом адресе */
+if (location.pathname.startsWith("/browser")) openBrowser(decodeURIComponent(location.pathname.slice(8).replace(/^\/+/, "")) + location.search);
+else openExplorer("/home/nikita/Projects");
