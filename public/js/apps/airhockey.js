@@ -12,6 +12,8 @@ import { WM } from "../wm.js";
  * Ушёл второй игрок — на его место встаёт бот. Бот появляется у одиночки с первого гола (и в свои).
  * Платформа наклоняется от скорости по X и пружинисто «отыгрывает» по дуге (гибкость).
  * Гол трясёт окно игры; свой гол трясёт и остальные окна — тем слабее, чем дальше от эпицентра.
+ * Юбилейные события (каждый 10-й гол): поле, круги, slowpad и чёрные дыры сервер шлёт в каждом кадре
+ * (state.round / slowpad / holes / top-bot) — в обоих режимах; мячи и клейкость в local добавляет Sim.
  */
 const PAD_DRAW_H = 0.03;            // толщина платформы на экране (физика — P.padH с сервера)
 const SND = "/apps/airhockey/";
@@ -22,7 +24,25 @@ const BOT_FORGET = 4000;            // одиночка ушёл совсем �
 const P = { v0: 0.75, vmax: 2.4, gain: 0.035, freeze: 0.6, split: 64, maxBalls: 4, padW0: 0.22, padWmin: 0.06,
   padH: 0.022, ballR: 0.02, botSpeed: 0.6, botErr: 0.09, grace: 3, botNick: "primitiveAI",
   spreeWin: 1.8, wideK: 1.6, wideDur: 8, slowK: 0.35, slowDur: 5, iceDur: 2.5, stickV: 1.3,
-  barrageN: 32, barrageLives: 5, barrageV: 0.9 };
+  barrageN: 32, barrageLives: 5, barrageV: 0.9,
+  roundR: 0.05, slowbK: 0.3, slowbHold: 3, slowbRamp: 4, stickyHold: 2.5, stickyDur: 8, slowpadV: 0.35,
+  holeG: 0.02, holeSwirl: 0.9, holePull: 0.035 };
+
+/* притяжение платформы к чёрным дырам — как на сервере (hole_pull): от положения ввода, не копится */
+function holePull(x, y, holes) {
+  let ox = 0, oy = 0;
+  for (const h of holes || []) {
+    const dx = h.x - x, dy = h.y - y, d = Math.hypot(dx, dy);
+    if (d > 1e-6 && d < 0.3) { const k = P.holePull * h.a * (1 - d / 0.3); ox += dx / d * k; oy += dy / d * k; }
+  }
+  return [ox, oy];
+}
+/* где платформа на самом деле: ввод + притяжение дыр, в пределах своей (возможно, сжатой) зоны */
+function effPos(x, y, side, zone, holes) {
+  const [ox, oy] = holePull(x, y, holes);
+  const [lo, hi] = side === "top" ? [0, zone.top] : [zone.bot, 1];
+  return [clamp01(x + ox), clamp(y + oy, lo + P.padH / 2, hi - P.padH / 2)];
+}
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const clamp01 = v => clamp(v, 0, 1);
@@ -72,13 +92,17 @@ class Sim {
     this.balls = []; this.combo = 0; this.resetAt = 0; this.bot = null; this.botErr = 0; this.acc = 0;
     this.prev = new Map();                       // id платформы -> положение в конце прошлого кадра
     this.spree = { gate: null, n: 0, t: 0 };
-    this.fx = { wideUntil: 0, q: [] };           // мои бонусы (бот бонусов не получает)
+    this.fx = { wideUntil: 0, q: [], stickyUntil: 0 };   // мои бонусы (бот бонусов не получает)
+    this.botEff = null;                          // где бот на самом деле (с притяжением дыр)
     this.slowUntil = 0; this.iceUntil = 0; this.iceSide = null;
     this.barrage = 0; this.barrageI = 0;
   }
 
   // k: 0 — обычный, 1 — салют (lives), 2 — приклеен к моей платформе stuck ("m" | "k")
-  newBall(vx, vy, x = 0.5, y = 0.5, touch = null, k = 0) { return { x, y, vx, vy, bounces: 0, touch, k, lives: P.barrageLives, stuck: null }; }
+  // sl — множитель скорости (медленные мячи юбилея разгоняются после slh); rel — когда отлипнет сам
+  newBall(vx, vy, x = 0.5, y = 0.5, touch = null, k = 0) {
+    return { x, y, vx, vy, bounces: 0, touch, k, lives: P.barrageLives, stuck: null, sl: 1, slh: 0, rel: 0 };
+  }
 
   kick(towards) {   // towards: сторона одиночки — подача летит к нему
     const dy = towards === "top" ? -1 : towards === "bottom" ? 1 : (Math.random() < 0.5 ? -1 : 1);
@@ -98,10 +122,13 @@ class Sim {
     }
   }
 
-  addBalls(n) {
-    for (let i = 0, have = this.balls.filter(b => !b.k).length; i < n && have + i < P.maxBalls; i++) {
+  addBalls(n, slow = false) {
+    const cap = P.maxBalls + (slow ? 4 : 0);
+    for (let i = 0, have = this.balls.filter(b => !b.k).length; i < n && have + i < cap; i++) {
       const a = Math.random() * 6.283;
-      this.balls.push(this.newBall(Math.cos(a) * P.v0, Math.sin(a) * P.v0));
+      const b = this.newBall(Math.cos(a) * P.v0, Math.sin(a) * P.v0);
+      if (slow) { b.sl = P.slowbK; b.slh = performance.now() + P.slowbHold * 1000; }
+      this.balls.push(b);
     }
   }
 
@@ -121,34 +148,55 @@ class Sim {
   wall(b, ev) { ev.wall++; if (b.k === 1) { b.lives--; return; } b.bounces++; this.boost(b); }
 
   /* удар о платформу pad в точке (x, y), едущую со скоростью (pvx, pvy): отражаем относительную скорость */
-  bounce(b, pad, x, y, pvx, pvy, ev) {
+  bounce(b, pad, x, y, pvx, pvy, ev, rnd, now) {
     const hw = pad.w / 2, hh = P.padH / 2, R = P.ballR;
-    const cx = clamp(b.x, x - hw, x + hw), cy = clamp(b.y, y - hh, y + hh);
-    const dx = b.x - cx, dy = b.y - cy, d2 = dx * dx + dy * dy;
-    if (d2 > R * R) return;
     let nx, ny;
-    if (d2 < 1e-9) { nx = 0; ny = b.y < y ? -1 : 1; } else { const d = Math.sqrt(d2); nx = dx / d; ny = dy / d; }
-    b.x = cx + nx * R; b.y = cy + ny * R;
+    if (rnd) {   // круглая платформа (аэрохоккей)
+      const dx = b.x - x, dy = b.y - y, d = Math.hypot(dx, dy);
+      if (d > R + P.roundR) return false;
+      if (d > 1e-9) { nx = dx / d; ny = dy / d; } else { nx = 0; ny = b.y < y ? -1 : 1; }
+      b.x = x + nx * (R + P.roundR); b.y = y + ny * (R + P.roundR);
+    } else {
+      const cx = clamp(b.x, x - hw, x + hw), cy = clamp(b.y, y - hh, y + hh);
+      const dx = b.x - cx, dy = b.y - cy, d2 = dx * dx + dy * dy;
+      if (d2 > R * R) return false;
+      if (d2 < 1e-9) { nx = 0; ny = b.y < y ? -1 : 1; } else { const d = Math.sqrt(d2); nx = dx / d; ny = dy / d; }
+      b.x = cx + nx * R; b.y = cy + ny * R;
+    }
     const vn = (b.vx - pvx) * nx + (b.vy - pvy) * ny;
     if (vn < 0) { b.vx -= 2 * vn * nx; b.vy -= 2 * vn * ny; }
-    b.vx += (b.x - x) / hw * 0.25;
+    if (!rnd) b.vx += (b.x - x) / hw * 0.25;
     const sp = Math.hypot(b.vx, b.vy);
     if (sp > P.vmax) { b.vx *= P.vmax / sp; b.vy *= P.vmax / sp; }
     ev.hit++;
-    if (b.k === 1) { b.lives--; return; }
     b.touch = { by: pad.kind === "bot" ? "bot" : "me", side: pad.side, kind: pad.kind };
+    if (b.k === 1) { b.lives--; return true; }   // салют: теряет жизнь, касание помним — гол засчитаем
+    // клейкая платформа (юбилей sticky): мяч прилипает, отлипнет сам через stickyHold
+    if (pad.kind !== "bot" && now < this.fx.stickyUntil && !this.balls.some(o => o.k === 2 && o.stuck === pad.kind)) {
+      Object.assign(b, { k: 2, stuck: pad.kind, rel: now + P.stickyHold * 1000, vx: 0, vy: 0 });
+      return true;
+    }
     b.bounces++; this.combo++;
     if (pad.kind !== "bot") ev.myCombo = Math.max(ev.myCombo, this.combo);
     this.boost(b);
+    return true;
   }
 
   /* мяч за шаг; платформы внутри шага едут из (ox, oy) в (x, y) — субшагов хватает и на резкий взмах */
-  advance(b, pads, tscale, ev) {
-    const R = P.ballR;
+  advance(b, pads, tscale, ev, env, now) {
+    const R = P.ballR, holes = env.holes || [];
+    tscale *= b.sl;
     const pmove = pads.reduce((m, p) => Math.max(m, Math.abs(p.x - p.ox) + Math.abs(p.y - p.oy)), 0);
     const n = Math.max(1, Math.min(32, Math.floor((Math.hypot(b.vx, b.vy) * SIM_DT * tscale + pmove) / (R * 0.6)) + 1));
     const sdt = SIM_DT * tscale / n;
     for (let i = 0; i < n; i++) {
+      for (const h of holes) {   // чёрная дыра: тянет к центру и закручивает
+        const dx = h.x - b.x, dy = h.y - b.y, d2 = dx * dx + dy * dy + 0.004, d = Math.sqrt(d2);
+        const f = P.holeG * h.a / d2;
+        b.vx += (dx / d * f + h.s * P.holeSwirl * f * -dy / d) * sdt;
+        b.vy += (dy / d * f + h.s * P.holeSwirl * f * dx / d) * sdt;
+      }
+      if (holes.length) { const sp = Math.hypot(b.vx, b.vy); if (sp > P.vmax) { b.vx *= P.vmax / sp; b.vy *= P.vmax / sp; } }
       b.x += b.vx * sdt; b.y += b.vy * sdt;
       if (b.x < R) { b.x = R; b.vx = Math.abs(b.vx); this.wall(b, ev); }
       else if (b.x > 1 - R) { b.x = 1 - R; b.vx = -Math.abs(b.vx); this.wall(b, ev); }
@@ -162,20 +210,21 @@ class Sim {
       }
       const t = (i + 1) / n;
       for (const p of pads)
-        this.bounce(b, p, p.ox + (p.x - p.ox) * t, p.oy + (p.y - p.oy) * t, (p.x - p.ox) / SIM_DT, (p.y - p.oy) / SIM_DT, ev);
+        if (this.bounce(b, p, p.ox + (p.x - p.ox) * t, p.oy + (p.y - p.oy) * t, (p.x - p.ox) / SIM_DT, (p.y - p.oy) / SIM_DT, ev, env.round, now)
+            && b.k === 2) return null;   // прилип
       if (b.k === 1 && b.lives <= 0) return { dead: true };
     }
     return null;
   }
 
   /* бот: едет к ближайшему по Y мячу с ограниченной скоростью и небольшим промахом прицела */
-  stepBot(dt, w, zone, now) {
+  stepBot(dt, w, zone, now, env) {
     const bt = this.bot;
     if (!bt || (now < this.iceUntil && this.iceSide === bt.side)) return;   // заморожен
     const [lo, hi] = bt.side === "top" ? [0, zone.top] : [zone.bot, 1];
     if (Math.random() < 0.03) this.botErr = (Math.random() * 2 - 1) * P.botErr;
     const ball = this.balls.filter(b => b.k !== 2).reduce((m, b) => !m || Math.abs(b.y - bt.y) < Math.abs(m.y - bt.y) ? b : m, null);
-    const maxd = P.botSpeed * dt, hh = P.padH / 2;
+    const maxd = (env.slowpad === bt.side ? Math.min(P.botSpeed, P.slowpadV) : P.botSpeed) * dt, hh = P.padH / 2;
     const tx = ball ? clamp(ball.x + this.botErr, w / 2, 1 - w / 2) : 0.5;
     const ty = ball ? clamp(ball.y, lo + hh, hi - hh) : (bt.side === "top" ? lo + hh : hi - hh);
     bt.x = clamp(bt.x + clamp(tx - bt.x, -maxd, maxd), w / 2, 1 - w / 2);
@@ -202,33 +251,40 @@ class Sim {
     this.fx.q.splice(6);
   }
 
-  use(now, mySide, myPads) {
+  /* применить бонус: сначала бросаем мяч, прилипший к клейкой платформе, потом — очередь */
+  use(now, mySide, myPads, ang) {
+    const sticky = this.balls.filter(b => b.k === 2 && b.rel);
+    if (sticky.length) { for (const b of sticky) this.throwBall(b, myPads, ang); return "throw"; }
     const what = this.fx.q.shift();
     if (what === "slow") this.slowUntil = now + P.slowDur * 1000;
     else if (what === "ice") { this.iceUntil = now + P.iceDur * 1000; this.iceSide = opp(mySide); }
-    else if (what === "ball") for (const b of this.balls) if (b.k === 2) this.throwBall(b, myPads);
+    else if (what === "ball") for (const b of this.balls) if (b.k === 2) this.throwBall(b, myPads, ang);
     return what;
   }
+  stuckSticky() { return this.balls.some(b => b.k === 2 && b.rel); }
 
-  throwBall(b, myPads) {
+  /* бросок приклеенного мяча: направление — нормаль наклонённой платформы (ang — наклон, как на экране) */
+  throwBall(b, myPads, ang) {
     const p = myPads.find(q => q.kind === b.stuck);
-    const up = (p ? p.side : "bottom") === "bottom" ? -1 : 1;
-    const pvx = p ? (p.x - (this.prev.get(p.kind)?.x ?? p.x)) / SIM_DT : 0;
-    Object.assign(b, { vx: clamp(pvx * 0.4, -0.8, 0.8), vy: up * P.stickV, k: 0, stuck: null });
+    const bottom = (p ? p.side : "bottom") === "bottom";
+    if (ang == null) ang = p ? clamp((p.x - (this.prev.get(p.kind)?.x ?? p.x)) / SIM_DT * 1.1, -0.5, 0.5) : 0;
+    ang = clamp(ang, -0.7, 0.7);
+    const [nx, ny] = bottom ? [Math.sin(ang), -Math.cos(ang)] : [-Math.sin(ang), Math.cos(ang)];
+    Object.assign(b, { vx: nx * P.stickV, vy: ny * P.stickV, k: 0, stuck: null, rel: 0 });
   }
 
-  stickFollow(myPads) {
+  stickFollow(myPads, now, rnd) {
     for (const b of this.balls) {
       if (b.k !== 2) continue;
       const p = myPads.find(q => q.kind === b.stuck);
-      if (!p) { this.throwBall(b, myPads); continue; }   // платформа ушла — мяч просто отпускаем
-      const off = P.padH / 2 + P.ballR + 0.003;
+      if (!p || (b.rel && now >= b.rel)) { this.throwBall(b, myPads); continue; }   // ушла платформа / отлип сам
+      const off = (rnd ? P.roundR : P.padH / 2) + P.ballR + 0.003;
       b.x = p.x; b.y = p.side === "bottom" ? p.y - off : p.y + off;
     }
   }
 
   /* один кадр: fdt — прошедшее время, myPads — мои активные платформы {kind, x, y, side}. События кадра */
-  frame(fdt, myPads, zone, towards, now) {
+  frame(fdt, myPads, zone, towards, now, env = {}) {
     const ev = { hit: 0, wall: 0, goals: [], myCombo: 0 };
     this.acc = Math.min(this.acc + fdt, 0.1);
     const steps = Math.floor(this.acc / SIM_DT);
@@ -243,11 +299,14 @@ class Sim {
         ox: from[i].x + (p.x - from[i].x) * t0, oy: from[i].y + (p.y - from[i].y) * t0,
         x: from[i].x + (p.x - from[i].x) * t1, y: from[i].y + (p.y - from[i].y) * t1 }));
       if (this.bot) {
-        const ox = this.bot.x, oy = this.bot.y;
-        this.stepBot(SIM_DT, base, zone, now);
-        pads.push({ kind: "bot", side: this.bot.side, w: base, ox, oy, x: this.bot.x, y: this.bot.y });
+        const [ox, oy] = this.botEff || effPos(this.bot.x, this.bot.y, this.bot.side, zone, env.holes);
+        this.stepBot(SIM_DT, base, zone, now, env);
+        const [x, y] = this.botEff = effPos(this.bot.x, this.bot.y, this.bot.side, zone, env.holes);
+        pads.push({ kind: "bot", side: this.bot.side, w: base, ox, oy, x, y });
       }
-      this.stickFollow(pads.filter(p => p.kind !== "bot"));
+      this.stickFollow(pads.filter(p => p.kind !== "bot"), now, env.round);
+      for (const b of this.balls)   // медленные мячи юбилея постепенно разгоняются
+        if (b.sl < 1 && now >= b.slh) b.sl = Math.min(1, b.sl + SIM_DT * (1 - P.slowbK) / P.slowbRamp);
       if (this.resetAt) {
         if (now < this.resetAt) continue;
         this.resetAt = 0; this.kick(towards);
@@ -262,14 +321,15 @@ class Sim {
       const add = [], remove = [];
       for (const b of this.balls) {
         if (b.k === 2) continue;
-        const g = this.advance(b, pads, tscale, ev);
+        const g = this.advance(b, pads, tscale, ev, env, now);
         if (g) {
           remove.push(b);
-          if (g.dead || b.k === 1) continue;     // мячи салюта голов не дают
+          if (g.dead) continue;
           const by = b.touch?.by || null, own = !!b.touch && b.touch.side === g.side;
+          const salute = b.k === 1;                  // голы салюта засчитываются, но спри не двигают
           const n = this.goalSpree(g.side, now);
           if (n >= 2 && by === "me" && !own) this.award(n, b.touch.kind, myPads);
-          ev.goals.push({ ...g, touch: b.touch, combo: this.combo, spree: n });
+          ev.goals.push({ ...g, touch: b.touch, combo: this.combo, spree: n, salute });
         } else if (b.k === 0 && b.bounces >= P.split && this.balls.filter(q => q.k === 0).length + add.length - remove.length < P.maxBalls) {
           b.bounces = 0;
           const sp = Math.hypot(b.vx, b.vy), base2 = Math.atan2(b.vy, b.vx), dv = 0.3 + Math.random() * 0.12;
@@ -321,7 +381,7 @@ function mountAirHockey(c, w, opts = {}) {
 
   const ctx = cv.getContext("2d");
   let W = 0, H = 0;
-  const zone = { top: 0.35, bot: 0.65 };
+  const zone = { top: 0.35, bot: 0.65, itop: 0.35, ibot: 0.65 };   // top/bot — где можно стоять, itop/ibot — граница ввода
   let canPlay = false, nahCooldown = 0, myNick = null;
   const nah = new Audio(SND + "nah.wav"); nah.volume = 0.6;
 
@@ -335,8 +395,11 @@ function mountAirHockey(c, w, opts = {}) {
 
   /* ---------- мои платформы: m — мышь/палец, k — клавиатура ----------
    * active — держит слот; leaveAt — ушёл, но платформа стоит до этого момента (GRACE). */
-  const mine = { m: { x: .5, y: .9, side: "bottom", active: false, leaveAt: 0, sendT: 0 },
-                 k: { x: .5, y: .99, side: "top", active: false, leaveAt: 0, sendT: 0 } };
+  // tx/ty — куда тянет ввод; x/y — где платформа (при slowpad догоняет ввод медленно)
+  const mine = { m: { x: .5, y: .9, tx: .5, ty: .9, side: "bottom", active: false, leaveAt: 0, sendT: 0 },
+                 k: { x: .5, y: .99, tx: .5, ty: .99, side: "top", active: false, leaveAt: 0, sendT: 0 } };
+  /* глобальные эффекты юбилея — их считает сервер в обоих режимах */
+  const env = () => ({ round: (srv.round || 0) > (performance.now() - srvT) / 1000, holes: srv.holes || [], slowpad: srv.slowpad || null });
   let goneAt = 0;                 // когда у меня не осталось ни одной платформы (для ухода бота)
 
   function fitCanvas() {
@@ -349,8 +412,22 @@ function mountAirHockey(c, w, opts = {}) {
   /* ---------- локальная игра ---------- */
   const sim = new Sim();
   let simOn = false, simReportT = 0;
-  const myPads = () => ["m", "k"].filter(s => mine[s].active)
-    .map(s => ({ x: mine[s].x, y: mine[s].y, side: mine[s].side, kind: s }));
+  const myPads = () => ["m", "k"].filter(s => mine[s].active).map(s => {
+    const [x, y] = effPos(mine[s].x, mine[s].y, mine[s].side, zone, srv.holes);
+    return { x, y, side: mine[s].side, kind: s };
+  });
+  /* мои платформы догоняют ввод (мгновенно, или медленно при slowpad); зона могла сжаться — прижимаем */
+  function stepMine(fdt) {
+    const sp = srv.slowpad;
+    for (const s of ["m", "k"]) {
+      const p = mine[s];
+      if (!p.active) continue;
+      if (sp === p.side) { const md = P.slowpadV * fdt; p.x += clamp(p.tx - p.x, -md, md); p.y += clamp(p.ty - p.y, -md, md); }
+      else { p.x = p.tx; p.y = p.ty; }
+      const [lo, hi] = p.side === "top" ? [0, zone.top] : [zone.bot, 1];
+      p.y = clamp(p.y, lo + P.padH / 2, hi - P.padH / 2);
+    }
+  }
   const mySide = () => mine.m.active ? mine.m.side : mine.k.active ? opp(mine.k.side) : (touch.side || "bottom");
 
   function setSim(on) {
@@ -381,47 +458,56 @@ function mountAirHockey(c, w, opts = {}) {
     if (!pads.length) { if (!goneAt) goneAt = now; if (sim.bot && now - goneAt > BOT_FORGET) sim.bot = null; }
     else goneAt = 0;
     if (sim.bot && mine.m.active) sim.bot.side = opp(mine.m.side);   // бот всегда напротив игрока
-    const ev = sim.frame(fdt, pads, zone, mySide(), now);
+    const ev = sim.frame(fdt, pads, zone, mySide(), now, env());
     if (ev.hit) Snd.play("click", true);
     if (ev.wall) Snd.play("wall", true);
     for (const g of ev.goals) {
       const by = g.touch?.by || null;
       const own = !!g.touch && g.touch.side === g.side;
-      send({ t: "goal", side: g.side, x: +g.x.toFixed(4), by, own, combo: by === "me" ? ev.myCombo || g.combo : 0, spree: g.spree });
+      lastSent = { by, own };
+      send({ t: "goal", side: g.side, x: +g.x.toFixed(4), by, own, combo: by === "me" ? ev.myCombo || g.combo : 0,
+             spree: g.spree, salute: g.salute || undefined });
       spawnBot();     // бот приходит с первого гола одиночки — даже если тот забил в свои
     }
     if (now - simReportT > 100) {   // снимок для зрителей и для подхвата сервером
       simReportT = now;
-      send({ t: "sim", balls: sim.balls.map(b => ({ x: +b.x.toFixed(4), y: +b.y.toFixed(4), vx: +b.vx.toFixed(4), vy: +b.vy.toFixed(4), k: b.k, l: b.lives })),
+      send({ t: "sim", balls: sim.balls.map(b => ({ x: +b.x.toFixed(4), y: +b.y.toFixed(4), vx: +b.vx.toFixed(4), vy: +b.vy.toFixed(4), k: b.k, l: b.lives, s: +b.sl.toFixed(3) })),
              bot: sim.bot ? { x: +sim.bot.x.toFixed(4), y: +sim.bot.y.toFixed(4), side: sim.bot.side } : null });
     }
   }
 
   /* ---------- бонусы и эффекты: единый вид для локальной и сетевой игры ---------- */
   let fxShow = null;            // анимация спри: {n, t0, side}
+  let lastSent = null;          // мой последний гол в local: {by, own} — кому достанется юбилей sticky
   function view() {
     const now = performance.now();
     if (simOn) return { q: sim.fx.q, wide: sim.wideLeft(now), slow: sim.slowLeft(now), ice: sim.iceLeft(now),
-      iceSide: sim.iceLeft(now) > 0 ? sim.iceSide : null, barrage: sim.barrageOn() };
+      iceSide: sim.iceLeft(now) > 0 ? sim.iceSide : null, barrage: sim.barrageOn(),
+      sticky: Math.max(0, (sim.fx.stickyUntil - now) / 1000), stuck: sim.stuckSticky() };
     const el2 = (now - srvT) / 1000, f = srv.fx || {};
     return { q: f.q || [], wide: Math.max(0, (f.wide || 0) - el2), slow: Math.max(0, (srv.slow || 0) - el2),
-      ice: Math.max(0, (srv.ice || 0) - el2), iceSide: srv.ice > el2 ? srv.ice_side : null, barrage: !!srv.barrage };
+      ice: Math.max(0, (srv.ice || 0) - el2), iceSide: srv.ice > el2 ? srv.ice_side : null, barrage: !!srv.barrage,
+      sticky: Math.max(0, (f.sticky || 0) - el2), stuck: (srv.balls || []).some(b => b.k === 2 && b.r > 0 && b.m) };
   }
   function myPadW(extra = 0) {
     const base = simOn ? Sim.padW(myPads().length + (sim.bot ? 1 : 0) + extra) : srv.pw;
     return view().wide > 0 ? base * P.wideK : base;
   }
+  const canUse = v => v.q.length > 0 || v.stuck;
   function useBonus() {
-    if (!view().q.length) return;
+    if (!canUse(view())) return;
     Snd.init();
-    if (simOn) sim.use(performance.now(), mySide(), myPads());
-    else send({ t: "use" });
+    const ang = +(pstate.get("me:m")?.angle || 0).toFixed(3);   // наклон платформы — направление броска
+    if (simOn) sim.use(performance.now(), mySide(), myPads(), ang);
+    else send({ t: "use", ang });
   }
   const BONUS_NAME = { slow: "🐢 Замедление", ball: "🎯 Бросить мяч", ice: "❄️ Заморозка" };
   function syncBonusUi(v) {
     const q = v.q;
-    bonusBtn.hidden = !q.length;
-    if (q.length) bonusBtn.textContent = BONUS_NAME[q[0]] + (q.length > 1 ? `  +${q.length - 1}` : "") + (mobile ? "" : "  · ЛКМ");
+    bonusBtn.hidden = !canUse(v);
+    const tail = mobile ? "" : "  · ЛКМ";
+    if (v.stuck) bonusBtn.textContent = "🎯 Бросить мяч" + (q.length ? `  +${q.length}` : "") + tail;
+    else if (q.length) bonusBtn.textContent = BONUS_NAME[q[0]] + (q.length > 1 ? `  +${q.length - 1}` : "") + tail;
     const slow = v.slow > 0;
     root.classList.toggle("air-slow", slow);
     w.node?.classList?.toggle("air-slow-win", slow);
@@ -442,7 +528,8 @@ function mountAirHockey(c, w, opts = {}) {
       if (d.t === "state") {
         if (d.mode === "online") lastOnlinePads = d.pads;
         srv = d; srvT = performance.now();
-        if (typeof d.top === "number") { zone.top = d.top; zone.bot = d.bot; }  // зона гуляет на событии
+        if (typeof d.top === "number") { zone.top = d.top; zone.bot = d.bot; }  // зона гуляет/сжимается на событии
+        if (typeof d.itop === "number") { zone.itop = d.itop; zone.ibot = d.ibot; }
         setSim(!!d.sim);
         if (!simOn) {
           if (d.hid !== lastHid) { lastHid = d.hid; Snd.play("click", true); }
@@ -456,7 +543,7 @@ function mountAirHockey(c, w, opts = {}) {
       } else if (d.t === "hello") {
         canPlay = d.can_play;
         if (d.phys) Object.assign(P, d.phys);
-        if (typeof d.top === "number") { zone.top = d.top; zone.bot = d.bot; GOAL.l = d.goalL; GOAL.r = d.goalR; }
+        if (typeof d.top === "number") { zone.top = zone.itop = d.top; zone.bot = zone.ibot = d.bot; GOAL.l = d.goalL; GOAL.r = d.goalR; }
         myNick = d.nick || myNick;
         hint.textContent = d.anon ? (tg ? "Не удалось войти через Телеграм — играешь анонимно"
                                         : "Играешь анонимно — в счёте будет случайный номер (войди в чат для ника)")
@@ -471,14 +558,15 @@ function mountAirHockey(c, w, opts = {}) {
   /* поставить свою платформу в точку поля (x, y уже в координатах поля, y — внутри активной зоны) */
   function moveMine(slot, x, y) {
     const p = mine[slot];
-    const side = y <= zone.top ? "top" : "bottom";
+    const side = y <= Math.max(zone.top, zone.itop) ? "top" : "bottom";
     const v0 = view();
     if (!simOn && v0.ice > 0 && v0.iceSide === (p.active ? p.side : side)) return;   // меня заморозили
     const changed = !p.active || p.side !== side || p.leaveAt;
     const pw = myPadW(p.active ? 0 : 1);
     const [lo, hi] = side === "top" ? [0, zone.top] : [zone.bot, 1];
-    p.x = clamp(x, pw / 2, 1 - pw / 2);
-    p.y = clamp(y, lo + P.padH / 2, hi - P.padH / 2);
+    p.tx = clamp(x, pw / 2, 1 - pw / 2);
+    p.ty = clamp(y, lo + P.padH / 2, hi - P.padH / 2);
+    if (!p.active || p.side !== side || srv.slowpad !== side) { p.x = p.tx; p.y = p.ty; }   // телепорт / без slowpad
     p.side = side; p.active = true; p.leaveAt = 0;
     sendMove(slot, changed);   // смена стороны/возврат — сразу, остальное — не чаще ~30/сек
   }
@@ -486,7 +574,7 @@ function mountAirHockey(c, w, opts = {}) {
     const p = mine[slot], t = performance.now();
     if (!now && t - p.sendT < 30) return;
     p.sendT = t;
-    send({ t: "move", x: +p.x.toFixed(4), y: +p.y.toFixed(4), slot });
+    send({ t: "move", x: +p.tx.toFixed(4), y: +p.ty.toFixed(4), slot });   // сервер сам замедлит при slowpad
   }
   /* убрал курсор/палец: платформа ещё стоит GRACE секунд */
   function leaveMine(slot) {
@@ -503,6 +591,9 @@ function mountAirHockey(c, w, opts = {}) {
   function onGoal(g) {
     if (!g) return;
     if (simOn && g.ev === "balls" && g.add) sim.addBalls(g.add);   // юбилейное событие в локальной игре
+    if (simOn && g.ev === "slowballs" && g.add) sim.addBalls(g.add, true);
+    if (simOn && g.ev === "sticky" && lastSent?.by === "me" && !lastSent.own)
+      sim.fx.stickyUntil = performance.now() + P.stickyDur * 1000;
     if (g.spree >= 2) fxShow = { n: g.spree, t0: performance.now(), side: g.side };
     const s = g.score || 0;
     if (s % 100 === 0) Snd.play("goal100th");
@@ -536,7 +627,7 @@ function mountAirHockey(c, w, opts = {}) {
       Snd.init();
       const r = cv.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-      const active = (y <= zone.top || y >= zone.bot) && x >= 0 && x <= 1;
+      const active = (y <= zone.itop || y >= zone.ibot) && x >= 0 && x <= 1;   // strip не выкидывает игрока
       cv.classList.toggle("playing", active && canPlay);
       if (!active) return leaveMine("m");
       if (!canPlay) return playNah();
@@ -544,7 +635,7 @@ function mountAirHockey(c, w, opts = {}) {
       moveMine("m", clamp01(x), clamp01(y));
     };
     cv.onpointermove = applyPointer;
-    cv.onpointerdown = e => { focused = true; applyPointer(e); if (e.button === 0 && view().q.length && mine.m.active) useBonus(); };
+    cv.onpointerdown = e => { focused = true; applyPointer(e); if (e.button === 0 && canUse(view()) && mine.m.active) useBonus(); };
     cv.onpointerleave = () => { cv.classList.remove("playing"); leaveMine("m"); };
   }
 
@@ -572,7 +663,7 @@ function mountAirHockey(c, w, opts = {}) {
       Snd.init();
       const r = cv.getBoundingClientRect();
       const y = (e.clientY - r.top) / r.height;
-      if (y <= zone.top) setSide("top"); else if (y >= zone.bot) setSide("bottom");
+      if (y <= zone.itop) setSide("top"); else if (y >= zone.ibot) setSide("bottom");
     };
     const onStrip = e => {
       const r = strip.getBoundingClientRect();
@@ -659,11 +750,11 @@ function mountAirHockey(c, w, opts = {}) {
     const out = [];
     const fade = p => p.leaveAt ? 0.35 + 0.65 * Math.max(0, (p.leaveAt - now) / (P.grace * 1000)) : 1;
     const v = view(), myW = myPadW();
-    const meP = s => ({ id: "me:" + s, x: mine[s].x, y: mine[s].y, kind: s, me: true, alpha: fade(mine[s]),
-                        w: myW, ice: v.iceSide === mine[s].side });
+    const meP = s => { const [x, y] = effPos(mine[s].x, mine[s].y, mine[s].side, zone, srv.holes);
+      return { id: "me:" + s, x, y, kind: s, me: true, alpha: fade(mine[s]), w: myW, ice: v.iceSide === mine[s].side }; };
     if (simOn) {
       for (const s of ["m", "k"]) if (mine[s].active) out.push(meP(s));
-      if (sim.bot) out.push({ id: "bot", x: sim.bot.x, y: sim.bot.y, kind: "bot", me: false, nick: P.botNick,
+      if (sim.bot) out.push({ id: "bot", x: (sim.botEff || [sim.bot.x])[0], y: (sim.botEff || [0, sim.bot.y])[1], kind: "bot", me: false, nick: P.botNick,
         w: Sim.padW(myPads().length + 1), ice: v.iceSide === sim.bot.side });
       return out;
     }
@@ -740,6 +831,26 @@ function mountAirHockey(c, w, opts = {}) {
     ctx.restore();
   }
 
+  /* чёрные дыры: тёмный центр, светящийся аккреционный диск, вращающиеся рукава */
+  function drawHoles(holes, now) {
+    for (const h of holes || []) {
+      const cx = h.x * W, cy = h.y * H, r = Math.min(W, H) * 0.055;
+      ctx.save(); ctx.globalAlpha = h.a;
+      const g = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.2);
+      g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(0.35, "rgba(10,0,25,0.95)");
+      g.addColorStop(0.55, "rgba(150,70,255,0.35)"); g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r * 2.2, 0, 7); ctx.fill();
+      ctx.translate(cx, cy); ctx.rotate(h.s * now / 400);
+      ctx.strokeStyle = "rgba(255,170,90,0.7)"; ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        ctx.rotate(2.094);
+        ctx.beginPath(); ctx.arc(0, 0, r * (0.9 + i * 0.25), 0, 1.6 * h.s, h.s < 0); ctx.stroke();
+      }
+      ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, r * 0.45, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+  }
+
   let prevT = performance.now();
   function draw() {
     fitCanvas();
@@ -747,6 +858,7 @@ function mountAirHockey(c, w, opts = {}) {
     const fdt = Math.min(0.05, (now - prevT) / 1000); prevT = now;
     if (!W || !H) { raf = requestAnimationFrame(draw); return; }
     expireMine(now);
+    stepMine(fdt);
     stepKB(fdt);
     stepTouch();
     stepSim(fdt, now);
@@ -771,8 +883,9 @@ function mountAirHockey(c, w, opts = {}) {
     line(GOAL.l * W, 2, GOAL.r * W, 2); line(GOAL.l * W, H - 2, GOAL.r * W, H - 2); ctx.lineWidth = 1;
 
     // платформы (с наклоном и гибкостью)
-    const fx = view();
+    const fx = view(), E = env();
     syncBonusUi(fx);
+    drawHoles(E.holes, now);
     const ph = PAD_DRAW_H * H;
     const seen = new Set();
     for (const p of padsToDraw(now)) {
@@ -791,7 +904,18 @@ function mountAirHockey(c, w, opts = {}) {
       }
       const bend = rigid ? 0 : clamp(st.angVel * ph * 0.25, -ph, ph);
       const color = p.ice ? "#bfe8ff" : p.me ? (rigid ? "#7be3a1" : "#8ab4ff") : "rgba(255,255,255,0.7)";
-      drawPaddle(st.rx * W, st.ry * H, (p.w || srv.pw) * W, ph, p.ice ? 0 : st.angle, p.ice ? 0 : bend, color, p.alpha ?? 1);
+      if (E.round) {   // юбилей round: платформы-круги, как биты аэрохоккея
+        const rr = P.roundR * Math.min(W, H);
+        ctx.save(); ctx.globalAlpha = p.alpha ?? 1; ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(st.rx * W, st.ry * H, rr, 0, 7); ctx.fill();
+        ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.arc(st.rx * W, st.ry * H, rr * 0.45, 0, 7); ctx.fill();
+        ctx.restore();
+      } else drawPaddle(st.rx * W, st.ry * H, (p.w || srv.pw) * W, ph, p.ice ? 0 : st.angle, p.ice ? 0 : bend, color, p.alpha ?? 1);
+      if (p.me && fx.sticky > 0) {   // клейкая платформа — липкая зелёная кромка
+        ctx.save(); ctx.strokeStyle = `rgba(150,255,120,${0.5 + 0.3 * pulse})`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(st.rx * W, st.ry * H, (E.round ? P.roundR * Math.min(W, H) : (p.w || srv.pw) * W / 2) + 4, E.round ? P.roundR * Math.min(W, H) + 4 : ph, 0, 0, 7);
+        ctx.stroke(); ctx.restore();
+      }
       if (!p.me && p.nick) { ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = Math.round(ph * 0.9) + "px system-ui";
         ctx.textAlign = "center"; ctx.fillText(p.nick, st.rx * W, st.ry * H - ph); }
     }
@@ -800,7 +924,8 @@ function mountAirHockey(c, w, opts = {}) {
     // мячи: свои локальные — как есть; серверные — экстраполяция по вектору
     const dt = (now - srvT) / 1000;
     const R = P.ballR * Math.min(W, H);
-    const balls = simOn ? sim.balls.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, e: 0, k: b.k, l: b.lives }))
+    const balls = simOn ? sim.balls.map(b => ({ x: b.x, y: b.y, vx: b.vx * b.sl, vy: b.vy * b.sl, e: 0, k: b.k, l: b.lives,
+                                                s: b.sl, r: b.rel ? Math.max(0, (b.rel - now) / 1000) : 0 }))
                         : (srv.balls || []).map(b => ({ ...b, e: dt }));
     const frozen = fx.ice > 0, slowK = fx.slow > 0 && simOn ? P.slowK : 1;
     let lastHue = 90;
@@ -811,7 +936,9 @@ function mountAirHockey(c, w, opts = {}) {
       const f = clamp((Math.hypot(ball.vx, ball.vy) - 0.6) / 1.8, 0, 1);
       const salute = ball.k === 1;
       // салют: чем меньше жизней, тем краснее; заморозка — ледяной; обычный — жёлтый → зелёный
-      const hue = salute ? 50 * clamp((ball.l - 1) / (P.barrageLives - 1), 0, 1) : frozen ? 195 : 55 + f * 95;
+      // медленный мяч юбилея — голубой, по мере разгона возвращает свой цвет
+      const slowT = clamp((1 - (ball.s ?? 1)) / (1 - P.slowbK), 0, 1);
+      const hue = salute ? 50 * clamp((ball.l - 1) / (P.barrageLives - 1), 0, 1) : frozen ? 195 : (55 + f * 95) * (1 - slowT) + 200 * slowT;
       if (!salute) lastHue = hue;
       const glow = `hsl(${hue} 100% ${salute ? 55 : 60}%)`;
       if (sp > 0.05) {
@@ -829,6 +956,11 @@ function mountAirHockey(c, w, opts = {}) {
       ctx.fillStyle = salute ? glow : "#fff"; ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.fill();
       ctx.fillStyle = glow; ctx.globalAlpha = salute ? 0.6 : 0.35; ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.fill();
       ctx.restore();
+      if (ball.k === 2 && ball.r > 0) {   // прилип к клейкой платформе: кольцо сужается к моменту, когда отлипнет сам
+        const t = clamp(ball.r / P.stickyHold, 0, 1);
+        ctx.strokeStyle = `hsla(110 100% 65% / ${0.4 + 0.5 * (1 - t)})`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(bx, by, R + t * R * 6, 0, 7); ctx.stroke();
+      }
     }
     // кольцо запуска после гола: сужается, подсказывая момент старта
     const launch = simOn ? (sim.resetAt ? Math.max(0, (sim.resetAt - now) / 1000) : 0) : srv.launch_in;

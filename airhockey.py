@@ -20,8 +20,16 @@
 мяч не успел бы вернуться). За ×2..×6 забившему (живому, не в свои) — бонусы:
   ×2 шире платформа · ×3 замедление мячей для всех (в очередь) · ×4 мяч, приклеенный к платформе
   (в очередь — бросок) · ×5 заморозка мячей и платформ противника (в очередь) · ×6 салют: до
-  BARRAGE_N мячей из центра (по одному за тик, веером), живут BARRAGE_LIVES ударов, голов не дают;
-  пока салют летит — спри не считаем. Бонусы из очереди игрок применяет по одному (ЛКМ / кнопка).
+  BARRAGE_N мячей из центра (по одному за тик, веером), живут BARRAGE_LIVES ударов, голы засчитываются;
+  пока салют летит — спри не считаем.
+Юбилей (каждый 10-й гол в ворота) — случайное событие; «жертва» — сторона, в чьи ворота забили:
+  wave/balls (как раньше) · strip — зона жертвы сжимается в полоску у ворот (только влево-вправо),
+  потом с изингом возвращается · round — платформы-круги, как в аэрохоккее · slowballs — 3–5 медленных
+  (голубых) мячей, скорость постепенно приходит в норму · sticky — платформы забившего клеятся:
+  мяч прилипает, бросок ЛКМ/кнопкой (наклон платформы задаёт направление), сам отлипает через
+  STICKY_HOLD · slowpad — платформы жертвы медленные · holes — 1–2 чёрные дыры в нейтральной зоне:
+  закручивают мячи и подтягивают ближние платформы.
+Поле и глобальные эффекты считает сервер в обоих режимах (их видит и Sim одиночки). Бонусы из очереди игрок применяет по одному (ЛКМ / кнопка).
 Анти-пролёт: внутри тика платформа интерполируется из прошлого положения в новое (субшаги считаются
 и по её смещению), отскок — по относительной скорости мяча и платформы.
 Ушедший игрок (курсор/палец убран) держит платформу ещё GRACE секунд — потом слот освобождается.
@@ -63,6 +71,13 @@ ICE_DUR = 2.5                        # ×5: заморозка мячей и п�
 STICK_V = 1.3                        # ×4: скорость брошенного мяча
 BARRAGE_N, BARRAGE_LIVES = 32, 5     # ×6: салют
 BARRAGE_V = 0.9
+STRIP_H, STRIP_DUR, STRIP_BACK = 0.05, 6.0, 1.0   # strip: толщина полоски, сколько держим, сколько возвращаем
+ROUND_DUR, ROUND_R = 7.0, 0.05        # round: сколько секунд, радиус круглой платформы
+SLOWB_K, SLOWB_HOLD, SLOWB_RAMP = 0.3, 3.0, 4.0  # slowballs: множитель, сколько держим, за сколько разгоняются
+STICKY_DUR, STICKY_HOLD = 8.0, 2.5   # sticky: сколько клеится платформа, через сколько мяч отлипает сам
+SLOWPAD_DUR, SLOWPAD_V = 6.0, 0.35   # slowpad: сколько, скорость платформы (единиц поля в сек)
+HOLE_DUR, HOLE_G, HOLE_SWIRL, HOLE_PULL = 10.0, 0.02, 0.9, 0.035   # holes
+JUBILEE = ("wave", "balls", "strip", "round", "slowballs", "sticky", "slowpad", "holes")
 GRACE = float(os.environ.get("NOS_AIR_GRACE", "3"))          # сколько держим платформу ушедшего игрока, с
 BOT_SPEED = float(os.environ.get("NOS_AIR_BOT_SPEED", "0.6")) # скорость бота (лёгкий), units/сек
 BOT_ERR = float(os.environ.get("NOS_AIR_BOT_ERR", "0.09"))   # промах прицела бота
@@ -106,7 +121,7 @@ def clamp(v, a, b):
 
 
 class Player:
-    __slots__ = ("ws", "nick", "kind", "x", "y", "side", "active", "leave_at", "ox", "oy", "px", "py")
+    __slots__ = ("ws", "nick", "kind", "x", "y", "side", "active", "leave_at", "ox", "oy", "px", "py", "tx", "ty")
 
     def __init__(self, ws, nick, kind="m"):
         self.ws = ws
@@ -119,6 +134,7 @@ class Player:
         self.leave_at = 0.0      # ушёл: до этого момента платформа ещё стоит (GRACE)
         self.px = self.ox = 0.5  # положение в конце прошлого тика (для интерполяции внутри тика)
         self.py = self.oy = 0.9
+        self.tx, self.ty = 0.5, 0.9    # куда тянет ввод (при slowpad платформа едет туда медленно)
 
 
 class AirHockey:
@@ -155,6 +171,12 @@ class AirHockey:
         self.ice_side = None      # чья сторона заморожена
         self.barrage = 0          # ×6: сколько мячей салюта ещё выпустить
         self.barrage_i = 0
+        self.strip = {"top": [0.0, 0.0], "bottom": [0.0, 0.0]}   # side -> [до, k 0..1] сжатие зоны
+        self.round_until = 0.0
+        self.slowpad = (None, 0.0)       # (сторона, до)
+        self.holes = []                  # [{x, y, s, t0, t1}]
+        self.local_salute = [0.0, 0]     # режим local: (когда был ×6, сколько голов салюта ещё примем)
+        self.top_in, self.bot_in = TOP_ACTIVE, BOT_ACTIVE   # граница для ввода (без сжатия strip)
         self._load()              # счёт, забившие и лидерборд переживают перезапуск
         self._kick(1)
 
@@ -211,7 +233,7 @@ class AirHockey:
     def _newball(self, vx, vy, x=0.5, y=0.5, touch=None, kind=0):
         # kind: 0 — обычный, 1 — мяч салюта (lives ударов), 2 — приклеен к платформе (stuck = ключ пада)
         return {"x": x, "y": y, "vx": vx, "vy": vy, "bounces": 0, "touch": touch, "k": kind,
-                "lives": BARRAGE_LIVES, "stuck": None}
+                "lives": BARRAGE_LIVES, "stuck": None, "rel": 0.0, "sl": 1.0, "slh": 0.0}
 
     def _normal(self):
         return [b for b in self.balls if b["k"] == 0]
@@ -251,7 +273,7 @@ class AirHockey:
             if key and not own and spree is None:
                 self._award(n, key)
         if self.score[side] % 10 == 0:
-            ev, add = self._jubilee()  # случайное событие на каждый кратный 10 гол
+            ev, add = self._jubilee(side, None if own else (touch[2] if touch and len(touch) > 2 else None))
             self.goal_event["ev"], self.goal_event["add"] = ev, add   # в режиме local мячи добавит клиент
         self._save()
 
@@ -289,7 +311,13 @@ class AirHockey:
             self.barrage, self.barrage_i = BARRAGE_N, 0
         del f["q"][6:]
 
-    def use_bonus(self, ws):
+    def use_bonus(self, ws, ang=None):
+        # сначала — мяч, прилипший к клейкой платформе
+        stuck = [b for b in self.balls if b["k"] == 2 and b["stuck"] and b["stuck"][0] is ws and b["rel"]]
+        if stuck:
+            for b in stuck:
+                self._throw(b, ang)
+            return
         f = self.fx.get(ws)
         if not f or not f["q"]:
             return
@@ -304,39 +332,95 @@ class AirHockey:
         elif what == "ball":
             for b in self.balls:
                 if b["k"] == 2 and b["stuck"] and b["stuck"][0] is ws:
-                    self._throw(b)
+                    self._throw(b, ang)
 
-    def _throw(self, b):
+    def _throw(self, b, ang=None):
+        """Бросить приклеенный мяч. ang — наклон платформы (как его рисует клиент); нет — по скорости."""
         p = self.pads.get(b["stuck"])
-        up = -1 if (p.side if p else "bottom") == "bottom" else 1
-        vx = clamp(((p.x - p.ox) / DT) * 0.4 if p else 0.0, -0.8, 0.8)
-        b["vx"], b["vy"], b["k"], b["stuck"] = vx, up * STICK_V, 0, None
+        bottom = (p.side if p else "bottom") == "bottom"
+        if ang is None:
+            ang = clamp(((p.px - p.ox) / DT) * 1.1 if p else 0.0, -0.5, 0.5)
+        ang = clamp(float(ang), -0.7, 0.7)
+        # нормаль наклонённой платформы: у нижней (sin, -cos), у верхней (-sin, cos)
+        vx, vy = (math.sin(ang), -math.cos(ang)) if bottom else (-math.sin(ang), math.cos(ang))
+        b.update(vx=vx * STICK_V, vy=vy * STICK_V, k=0, stuck=None, rel=0.0)
 
-    def _stick_follow(self):
+    def _stick_follow(self, holes=()):
         for b in self.balls:
             if b["k"] != 2:
                 continue
             p = self.pads.get(b["stuck"])
             if not p or not p.active:
-                self._throw(b) if p else b.update(k=0, stuck=None, vy=-STICK_V)
+                self._throw(b) if p else b.update(k=0, stuck=None, rel=0.0, vy=-STICK_V)
                 continue
-            off = PAD_H / 2 + BALL_R + 0.003
-            b["x"], b["y"] = p.x, p.y - off if p.side == "bottom" else p.y + off
+            x, y = p.px, p.py
+            off = (ROUND_R if time.monotonic() < self.round_until else PAD_H / 2) + BALL_R + 0.003
+            b["x"], b["y"] = x, y - off if p.side == "bottom" else y + off
 
-    def _jubilee(self):
-        """Случайное событие на юбилейный счёт."""
-        ev = random.choice(("wave", "balls"))
+    def _jubilee(self, victim, key=None):
+        """Случайное событие на юбилейный счёт. victim — сторона, в чьи ворота забили; key — забивший.
+        Глобальные эффекты (зона, круги, slowpad, дыры) живут на сервере в любом режиме; мячи и
+        клейкость в режиме local добавляет браузер одиночки по goal_event.ev."""
+        ev = random.choice(JUBILEE)
         add = 0
+        now = time.monotonic()
         if ev == "wave":
             self.wave = 0.18          # граница активной зоны начинает колебаться и затухать
             self.wave_t = 0.0
-        elif ev == "balls":
-            add = random.randint(1, 3)
-            if self.mode == "online" and len(self.balls) < MAX_BALLS:
-                for _ in range(min(add, MAX_BALLS - len(self.balls))):
+        elif ev in ("balls", "slowballs"):
+            add = random.randint(1, 3) if ev == "balls" else random.randint(3, 5)
+            if self.mode == "online":
+                cap = MAX_BALLS + (4 if ev == "slowballs" else 0)
+                for _ in range(max(0, min(add, cap - len(self._normal())))):
                     a = random.uniform(0, 6.283)
-                    self.balls.append(self._newball(math.cos(a) * BALL_V0, math.sin(a) * BALL_V0))
+                    b = self._newball(math.cos(a) * BALL_V0, math.sin(a) * BALL_V0)
+                    if ev == "slowballs":
+                        b["sl"], b["slh"] = SLOWB_K, now + SLOWB_HOLD
+                    self.balls.append(b)
+        elif ev == "strip":
+            self.strip[victim] = [now + STRIP_DUR, self.strip[victim][1]]
+        elif ev == "round":
+            self.round_until = now + ROUND_DUR
+        elif ev == "sticky":
+            if key and key[0] is not None:
+                self.fx.setdefault(key[0], {"wide": 0.0, "q": []})["sticky"] = now + STICKY_DUR
+        elif ev == "slowpad":
+            self.slowpad = (victim, now + SLOWPAD_DUR)
+        elif ev == "holes":
+            self.holes = []
+            for _ in range(random.randint(1, 2)):
+                self.holes.append({"x": random.uniform(0.18, 0.82),
+                                   "y": random.uniform(self.top_in + 0.07, self.bot_in - 0.07),
+                                   "s": random.choice((-1, 1)), "t0": now, "t1": now + HOLE_DUR})
         return ev, add
+
+    # ---------- глобальные эффекты ----------
+    def _hole_list(self, now):
+        """Живые дыры с силой a (плавно появляются и исчезают за 0.8 с)."""
+        out = []
+        for h in self.holes:
+            a = clamp(min(now - h["t0"], h["t1"] - now) / 0.8, 0.0, 1.0)
+            if a > 0:
+                out.append((h["x"], h["y"], h["s"], a))
+        return out
+
+    @staticmethod
+    def hole_pull(x, y, holes):
+        """Смещение платформы к дырам (не копится: считается от положения ввода)."""
+        ox = oy = 0.0
+        for hx, hy, _s, a in holes:
+            dx, dy = hx - x, hy - y
+            d = (dx * dx + dy * dy) ** 0.5
+            if 1e-6 < d < 0.3:
+                k = HOLE_PULL * a * (1 - d / 0.3)
+                ox += dx / d * k; oy += dy / d * k
+        return ox, oy
+
+    def _pad_pos(self, p, holes):
+        """Где платформа на самом деле: ввод + притяжение дыр, в пределах своей зоны."""
+        ox, oy = self.hole_pull(p.x, p.y, holes) if holes else (0.0, 0.0)
+        lo, hi = (0.0, self.top_eff) if p.side == "top" else (self.bot_eff, 1.0)
+        return clamp(p.x + ox, 0.0, 1.0), clamp(p.y + oy, lo + PAD_H / 2, hi - PAD_H / 2)
 
     def _update_zone(self, dt):
         if self.wave > 0.005:
@@ -345,8 +429,18 @@ class AirHockey:
             off = math.sin(self.wave_t) * self.wave
         else:
             self.wave = 0.0; off = 0.0
-        self.top_eff = clamp(TOP_ACTIVE + off, 0.12, 0.45)
-        self.bot_eff = clamp(BOT_ACTIVE - off, 0.55, 0.88)
+        # граница для ВВОДА (по ней решаем, на какой стороне курсор) — без сжатия strip
+        self.top_in = clamp(TOP_ACTIVE + off, 0.12, 0.45)
+        self.bot_in = clamp(BOT_ACTIVE - off, 0.55, 0.88)
+        now = time.monotonic()
+        for side, st in self.strip.items():   # strip: быстро сжимаем, после — с изингом отпускаем
+            until, k = st
+            st[1] = min(1.0, k + dt / 0.35) if now < until else max(0.0, k - dt / STRIP_BACK)
+        ease = lambda k: k * k * (3 - 2 * k)  # smoothstep
+        kt, kb = ease(self.strip["top"][1]), ease(self.strip["bottom"][1])
+        self.top_eff = self.top_in + (STRIP_H - self.top_in) * kt
+        self.bot_eff = self.bot_in + ((1 - STRIP_H) - self.bot_in) * kb
+        self.holes = [h for h in self.holes if h["t1"] > now]
 
     def _boost(self, b):
         sp = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5
@@ -364,36 +458,51 @@ class AirHockey:
         b["bounces"] += 1
         self._boost(b)
 
-    def _bounce_paddle(self, b, p, w, x, y, pvx, pvy):
-        """Удар мяча о платформу в точке (x, y), движущуюся со скоростью (pvx, pvy)."""
+    def _bounce_paddle(self, b, p, w, x, y, pvx, pvy, rnd=False):
+        """Удар мяча о платформу в точке (x, y), движущуюся со скоростью (pvx, pvy). rnd — круглая."""
         hw, hh = w / 2, PAD_H / 2
-        cx = clamp(b["x"], x - hw, x + hw)
-        cy = clamp(b["y"], y - hh, y + hh)
-        dx, dy = b["x"] - cx, b["y"] - cy
-        d2 = dx * dx + dy * dy
-        if d2 > BALL_R * BALL_R:
-            return False
-        if d2 < 1e-9:
-            nx, ny = 0.0, (-1.0 if b["y"] < y else 1.0)
+        if rnd:                       # круг: ближайшая точка — на окружности
+            dx, dy = b["x"] - x, b["y"] - y
+            d = (dx * dx + dy * dy) ** 0.5
+            if d > BALL_R + ROUND_R:
+                return False
+            nx, ny = (dx / d, dy / d) if d > 1e-9 else (0.0, -1.0 if b["y"] < y else 1.0)
+            b["x"], b["y"] = x + nx * (ROUND_R + BALL_R), y + ny * (ROUND_R + BALL_R)
         else:
-            dist = d2 ** 0.5
-            nx, ny = dx / dist, dy / dist
-        b["x"] = cx + nx * BALL_R
-        b["y"] = cy + ny * BALL_R
+            cx = clamp(b["x"], x - hw, x + hw)
+            cy = clamp(b["y"], y - hh, y + hh)
+            dx, dy = b["x"] - cx, b["y"] - cy
+            d2 = dx * dx + dy * dy
+            if d2 > BALL_R * BALL_R:
+                return False
+            if d2 < 1e-9:
+                nx, ny = 0.0, (-1.0 if b["y"] < y else 1.0)
+            else:
+                dist = d2 ** 0.5
+                nx, ny = dx / dist, dy / dist
+            b["x"] = cx + nx * BALL_R
+            b["y"] = cy + ny * BALL_R
         # отражаем ОТНОСИТЕЛЬНУЮ скорость: резкий взмах платформой бьёт по мячу, а не пролетает сквозь
         vn = (b["vx"] - pvx) * nx + (b["vy"] - pvy) * ny
         if vn < 0:
             b["vx"] -= 2 * vn * nx
             b["vy"] -= 2 * vn * ny
-        b["vx"] += (b["x"] - x) / hw * 0.25
+        if not rnd:
+            b["vx"] += (b["x"] - x) / hw * 0.25
         sp = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5
         if sp > BALL_VMAX:
             b["vx"] *= BALL_VMAX / sp; b["vy"] *= BALL_VMAX / sp
         self.hid += 1
-        if b["k"] == 1:               # мяч салюта: просто теряет жизнь
+        b["touch"] = (p.nick, p.side, (p.ws, p.kind) if p.ws is not None else None)
+        if b["k"] == 1:               # мяч салюта: теряет жизнь (касание помним — гол засчитаем)
             b["lives"] -= 1
             return True
-        b["touch"] = (p.nick, p.side, (p.ws, p.kind) if p.ws is not None else None)
+        f = self.fx.get(p.ws) if p.ws is not None else None
+        if f and f.get("sticky", 0) > time.monotonic() and not any(
+                o["k"] == 2 and o["stuck"] == (p.ws, p.kind) for o in self.balls):
+            b["k"], b["stuck"], b["rel"] = 2, (p.ws, p.kind), time.monotonic() + STICKY_HOLD   # прилип
+            b["vx"] = b["vy"] = 0.0
+            return True
         b["bounces"] += 1
         self.combo += 1              # комбо: подряд отбитий платформами в розыгрыше
         if p.nick and p.nick != BOT_NICK:
@@ -401,15 +510,27 @@ class AirHockey:
         self._boost(b)
         return True
 
-    def _advance(self, b, w, tscale):
+    def _advance(self, b, w, tscale, holes=(), rnd=False):
         """Один мяч на тик (с субшагами). Возвращает (side, gx) при голе, иначе None.
         Платформы внутри тика едут из (ox, oy) в (x, y) — субшагов хватает и на быстрый взмах."""
+        tscale *= b["sl"]
         speed = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5 * tscale
         pads = [(p, self.pad_width(p, w)) for p in self.pads.values() if p.active]
-        pmove = max([abs(p.x - p.ox) + abs(p.y - p.oy) for p, _ in pads] or [0.0])
+        pmove = max([abs(p.px - p.ox) + abs(p.py - p.oy) for p, _ in pads] or [0.0])
         n = max(1, min(32, int((speed * DT + pmove) / (BALL_R * 0.6)) + 1))
         sdt = DT * tscale / n
         for i in range(n):
+            for hx, hy, hs, a in holes:   # чёрная дыра: тянет к центру и закручивает
+                dx, dy = hx - b["x"], hy - b["y"]
+                d2 = dx * dx + dy * dy + 0.004
+                d = d2 ** 0.5
+                f = HOLE_G * a / d2
+                b["vx"] += (dx / d * f + hs * HOLE_SWIRL * f * -dy / d) * sdt
+                b["vy"] += (dy / d * f + hs * HOLE_SWIRL * f * dx / d) * sdt
+            if holes:
+                sp = (b["vx"] ** 2 + b["vy"] ** 2) ** 0.5
+                if sp > BALL_VMAX:
+                    b["vx"] *= BALL_VMAX / sp; b["vy"] *= BALL_VMAX / sp
             b["x"] += b["vx"] * sdt
             b["y"] += b["vy"] * sdt
             if b["x"] < BALL_R:
@@ -424,9 +545,10 @@ class AirHockey:
                     b["vy"] = abs(b["vy"]) if side == "top" else -abs(b["vy"])
                     self._wall(b)
             t = (i + 1) / n
-            for p, pw in pads:
-                x, y = p.ox + (p.x - p.ox) * t, p.oy + (p.y - p.oy) * t
-                self._bounce_paddle(b, p, pw, x, y, (p.x - p.ox) / DT, (p.y - p.oy) / DT)
+            for p, pw in pads:            # (px, py) — где платформа сейчас (с притяжением дыр), (ox, oy) — где была
+                x, y = p.ox + (p.px - p.ox) * t, p.oy + (p.py - p.oy) * t
+                if self._bounce_paddle(b, p, pw, x, y, (p.px - p.ox) / DT, (p.py - p.oy) / DT, rnd) and b["k"] == 2:
+                    return None           # прилип к клейкой платформе
             if b["k"] == 1 and b["lives"] <= 0:
                 return ("dead", 0)
         return None
@@ -464,9 +586,18 @@ class AirHockey:
         self._update_zone(DT)
         self._expire(now)
         self._update_mode()
-        for p in self.pads.values():       # откуда платформа едет в этом тике
-            p.ox, p.oy = p.px, p.py
-            p.px, p.py = p.x, p.y
+        holes = self._hole_list(now)
+        sp_side, sp_until = self.slowpad
+        for p in self.pads.values():
+            if p.active and sp_side == p.side and now < sp_until:   # slowpad: едем к вводу медленно
+                md = SLOWPAD_V * DT
+                p.x += clamp(p.tx - p.x, -md, md); p.y += clamp(p.ty - p.y, -md, md)
+            elif p.active:
+                p.x, p.y = p.tx, p.ty
+            lo, hi = (0.0, self.top_eff) if p.side == "top" else (self.bot_eff, 1.0)
+            p.y = clamp(p.y, lo + PAD_H / 2, hi - PAD_H / 2)        # зона могла сжаться (strip)
+            p.ox, p.oy = p.px, p.py        # откуда платформа едет в этом тике (с учётом дыр)
+            p.px, p.py = self._pad_pos(p, holes)
         if self.mode != "online":
             return                    # одиночку считает его браузер
         if self.reset_at:
@@ -478,18 +609,24 @@ class AirHockey:
             a = self.barrage_i * 2 * math.pi / BARRAGE_N + math.pi / BARRAGE_N
             self.balls.append(self._newball(math.cos(a) * BARRAGE_V, math.sin(a) * BARRAGE_V, kind=1))
             self.barrage -= 1; self.barrage_i += 1
-        self._stick_follow()
+        self._stick_follow(holes)
+        for b in self.balls:
+            if b["k"] == 2 and b["rel"] and now >= b["rel"]:
+                self._throw(b)                 # клейкость: мяч отлип сам
+            elif b["sl"] < 1.0 and now >= b["slh"]:
+                b["sl"] = min(1.0, b["sl"] + DT * (1 - SLOWB_K) / SLOWB_RAMP)   # медленные разгоняются
         frozen = now < self.ice_until
+        rnd = now < self.round_until
         tscale = SLOW_K if now < self.slow_until else 1.0
         w = self.pad_w()
         add, remove = [], []
         for b in self.balls:
             if b["k"] == 2 or frozen:
                 continue
-            g = self._advance(b, w, tscale)
+            g = self._advance(b, w, tscale, holes, rnd)
             if g:
                 remove.append(b)
-                if g[0] != "dead" and b["k"] == 0:
+                if g[0] != "dead":             # голы салюта тоже засчитываются
                     self._score(g[0], b["touch"], g[1])
             elif b["k"] == 0 and b["bounces"] >= SPLIT_AT and len(self._normal()) + len(add) - len(remove) < MAX_BALLS:
                 b["bounces"] = 0                 # расщепление: ОБА мяча расходятся от текущего курса
@@ -512,7 +649,8 @@ class AirHockey:
         w = self.pad_w()
         now = time.monotonic()
         ice = self.ice_side if now < self.ice_until else None
-        pads = [{"x": round(p.x, 4), "y": round(p.y, 4), "side": p.side, "kind": p.kind,
+        holes = self._hole_list(now)
+        pads = [{"x": round(p.px, 4), "y": round(p.py, 4), "side": p.side, "kind": p.kind,
                  "me": p.ws is me_ws, "nick": p.nick, "away": bool(p.leave_at),
                  "pw": round(self.pad_width(p, w), 4), "ice": p.side == ice}
                 for p in self.pads.values() if p.active]
@@ -527,9 +665,11 @@ class AirHockey:
         tscale = SLOW_K if now < self.slow_until and self.mode == "online" else 1.0
         still = 0.0 if ice and self.mode == "online" else tscale
         balls = [{"x": round(b["x"], 4), "y": round(b["y"], 4),
-                  "vx": round(b["vx"] * (0 if b.get("k") == 2 else still), 4),
-                  "vy": round(b["vy"] * (0 if b.get("k") == 2 else still), 4),
-                  "k": b.get("k", 0), "l": b.get("lives", 0)} for b in src]
+                  "vx": round(b["vx"] * (0 if b.get("k") == 2 else still * b.get("sl", 1)), 4),
+                  "vy": round(b["vy"] * (0 if b.get("k") == 2 else still * b.get("sl", 1)), 4),
+                  "k": b.get("k", 0), "l": b.get("lives", 0), "s": round(b.get("sl", 1), 3),
+                  "r": round(max(0.0, b["rel"] - now), 2) if b.get("rel") else 0,
+                  "m": bool(b.get("stuck") and b["stuck"][0] is me_ws)} for b in src]
         f = self.fx.get(me_ws) or {}
         return {"t": "state", "mode": self.mode, "sim": self.mode == "local" and self.owner is me_ws,
                 "balls": balls, "ball": balls[0] if balls else {"x": .5, "y": .5, "vx": 0, "vy": 0},
@@ -543,7 +683,12 @@ class AirHockey:
                 "slow": round(max(0.0, self.slow_until - now), 2) if self.mode == "online" else 0.0,
                 "ice": round(max(0.0, self.ice_until - now), 2) if self.mode == "online" else 0.0,
                 "ice_side": ice, "barrage": self.mode == "online" and self._barrage_on(),
-                "fx": {"q": f.get("q", []), "wide": round(max(0.0, f.get("wide", 0) - now), 2)}}
+                "fx": {"q": f.get("q", []), "wide": round(max(0.0, f.get("wide", 0) - now), 2),
+                       "sticky": round(max(0.0, f.get("sticky", 0) - now), 2)},
+                "itop": round(self.top_in, 4), "ibot": round(self.bot_in, 4),
+                "round": round(max(0.0, self.round_until - now), 2),
+                "slowpad": self.slowpad[0] if now < self.slowpad[1] else None,
+                "holes": [{"x": round(x, 4), "y": round(y, 4), "s": s_, "a": round(a, 3)} for x, y, s_, a in holes]}
 
     # ---------- цикл ----------
     async def run(self):
@@ -568,9 +713,9 @@ class AirHockey:
 
     # ---------- ввод ----------
     def _in_active(self, y):
-        if y <= self.top_eff:
+        if y <= self.top_in:          # сторону решаем по несжатой зоне — strip не выкидывает игрока
             return "top"
-        if y >= self.bot_eff:
+        if y >= self.bot_in:
             return "bottom"
         return None
 
@@ -590,6 +735,7 @@ class AirHockey:
                 if p and p.active and not p.leave_at:
                     p.leave_at = time.monotonic() + GRACE   # ушёл в мёртвую зону — платформа ещё постоит
                 return
+            was = bool(p and p.active)
             if p is None or not p.active:
                 if self.active_count() >= MAX_PLAYERS:
                     if p:
@@ -602,20 +748,22 @@ class AirHockey:
             if time.monotonic() < self.ice_until and p.side == self.ice_side and self.mode == "online":
                 return                   # платформа противника заморожена
             w = self.pad_width(p)
-            if side != p.side:           # сменил сторону — телепорт, без «взмаха» через всё поле
-                p.ox = p.px = clamp(x, w / 2, 1 - w / 2)
-                p.oy = p.py = y
-            p.side = side
-            p.x = clamp(x, w / 2, 1 - w / 2)
             lo, hi = (0.0, self.top_eff) if side == "top" else (self.bot_eff, 1.0)
-            p.y = clamp(y, lo + PAD_H / 2, hi - PAD_H / 2)
+            tx, ty = clamp(x, w / 2, 1 - w / 2), clamp(y, lo + PAD_H / 2, hi - PAD_H / 2)
+            if side != p.side or not was:  # сменил сторону/вернулся — телепорт, без «взмаха» через поле
+                p.x = p.ox = p.px = tx
+                p.y = p.oy = p.py = ty
+            p.side = side
+            p.tx, p.ty = tx, ty
+            if self.mode != "online":      # в local физика не идёт — держим платформу там, где ввод
+                p.x, p.y = p.px, p.py = tx, ty
         elif t == "leave":
             p = self.pads.get(key)
             if p and p.active and not p.leave_at:
                 p.leave_at = time.monotonic() + GRACE
         elif t == "use":
             if self.mode == "online":
-                self.use_bonus(ws)
+                self.use_bonus(ws, self._num(d.get("ang"), -0.7, 0.7))
         elif t == "sim":
             self._take_sim(ws, d)
         elif t == "goal":
@@ -643,6 +791,7 @@ class AirHockey:
                 k = b.get("k") if b.get("k") in (0, 1, 2) else 0
                 nb = self._newball(vx, vy, x, y, kind=k)
                 nb["lives"] = int(self._num(b.get("l"), 0, BARRAGE_LIVES) or 0)
+                nb["sl"] = self._num(b.get("s"), 0.1, 1.0) or 1.0
                 balls.append(nb)
         bot = None
         bt = d.get("bot")
@@ -656,12 +805,21 @@ class AirHockey:
         if self.mode != "local" or ws is not self.owner:
             return
         now = time.monotonic()
-        if now - self.local_goal_t < FREEZE * 0.8:   # чаще, чем позволяет физика, — не верим
+        salute = bool(d.get("salute"))
+        ls = self.local_salute
+        if salute:                    # голы салюта: только после ×6 и не больше BARRAGE_N штук
+            if now - ls[0] > 30 or ls[1] <= 0:
+                return
+            ls[1] -= 1
+        elif now - self.local_goal_t < FREEZE * 0.8:   # чаще, чем позволяет физика, — не верим
             return
+        if (self._num(d.get("spree"), 0, 99) or 0) >= 6:
+            self.local_salute = [now, BARRAGE_N]
         side = d.get("side")
         if side not in ("top", "bottom"):
             return
-        self.local_goal_t = now
+        if not salute:
+            self.local_goal_t = now
         other = "bottom" if side == "top" else "top"
         own = bool(d.get("own"))
         by = d.get("by")
@@ -686,7 +844,10 @@ class AirHockey:
                 "padH": PAD_H, "ballR": BALL_R, "botSpeed": BOT_SPEED, "botErr": BOT_ERR,
                 "grace": GRACE, "botNick": BOT_NICK, "spreeWin": SPREE_WIN, "wideK": WIDE_K,
                 "wideDur": WIDE_DUR, "slowK": SLOW_K, "slowDur": SLOW_DUR, "iceDur": ICE_DUR,
-                "stickV": STICK_V, "barrageN": BARRAGE_N, "barrageLives": BARRAGE_LIVES, "barrageV": BARRAGE_V}
+                "stickV": STICK_V, "barrageN": BARRAGE_N, "barrageLives": BARRAGE_LIVES, "barrageV": BARRAGE_V,
+                "roundR": ROUND_R, "slowbK": SLOWB_K, "slowbHold": SLOWB_HOLD, "slowbRamp": SLOWB_RAMP,
+                "stickyHold": STICKY_HOLD, "stickyDur": STICKY_DUR, "slowpadV": SLOWPAD_V, "holeG": HOLE_G, "holeSwirl": HOLE_SWIRL,
+                "holePull": HOLE_PULL}
 
     async def _send(self, ws, data):
         if not ws.closed:
