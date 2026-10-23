@@ -20,7 +20,9 @@ const BOT_FORGET = 4000;            // одиночка ушёл совсем �
 
 // параметры физики по умолчанию; точные приходят с сервером в hello.phys
 const P = { v0: 0.75, vmax: 2.4, gain: 0.035, freeze: 0.6, split: 64, maxBalls: 4, padW0: 0.22, padWmin: 0.06,
-  padH: 0.022, ballR: 0.02, botSpeed: 0.6, botErr: 0.09, grace: 3, botNick: "primitiveAI" };
+  padH: 0.022, ballR: 0.02, botSpeed: 0.6, botErr: 0.09, grace: 3, botNick: "primitiveAI",
+  spreeWin: 1.8, wideK: 1.6, wideDur: 8, slowK: 0.35, slowDur: 5, iceDur: 2.5, stickV: 1.3,
+  barrageN: 32, barrageLives: 5, barrageV: 0.9 };
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const clamp01 = v => clamp(v, 0, 1);
@@ -66,31 +68,48 @@ function shake(node, amp, dur = 420) {
  * ускорение за отскок, расщепление после P.split отскоков. Касание: "me" | "bot" + сторона.
  */
 class Sim {
-  constructor() { this.balls = []; this.combo = 0; this.resetAt = 0; this.bot = null; this.botErr = 0; this.acc = 0; }
+  constructor() {
+    this.balls = []; this.combo = 0; this.resetAt = 0; this.bot = null; this.botErr = 0; this.acc = 0;
+    this.prev = new Map();                       // id платформы -> положение в конце прошлого кадра
+    this.spree = { gate: null, n: 0, t: 0 };
+    this.fx = { wideUntil: 0, q: [] };           // мои бонусы (бот бонусов не получает)
+    this.slowUntil = 0; this.iceUntil = 0; this.iceSide = null;
+    this.barrage = 0; this.barrageI = 0;
+  }
 
-  newBall(vx, vy, x = 0.5, y = 0.5, touch = null) { return { x, y, vx, vy, bounces: 0, touch }; }
+  // k: 0 — обычный, 1 — салют (lives), 2 — приклеен к моей платформе stuck ("m" | "k")
+  newBall(vx, vy, x = 0.5, y = 0.5, touch = null, k = 0) { return { x, y, vx, vy, bounces: 0, touch, k, lives: P.barrageLives, stuck: null }; }
 
   kick(towards) {   // towards: сторона одиночки — подача летит к нему
     const dy = towards === "top" ? -1 : towards === "bottom" ? 1 : (Math.random() < 0.5 ? -1 : 1);
-    this.balls = [this.newBall((Math.random() * 0.6 - 0.3), dy * P.v0)];
+    this.balls = this.balls.filter(b => b.k !== 0).concat(this.newBall((Math.random() * 0.6 - 0.3), dy * P.v0));
     this.combo = 0;
   }
 
-  seed(balls, towards) {
-    const live = (balls || []).filter(b => Math.hypot(b.vx, b.vy) > 0.05);
+  seed(balls, towards, fx) {
+    const live = (balls || []).filter(b => !b.k && Math.hypot(b.vx, b.vy) > 0.05);
+    this.balls = [];
     if (live.length) this.balls = live.map(b => this.newBall(b.vx, b.vy, b.x, b.y));
     else this.kick(towards);
     this.resetAt = 0; this.combo = 0;
+    if (fx) {   // бонусы переезжают из сетевой игры (кроме приклеенного мяча — он стал обычным)
+      this.fx.wideUntil = fx.wide ? performance.now() + fx.wide * 1000 : 0;
+      this.fx.q = (fx.q || []).filter(x => x !== "ball");
+    }
   }
 
   addBalls(n) {
-    for (let i = 0; i < n && this.balls.length < P.maxBalls; i++) {
+    for (let i = 0, have = this.balls.filter(b => !b.k).length; i < n && have + i < P.maxBalls; i++) {
       const a = Math.random() * 6.283;
       this.balls.push(this.newBall(Math.cos(a) * P.v0, Math.sin(a) * P.v0));
     }
   }
 
   static padW(n) { return clamp(P.padW0 / Math.sqrt(Math.max(1, n)), P.padWmin, P.padW0); }
+  barrageOn() { return this.barrage > 0 || this.balls.some(b => b.k === 1); }
+  slowLeft(now) { return Math.max(0, (this.slowUntil - now) / 1000); }
+  iceLeft(now) { return Math.max(0, (this.iceUntil - now) / 1000); }
+  wideLeft(now) { return Math.max(0, (this.fx.wideUntil - now) / 1000); }
 
   boost(b) {
     const sp = Math.hypot(b.vx, b.vy);
@@ -99,51 +118,63 @@ class Sim {
     b.vx *= t / sp; b.vy *= t / sp;
   }
 
-  bounce(b, p, w, ev) {
-    const hw = w / 2, hh = P.padH / 2, R = P.ballR;
-    const cx = clamp(b.x, p.x - hw, p.x + hw), cy = clamp(b.y, p.y - hh, p.y + hh);
+  wall(b, ev) { ev.wall++; if (b.k === 1) { b.lives--; return; } b.bounces++; this.boost(b); }
+
+  /* удар о платформу pad в точке (x, y), едущую со скоростью (pvx, pvy): отражаем относительную скорость */
+  bounce(b, pad, x, y, pvx, pvy, ev) {
+    const hw = pad.w / 2, hh = P.padH / 2, R = P.ballR;
+    const cx = clamp(b.x, x - hw, x + hw), cy = clamp(b.y, y - hh, y + hh);
     const dx = b.x - cx, dy = b.y - cy, d2 = dx * dx + dy * dy;
     if (d2 > R * R) return;
     let nx, ny;
-    if (d2 < 1e-9) { nx = 0; ny = b.y < p.y ? -1 : 1; } else { const d = Math.sqrt(d2); nx = dx / d; ny = dy / d; }
+    if (d2 < 1e-9) { nx = 0; ny = b.y < y ? -1 : 1; } else { const d = Math.sqrt(d2); nx = dx / d; ny = dy / d; }
     b.x = cx + nx * R; b.y = cy + ny * R;
-    const vn = b.vx * nx + b.vy * ny;
+    const vn = (b.vx - pvx) * nx + (b.vy - pvy) * ny;
     if (vn < 0) { b.vx -= 2 * vn * nx; b.vy -= 2 * vn * ny; }
-    b.vx += (b.x - p.x) / hw * 0.25;
-    b.touch = { by: p.kind === "bot" ? "bot" : "me", side: p.side };
-    b.bounces++; this.combo++; ev.hit++;
-    if (p.kind !== "bot") ev.myCombo = Math.max(ev.myCombo, this.combo);
+    b.vx += (b.x - x) / hw * 0.25;
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp > P.vmax) { b.vx *= P.vmax / sp; b.vy *= P.vmax / sp; }
+    ev.hit++;
+    if (b.k === 1) { b.lives--; return; }
+    b.touch = { by: pad.kind === "bot" ? "bot" : "me", side: pad.side, kind: pad.kind };
+    b.bounces++; this.combo++;
+    if (pad.kind !== "bot") ev.myCombo = Math.max(ev.myCombo, this.combo);
     this.boost(b);
   }
 
-  advance(b, pads, w, ev) {
+  /* мяч за шаг; платформы внутри шага едут из (ox, oy) в (x, y) — субшагов хватает и на резкий взмах */
+  advance(b, pads, tscale, ev) {
     const R = P.ballR;
-    const n = Math.max(1, Math.min(24, Math.floor(Math.hypot(b.vx, b.vy) * SIM_DT / (R * 0.6)) + 1));
-    const sdt = SIM_DT / n;
+    const pmove = pads.reduce((m, p) => Math.max(m, Math.abs(p.x - p.ox) + Math.abs(p.y - p.oy)), 0);
+    const n = Math.max(1, Math.min(32, Math.floor((Math.hypot(b.vx, b.vy) * SIM_DT * tscale + pmove) / (R * 0.6)) + 1));
+    const sdt = SIM_DT * tscale / n;
     for (let i = 0; i < n; i++) {
       b.x += b.vx * sdt; b.y += b.vy * sdt;
-      if (b.x < R) { b.x = R; b.vx = Math.abs(b.vx); b.bounces++; ev.wall++; this.boost(b); }
-      else if (b.x > 1 - R) { b.x = 1 - R; b.vx = -Math.abs(b.vx); b.bounces++; ev.wall++; this.boost(b); }
+      if (b.x < R) { b.x = R; b.vx = Math.abs(b.vx); this.wall(b, ev); }
+      else if (b.x > 1 - R) { b.x = 1 - R; b.vx = -Math.abs(b.vx); this.wall(b, ev); }
       for (const side of ["top", "bottom"]) {
         if ((side === "top" && b.y < R) || (side === "bottom" && b.y > 1 - R)) {
           if (b.x > GOAL.l && b.x < GOAL.r) return { side, x: b.x };
           b.y = side === "top" ? R : 1 - R;
           b.vy = side === "top" ? Math.abs(b.vy) : -Math.abs(b.vy);
-          b.bounces++; ev.wall++; this.boost(b);
+          this.wall(b, ev);
         }
       }
-      for (const p of pads) this.bounce(b, p, w, ev);
+      const t = (i + 1) / n;
+      for (const p of pads)
+        this.bounce(b, p, p.ox + (p.x - p.ox) * t, p.oy + (p.y - p.oy) * t, (p.x - p.ox) / SIM_DT, (p.y - p.oy) / SIM_DT, ev);
+      if (b.k === 1 && b.lives <= 0) return { dead: true };
     }
     return null;
   }
 
   /* бот: едет к ближайшему по Y мячу с ограниченной скоростью и небольшим промахом прицела */
-  stepBot(dt, w, zone) {
+  stepBot(dt, w, zone, now) {
     const bt = this.bot;
-    if (!bt) return;
+    if (!bt || (now < this.iceUntil && this.iceSide === bt.side)) return;   // заморожен
     const [lo, hi] = bt.side === "top" ? [0, zone.top] : [zone.bot, 1];
     if (Math.random() < 0.03) this.botErr = (Math.random() * 2 - 1) * P.botErr;
-    const ball = this.balls.reduce((m, b) => !m || Math.abs(b.y - bt.y) < Math.abs(m.y - bt.y) ? b : m, null);
+    const ball = this.balls.filter(b => b.k !== 2).reduce((m, b) => !m || Math.abs(b.y - bt.y) < Math.abs(m.y - bt.y) ? b : m, null);
     const maxd = P.botSpeed * dt, hh = P.padH / 2;
     const tx = ball ? clamp(ball.x + this.botErr, w / 2, 1 - w / 2) : 0.5;
     const ty = ball ? clamp(ball.y, lo + hh, hi - hh) : (bt.side === "top" ? lo + hh : hi - hh);
@@ -151,37 +182,109 @@ class Sim {
     bt.y = clamp(bt.y + clamp(ty - bt.y, -maxd, maxd), lo + hh, hi - hh);
   }
 
-  /* один кадр: fdt — прошедшее время, pads — мои активные платформы. Возвращает события кадра */
+  /* ---------- спри и бонусы ---------- */
+  goalSpree(side, now) {
+    if (this.barrageOn()) return 0;            // салют летит — серию не считаем
+    const sp = this.spree;
+    sp.n = sp.gate === side && now - sp.t <= P.spreeWin * 1000 ? sp.n + 1 : 1;
+    sp.gate = side; sp.t = now;
+    return sp.n;
+  }
+
+  award(n, kind, myPads) {
+    if (n === 2) this.fx.wideUntil = performance.now() + P.wideDur * 1000;
+    else if (n === 3) this.fx.q.push("slow");
+    else if (n === 4) {
+      const p = myPads.find(q => q.kind === kind) || myPads[0];
+      if (p) { const b = this.newBall(0, 0, p.x, p.y, null, 2); b.stuck = p.kind; this.balls.push(b); this.fx.q.push("ball"); }
+    } else if (n === 5) this.fx.q.push("ice");
+    else if (n >= 6) { this.barrage = P.barrageN; this.barrageI = 0; }
+    this.fx.q.splice(6);
+  }
+
+  use(now, mySide, myPads) {
+    const what = this.fx.q.shift();
+    if (what === "slow") this.slowUntil = now + P.slowDur * 1000;
+    else if (what === "ice") { this.iceUntil = now + P.iceDur * 1000; this.iceSide = opp(mySide); }
+    else if (what === "ball") for (const b of this.balls) if (b.k === 2) this.throwBall(b, myPads);
+    return what;
+  }
+
+  throwBall(b, myPads) {
+    const p = myPads.find(q => q.kind === b.stuck);
+    const up = (p ? p.side : "bottom") === "bottom" ? -1 : 1;
+    const pvx = p ? (p.x - (this.prev.get(p.kind)?.x ?? p.x)) / SIM_DT : 0;
+    Object.assign(b, { vx: clamp(pvx * 0.4, -0.8, 0.8), vy: up * P.stickV, k: 0, stuck: null });
+  }
+
+  stickFollow(myPads) {
+    for (const b of this.balls) {
+      if (b.k !== 2) continue;
+      const p = myPads.find(q => q.kind === b.stuck);
+      if (!p) { this.throwBall(b, myPads); continue; }   // платформа ушла — мяч просто отпускаем
+      const off = P.padH / 2 + P.ballR + 0.003;
+      b.x = p.x; b.y = p.side === "bottom" ? p.y - off : p.y + off;
+    }
+  }
+
+  /* один кадр: fdt — прошедшее время, myPads — мои активные платформы {kind, x, y, side}. События кадра */
   frame(fdt, myPads, zone, towards, now) {
     const ev = { hit: 0, wall: 0, goals: [], myCombo: 0 };
     this.acc = Math.min(this.acc + fdt, 0.1);
-    while (this.acc >= SIM_DT) {
+    const steps = Math.floor(this.acc / SIM_DT);
+    const wide = now < this.fx.wideUntil;
+    // откуда мои платформы едут в этом кадре (сменили сторону — без «взмаха» через поле)
+    const from = myPads.map(p => { const o = this.prev.get(p.kind); return o && o.side === p.side ? o : p; });
+    for (let j = 0; j < steps; j++) {
       this.acc -= SIM_DT;
-      const pads = this.bot ? [...myPads, this.bot] : myPads;
-      const w = Sim.padW(pads.length);
-      this.stepBot(SIM_DT, w, zone);
+      const base = Sim.padW(myPads.length + (this.bot ? 1 : 0));
+      const t0 = j / steps, t1 = (j + 1) / steps;
+      const pads = myPads.map((p, i) => ({ kind: p.kind, side: p.side, w: wide ? base * P.wideK : base,
+        ox: from[i].x + (p.x - from[i].x) * t0, oy: from[i].y + (p.y - from[i].y) * t0,
+        x: from[i].x + (p.x - from[i].x) * t1, y: from[i].y + (p.y - from[i].y) * t1 }));
+      if (this.bot) {
+        const ox = this.bot.x, oy = this.bot.y;
+        this.stepBot(SIM_DT, base, zone, now);
+        pads.push({ kind: "bot", side: this.bot.side, w: base, ox, oy, x: this.bot.x, y: this.bot.y });
+      }
+      this.stickFollow(pads.filter(p => p.kind !== "bot"));
       if (this.resetAt) {
         if (now < this.resetAt) continue;
         this.resetAt = 0; this.kick(towards);
       }
+      if (this.barrage > 0) {   // салют: по мячу за шаг, веером по кругу (предсказуемо)
+        const a = this.barrageI * 2 * Math.PI / P.barrageN + Math.PI / P.barrageN;
+        this.balls.push(this.newBall(Math.cos(a) * P.barrageV, Math.sin(a) * P.barrageV, 0.5, 0.5, null, 1));
+        this.barrage--; this.barrageI++;
+      }
+      if (now < this.iceUntil) continue;        // заморозка: мячи стоят
+      const tscale = now < this.slowUntil ? P.slowK : 1;
       const add = [], remove = [];
       for (const b of this.balls) {
-        const g = this.advance(b, pads, w, ev);
-        if (g) { ev.goals.push({ ...g, touch: b.touch, combo: this.combo }); remove.push(b); }
-        else if (b.bounces >= P.split && this.balls.length + add.length - remove.length < P.maxBalls) {
+        if (b.k === 2) continue;
+        const g = this.advance(b, pads, tscale, ev);
+        if (g) {
+          remove.push(b);
+          if (g.dead || b.k === 1) continue;     // мячи салюта голов не дают
+          const by = b.touch?.by || null, own = !!b.touch && b.touch.side === g.side;
+          const n = this.goalSpree(g.side, now);
+          if (n >= 2 && by === "me" && !own) this.award(n, b.touch.kind, myPads);
+          ev.goals.push({ ...g, touch: b.touch, combo: this.combo, spree: n });
+        } else if (b.k === 0 && b.bounces >= P.split && this.balls.filter(q => q.k === 0).length + add.length - remove.length < P.maxBalls) {
           b.bounces = 0;
-          const sp = Math.hypot(b.vx, b.vy), base = Math.atan2(b.vy, b.vx), dv = 0.3 + Math.random() * 0.12;
-          b.vx = Math.cos(base - dv) * sp; b.vy = Math.sin(base - dv) * sp;
-          add.push(this.newBall(Math.cos(base + dv) * sp, Math.sin(base + dv) * sp, b.x, b.y, b.touch));
+          const sp = Math.hypot(b.vx, b.vy), base2 = Math.atan2(b.vy, b.vx), dv = 0.3 + Math.random() * 0.12;
+          b.vx = Math.cos(base2 - dv) * sp; b.vy = Math.sin(base2 - dv) * sp;
+          add.push(this.newBall(Math.cos(base2 + dv) * sp, Math.sin(base2 + dv) * sp, b.x, b.y, b.touch));
         }
       }
       this.balls = this.balls.filter(b => !remove.includes(b)).concat(add);
-      if (!this.balls.length) {   // поле пусто — заморозка и новая подача
-        this.balls = [this.newBall(0, 0)];
+      if (!this.balls.some(b => b.k !== 1)) {   // обычных мячей нет — заморозка и новая подача
+        this.balls.push(this.newBall(0, 0));
         this.resetAt = now + P.freeze * 1000;
         this.combo = 0;
       }
     }
+    for (const p of myPads) this.prev.set(p.kind, { x: p.x, y: p.y, side: p.side });
     return ev;
   }
 }
@@ -210,8 +313,11 @@ function mountAirHockey(c, w, opts = {}) {
                       : "Веди курсор в светлую зону у ворот · вторая платформа — A/D";
   const hint = el("div", { className: "air-hint", textContent: HINT });
   const strip = mobile ? el("div", { className: "air-strip" }) : null;
-  c.append(el("div", { className: "air" + (mobile ? " air-tg" : "") }, score, cv,
-    ...(strip ? [strip] : []), el("div", { className: "air-row" }, feed, lbBtn), hint));
+  // кнопка бонуса из очереди (на ПК то же делает ЛКМ по полю)
+  const bonusBtn = el("button", { className: "btn air-bonus", hidden: true, onclick: () => useBonus() });
+  const root = el("div", { className: "air" + (mobile ? " air-tg" : "") }, score, cv,
+    ...(strip ? [strip] : []), bonusBtn, el("div", { className: "air-row" }, feed, lbBtn), hint);
+  c.append(root);
 
   const ctx = cv.getContext("2d");
   let W = 0, H = 0;
@@ -243,8 +349,8 @@ function mountAirHockey(c, w, opts = {}) {
   /* ---------- локальная игра ---------- */
   const sim = new Sim();
   let simOn = false, simReportT = 0;
-  const myPads = () => ["m", "k"].map(s => mine[s]).filter(p => p.active)
-    .map(p => ({ x: p.x, y: p.y, side: p.side, kind: "me" }));
+  const myPads = () => ["m", "k"].filter(s => mine[s].active)
+    .map(s => ({ x: mine[s].x, y: mine[s].y, side: mine[s].side, kind: s }));
   const mySide = () => mine.m.active ? mine.m.side : mine.k.active ? opp(mine.k.side) : (touch.side || "bottom");
 
   function setSim(on) {
@@ -253,7 +359,7 @@ function mountAirHockey(c, w, opts = {}) {
     if (on) {
       // продолжаем с того места, где была игра; ушедшего соперника заменяет бот (сразу)
       const now = performance.now(), dt = (now - srvT) / 1000;
-      sim.seed((srv.balls || []).map(b => ({ x: clamp01(b.x + b.vx * dt), y: clamp01(b.y + b.vy * dt), vx: b.vx, vy: b.vy })), mySide());
+      sim.seed((srv.balls || []).map(b => ({ x: clamp01(b.x + b.vx * dt), y: clamp01(b.y + b.vy * dt), vx: b.vx, vy: b.vy, k: b.k })), mySide(), srv.fx);
       const gone = lastOnlinePads.find(p => !p.me && p.kind !== "bot");
       sim.bot = gone ? { x: gone.x, y: gone.y, side: gone.side, kind: "bot" } : null;
       lastOnlinePads = [];
@@ -281,14 +387,44 @@ function mountAirHockey(c, w, opts = {}) {
     for (const g of ev.goals) {
       const by = g.touch?.by || null;
       const own = !!g.touch && g.touch.side === g.side;
-      send({ t: "goal", side: g.side, x: +g.x.toFixed(4), by, own, combo: by === "me" ? ev.myCombo || g.combo : 0 });
+      send({ t: "goal", side: g.side, x: +g.x.toFixed(4), by, own, combo: by === "me" ? ev.myCombo || g.combo : 0, spree: g.spree });
       spawnBot();     // бот приходит с первого гола одиночки — даже если тот забил в свои
     }
     if (now - simReportT > 100) {   // снимок для зрителей и для подхвата сервером
       simReportT = now;
-      send({ t: "sim", balls: sim.balls.map(b => ({ x: +b.x.toFixed(4), y: +b.y.toFixed(4), vx: +b.vx.toFixed(4), vy: +b.vy.toFixed(4) })),
+      send({ t: "sim", balls: sim.balls.map(b => ({ x: +b.x.toFixed(4), y: +b.y.toFixed(4), vx: +b.vx.toFixed(4), vy: +b.vy.toFixed(4), k: b.k, l: b.lives })),
              bot: sim.bot ? { x: +sim.bot.x.toFixed(4), y: +sim.bot.y.toFixed(4), side: sim.bot.side } : null });
     }
+  }
+
+  /* ---------- бонусы и эффекты: единый вид для локальной и сетевой игры ---------- */
+  let fxShow = null;            // анимация спри: {n, t0, side}
+  function view() {
+    const now = performance.now();
+    if (simOn) return { q: sim.fx.q, wide: sim.wideLeft(now), slow: sim.slowLeft(now), ice: sim.iceLeft(now),
+      iceSide: sim.iceLeft(now) > 0 ? sim.iceSide : null, barrage: sim.barrageOn() };
+    const el2 = (now - srvT) / 1000, f = srv.fx || {};
+    return { q: f.q || [], wide: Math.max(0, (f.wide || 0) - el2), slow: Math.max(0, (srv.slow || 0) - el2),
+      ice: Math.max(0, (srv.ice || 0) - el2), iceSide: srv.ice > el2 ? srv.ice_side : null, barrage: !!srv.barrage };
+  }
+  function myPadW(extra = 0) {
+    const base = simOn ? Sim.padW(myPads().length + (sim.bot ? 1 : 0) + extra) : srv.pw;
+    return view().wide > 0 ? base * P.wideK : base;
+  }
+  function useBonus() {
+    if (!view().q.length) return;
+    Snd.init();
+    if (simOn) sim.use(performance.now(), mySide(), myPads());
+    else send({ t: "use" });
+  }
+  const BONUS_NAME = { slow: "🐢 Замедление", ball: "🎯 Бросить мяч", ice: "❄️ Заморозка" };
+  function syncBonusUi(v) {
+    const q = v.q;
+    bonusBtn.hidden = !q.length;
+    if (q.length) bonusBtn.textContent = BONUS_NAME[q[0]] + (q.length > 1 ? `  +${q.length - 1}` : "") + (mobile ? "" : "  · ЛКМ");
+    const slow = v.slow > 0;
+    root.classList.toggle("air-slow", slow);
+    w.node?.classList?.toggle("air-slow-win", slow);
   }
 
   /* ---------- WebSocket ---------- */
@@ -336,8 +472,10 @@ function mountAirHockey(c, w, opts = {}) {
   function moveMine(slot, x, y) {
     const p = mine[slot];
     const side = y <= zone.top ? "top" : "bottom";
+    const v0 = view();
+    if (!simOn && v0.ice > 0 && v0.iceSide === (p.active ? p.side : side)) return;   // меня заморозили
     const changed = !p.active || p.side !== side || p.leaveAt;
-    const pw = simOn ? Sim.padW(myPads().length + (sim.bot ? 1 : 0) + (p.active ? 0 : 1)) : srv.pw;
+    const pw = myPadW(p.active ? 0 : 1);
     const [lo, hi] = side === "top" ? [0, zone.top] : [zone.bot, 1];
     p.x = clamp(x, pw / 2, 1 - pw / 2);
     p.y = clamp(y, lo + P.padH / 2, hi - P.padH / 2);
@@ -365,6 +503,7 @@ function mountAirHockey(c, w, opts = {}) {
   function onGoal(g) {
     if (!g) return;
     if (simOn && g.ev === "balls" && g.add) sim.addBalls(g.add);   // юбилейное событие в локальной игре
+    if (g.spree >= 2) fxShow = { n: g.spree, t0: performance.now(), side: g.side };
     const s = g.score || 0;
     if (s % 100 === 0) Snd.play("goal100th");
     else if (s % 100 === 50) Snd.play("goal150th");
@@ -405,7 +544,7 @@ function mountAirHockey(c, w, opts = {}) {
       moveMine("m", clamp01(x), clamp01(y));
     };
     cv.onpointermove = applyPointer;
-    cv.onpointerdown = e => { focused = true; applyPointer(e); };
+    cv.onpointerdown = e => { focused = true; applyPointer(e); if (e.button === 0 && view().q.length && mine.m.active) useBonus(); };
     cv.onpointerleave = () => { cv.classList.remove("playing"); leaveMine("m"); };
   }
 
@@ -492,7 +631,7 @@ function mountAirHockey(c, w, opts = {}) {
       kb.vx = Math.abs(kb.vx) <= f ? 0 : kb.vx - Math.sign(kb.vx) * f;
     }
     kb.vx = clamp(kb.vx, -KB_VMAX, KB_VMAX);
-    const hw = (simOn ? Sim.padW(myPads().length + (sim.bot ? 1 : 0)) : srv.pw) / 2;
+    const hw = myPadW() / 2;
     kb.x += kb.vx * dt;
     if (kb.x < hw) { kb.x = hw; kb.vx = 0; } else if (kb.x > 1 - hw) { kb.x = 1 - hw; kb.vx = 0; }
     if (kb.left || kb.right) kb.lastInput = performance.now();
@@ -519,23 +658,25 @@ function mountAirHockey(c, w, opts = {}) {
   function padsToDraw(now) {
     const out = [];
     const fade = p => p.leaveAt ? 0.35 + 0.65 * Math.max(0, (p.leaveAt - now) / (P.grace * 1000)) : 1;
+    const v = view(), myW = myPadW();
+    const meP = s => ({ id: "me:" + s, x: mine[s].x, y: mine[s].y, kind: s, me: true, alpha: fade(mine[s]),
+                        w: myW, ice: v.iceSide === mine[s].side });
     if (simOn) {
-      for (const s of ["m", "k"]) { const p = mine[s];
-        if (p.active) out.push({ id: "me:" + s, x: p.x, y: p.y, kind: s, me: true, alpha: fade(p) }); }
-      if (sim.bot) out.push({ id: "bot", x: sim.bot.x, y: sim.bot.y, kind: "bot", me: false, nick: P.botNick });
+      for (const s of ["m", "k"]) if (mine[s].active) out.push(meP(s));
+      if (sim.bot) out.push({ id: "bot", x: sim.bot.x, y: sim.bot.y, kind: "bot", me: false, nick: P.botNick,
+        w: Sim.padW(myPads().length + 1), ice: v.iceSide === sim.bot.side });
       return out;
     }
     for (const p of srv.pads) {
       const kind = p.kind || "m";
       if (p.me && (kind === "m" || kind === "k")) {
-        const m = mine[kind];
-        if (!m.active) continue;     // свою платформу знаем лучше сервера
-        out.push({ id: "me:" + kind, x: m.x, y: m.y, kind, me: true, alpha: fade(m) });
-      } else out.push({ id: (p.nick || "?") + ":" + kind + ":" + p.side, x: p.x, y: p.y, kind, me: false, nick: p.nick, alpha: p.away ? 0.45 : 1 });
+        if (!mine[kind].active) continue;     // свою платформу знаем лучше сервера
+        out.push(meP(kind));
+      } else out.push({ id: (p.nick || "?") + ":" + kind + ":" + p.side, x: p.x, y: p.y, kind, me: false, nick: p.nick,
+                        alpha: p.away ? 0.45 : 1, w: p.pw || srv.pw, ice: !!p.ice });
     }
     // своя платформа, о которой сервер ещё не знает (только что поставили)
-    for (const s of ["m", "k"]) if (mine[s].active && !out.some(o => o.id === "me:" + s))
-      out.push({ id: "me:" + s, x: mine[s].x, y: mine[s].y, kind: s, me: true, alpha: fade(mine[s]) });
+    for (const s of ["m", "k"]) if (mine[s].active && !out.some(o => o.id === "me:" + s)) out.push(meP(s));
     return out;
   }
 
@@ -548,6 +689,54 @@ function mountAirHockey(c, w, opts = {}) {
     ctx.fillText(text, W / 2, y);
     if (sub) { ctx.shadowBlur = 0; ctx.font = `${Math.round(fs * 0.32)}px system-ui, sans-serif`;
       ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.fillText(sub, W / 2, y + fs * 0.85); }
+    ctx.restore();
+  }
+
+  /* ---------- эффекты: вспышка и число спри, таймеры замедления и заморозки ---------- */
+  const SPREE_HUE = { 2: 190, 3: 130, 4: 52, 5: 22, 6: 300 };
+  const easeOutBack = t => 1 + 2.70158 * (t - 1) ** 3 + 1.70158 * (t - 1) ** 2;
+  const easeOutCubic = t => 1 - (1 - t) ** 3;
+  function timerBar(y, left, total, color, label) {
+    const bw = W * 0.42, bh = Math.max(3, H * 0.007), x0 = (W - bw) / 2;
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(x0, y, bw, bh);
+    ctx.fillStyle = color; ctx.fillRect(x0, y, bw * clamp(left / total, 0, 1), bh);
+    ctx.font = `600 ${Math.round(H * 0.026)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText(`${label} ${left.toFixed(1)}`, W / 2, y - 2);
+  }
+  function drawEffects(fx, now) {
+    if (fx.ice > 0 && fx.iceSide) {   // замороженная сторона — ледяная дымка
+      ctx.fillStyle = "rgba(180,225,255,0.12)";
+      if (fx.iceSide === "top") ctx.fillRect(0, 0, W, zone.top * H); else ctx.fillRect(0, zone.bot * H, W, (1 - zone.bot) * H);
+    }
+    let y = H * 0.42;
+    if (fx.slow > 0) { timerBar(y, fx.slow, P.slowDur, "#cfeaff", "🐢"); y += H * 0.05; }
+    if (fx.ice > 0) timerBar(y, fx.ice, P.iceDur, "#8fd8ff", "❄️");
+    if (!fxShow) return;
+    const t = now - fxShow.t0, n = fxShow.n;
+    if (t > 1700) { fxShow = null; return; }
+    // вспышка всего стола: цвет по множителю, яркость растёт с каждым ×
+    const hue = SPREE_HUE[Math.min(6, n)] ?? 300;
+    const peak = Math.min(0.75, 0.14 + 0.12 * (n - 1));
+    const a = peak * Math.exp(-t / 260);
+    if (a > 0.01) {
+      ctx.save(); ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `hsla(${hue} 100% 60% / ${a})`; ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+    // число: резко появляется большим и повёрнутым, с изингом садится на место, потом гаснет
+    const k = clamp(t / 450, 0, 1);
+    const scale = 3.2 - 2.2 * easeOutBack(k), rot = -0.9 * (1 - easeOutCubic(k));
+    const alpha = t < 1300 ? Math.min(1, t / 60) : 1 - (t - 1300) / 400;
+    const fs = Math.round(Math.min(W, H) * 0.16);
+    ctx.save();
+    ctx.translate(W / 2, fxShow.side === "top" ? H * 0.22 : H * 0.78);
+    ctx.rotate(rot); ctx.scale(scale, scale); ctx.globalAlpha = clamp(alpha, 0, 1);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = `900 ${fs}px system-ui, sans-serif`;
+    ctx.shadowColor = `hsl(${hue} 100% 60%)`; ctx.shadowBlur = fs * 0.35;
+    ctx.fillStyle = "#fff"; ctx.fillText("×" + n, 0, 0);
+    ctx.shadowBlur = 0; ctx.font = `800 ${Math.round(fs * 0.22)}px system-ui, sans-serif`;
+    ctx.fillStyle = `hsl(${hue} 100% 75%)`; ctx.fillText("SPREE", 0, fs * 0.62);
     ctx.restore();
   }
 
@@ -582,8 +771,9 @@ function mountAirHockey(c, w, opts = {}) {
     line(GOAL.l * W, 2, GOAL.r * W, 2); line(GOAL.l * W, H - 2, GOAL.r * W, H - 2); ctx.lineWidth = 1;
 
     // платформы (с наклоном и гибкостью)
-    const pwN = simOn ? Sim.padW(myPads().length + (sim.bot ? 1 : 0)) : srv.pw;
-    const pw = pwN * W, ph = PAD_DRAW_H * H;
+    const fx = view();
+    syncBonusUi(fx);
+    const ph = PAD_DRAW_H * H;
     const seen = new Set();
     for (const p of padsToDraw(now)) {
       seen.add(p.id);
@@ -600,8 +790,8 @@ function mountAirHockey(c, w, opts = {}) {
         st.angle += st.angVel * fdt;
       }
       const bend = rigid ? 0 : clamp(st.angVel * ph * 0.25, -ph, ph);
-      const color = p.me ? (rigid ? "#7be3a1" : "#8ab4ff") : "rgba(255,255,255,0.7)";
-      drawPaddle(st.rx * W, st.ry * H, pw, ph, st.angle, bend, color, p.alpha ?? 1);
+      const color = p.ice ? "#bfe8ff" : p.me ? (rigid ? "#7be3a1" : "#8ab4ff") : "rgba(255,255,255,0.7)";
+      drawPaddle(st.rx * W, st.ry * H, (p.w || srv.pw) * W, ph, p.ice ? 0 : st.angle, p.ice ? 0 : bend, color, p.alpha ?? 1);
       if (!p.me && p.nick) { ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = Math.round(ph * 0.9) + "px system-ui";
         ctx.textAlign = "center"; ctx.fillText(p.nick, st.rx * W, st.ry * H - ph); }
     }
@@ -610,16 +800,20 @@ function mountAirHockey(c, w, opts = {}) {
     // мячи: свои локальные — как есть; серверные — экстраполяция по вектору
     const dt = (now - srvT) / 1000;
     const R = P.ballR * Math.min(W, H);
-    const balls = simOn ? sim.balls.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, e: 0 }))
+    const balls = simOn ? sim.balls.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, e: 0, k: b.k, l: b.lives }))
                         : (srv.balls || []).map(b => ({ ...b, e: dt }));
+    const frozen = fx.ice > 0, slowK = fx.slow > 0 && simOn ? P.slowK : 1;
     let lastHue = 90;
     for (const ball of balls) {
       const bx = clamp01(ball.x + ball.vx * ball.e) * W;
       const by = clamp01(ball.y + ball.vy * ball.e) * H;
-      const sp = Math.hypot(ball.vx, ball.vy);
-      const f = clamp((sp - 0.6) / 1.8, 0, 1);
-      const hue = 55 + f * 95; lastHue = hue;          // жёлтый → зелёный
-      const glow = `hsl(${hue} 100% 60%)`;
+      const sp = frozen || ball.k === 2 ? 0 : Math.hypot(ball.vx, ball.vy) * slowK;
+      const f = clamp((Math.hypot(ball.vx, ball.vy) - 0.6) / 1.8, 0, 1);
+      const salute = ball.k === 1;
+      // салют: чем меньше жизней, тем краснее; заморозка — ледяной; обычный — жёлтый → зелёный
+      const hue = salute ? 50 * clamp((ball.l - 1) / (P.barrageLives - 1), 0, 1) : frozen ? 195 : 55 + f * 95;
+      if (!salute) lastHue = hue;
+      const glow = `hsl(${hue} 100% ${salute ? 55 : 60}%)`;
       if (sp > 0.05) {
         const ang = Math.atan2(ball.vy, ball.vx);
         const tl = R * (2 + f * 6);
@@ -630,9 +824,10 @@ function mountAirHockey(c, w, opts = {}) {
         ctx.moveTo(0, -R * 0.9); ctx.lineTo(-tl, 0); ctx.lineTo(0, R * 0.9); ctx.closePath(); ctx.fill();
         ctx.restore();
       }
-      ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = R * (1.5 + f * 4);
-      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
-      ctx.fillStyle = glow; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
+      const r = salute ? R * 0.75 : R;
+      ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = r * (1.5 + f * 4);
+      ctx.fillStyle = salute ? glow : "#fff"; ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.fill();
+      ctx.fillStyle = glow; ctx.globalAlpha = salute ? 0.6 : 0.35; ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.fill();
       ctx.restore();
     }
     // кольцо запуска после гола: сужается, подсказывая момент старта
@@ -643,6 +838,7 @@ function mountAirHockey(c, w, opts = {}) {
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(0.5 * W, 0.5 * H, R + t * R * 6, 0, 7); ctx.stroke();
     }
+    drawEffects(fx, now);
     // обучение поверх поля
     if (step === "side") bigText("CHOOSE SIDE", mobile ? "тапни по верхней или нижней зоне" : "наведи курсор на светлую зону", H * 0.5, pulse);
     else if (step === "pad") bigText("TOUCHPAD ↓", "води пальцем по полосе внизу", H * 0.5, pulse);
