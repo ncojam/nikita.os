@@ -10,7 +10,14 @@
 Чем больше игроков, тем уже платформы. Счёт — по воротам; «свой гол» (последний коснувшийся
 был на стороне этих ворот) — ник красным. Последние 3 забивших показываем.
 
-Сервер авторитетный: физика в цикле ~30/сек, рассылка состояния. Цикл спит при пустой арене.
+Два режима:
+  • local  — реальных игроков (соединений с активной платформой) меньше двух. Физику и бота
+            primitiveAI считает браузер единственного игрока («владельца»); он шлёт серверу голы
+            (идут в общий счёт, с ограничением частоты) и раз в ~100 мс снимок мячей и бота —
+            сервер показывает его зрителям и подхватывает при переходе в online.
+  • online — двое и больше: сервер авторитетный, физика в цикле ~30/сек, рассылка состояния.
+Ушедший игрок (курсор/палец убран) держит платформу ещё GRACE секунд — потом слот освобождается.
+Цикл спит при пустой арене.
 Лимит одновременных игроков — NOS_AIR_MAX; нет мест → клиенту «full» (он играет nah.wav).
 Авторизация игрока — через аккаунт чата (для ника в счёте); зрителям вход не нужен.
 """
@@ -40,8 +47,8 @@ BALL_V0 = float(os.environ.get("NOS_AIR_V0", "0.75"))    # стартовая с
 BALL_VMAX = float(os.environ.get("NOS_AIR_VMAX", "2.4")) # потолок скорости
 BOUNCE_GAIN = float(os.environ.get("NOS_AIR_GAIN", "0.035"))  # +к скорости за каждый отскок
 FREEZE = float(os.environ.get("NOS_AIR_FREEZE", "0.6"))  # пауза после гола (была 1.2)
-BOT_NICK = "primitiveAI"
-BOT_TRIGGER = int(os.environ.get("NOS_AIR_BOT_GOALS", "3"))   # одиночка забил столько → приходит бот
+BOT_NICK = "primitiveAI"            # бот живёт в браузере одиночки (режим local), сервер его только показывает
+GRACE = float(os.environ.get("NOS_AIR_GRACE", "3"))          # сколько держим платформу ушедшего игрока, с
 BOT_SPEED = float(os.environ.get("NOS_AIR_BOT_SPEED", "0.6")) # скорость бота (лёгкий), units/сек
 BOT_ERR = float(os.environ.get("NOS_AIR_BOT_ERR", "0.09"))   # промах прицела бота
 SPLIT_AT = int(os.environ.get("NOS_AIR_SPLIT", "64"))        # столько отскоков → мяч расщепляется
@@ -84,7 +91,7 @@ def clamp(v, a, b):
 
 
 class Player:
-    __slots__ = ("ws", "nick", "kind", "x", "y", "side", "active")
+    __slots__ = ("ws", "nick", "kind", "x", "y", "side", "active", "leave_at")
 
     def __init__(self, ws, nick, kind="m"):
         self.ws = ws
@@ -94,6 +101,7 @@ class Player:
         self.y = 0.9
         self.side = "bottom"
         self.active = False      # держит ли слот (курсор/клавиши в активной зоне)
+        self.leave_at = 0.0      # ушёл: до этого момента платформа ещё стоит (GRACE)
 
 
 class AirHockey:
@@ -114,10 +122,10 @@ class AirHockey:
         self.hid = 0              # счётчик ударов по платформе (для звука click)
         self.wid = 0              # счётчик ударов о стену (для звука wall)
         self.board = {}           # лидерборд: nick -> очки (гол +1, в свои -1)
-        self.bot = None           # Player бота primitiveAI или None
-        self.solo_goals = 0       # сколько забил одиночный игрок (копим до BOT_TRIGGER)
-        self.bot_err = 0.0        # текущий промах прицела бота
-        self.bot_cool = 0.0       # до какого момента бот ещё «остывает» без игрока
+        self.mode = "local"       # local — считает браузер одиночки, online — сервер (2+ игроков)
+        self.owner = None         # ws одиночки, который считает игру в режиме local
+        self.ghost = None         # последний снимок одиночки: {balls, bot, t} — для зрителей и перехода
+        self.local_goal_t = 0.0   # антинакрутка голов от клиента
         self.top_eff = TOP_ACTIVE # текущая граница активной зоны (гуляет на юбилейном событии)
         self.bot_eff = BOT_ACTIVE
         self.wave = 0.0           # амплитуда волны границы (затухает)
@@ -159,15 +167,15 @@ class AirHockey:
     def active_count(self):
         return sum(1 for p in self.pads.values() if p.active)
 
-    def human_count(self):
-        return sum(1 for p in self.pads.values() if p.active and p.kind != "bot")
+    def humans(self):
+        """Реальные игроки = соединения, у которых есть активная платформа (мышь и клава одного — один игрок)."""
+        return {p.ws for p in self.pads.values() if p.active}
 
-    def _lone_human(self):
-        hs = [p for p in self.pads.values() if p.active and p.kind != "bot"]
-        return hs[0] if len(hs) == 1 else None
+    def human_count(self):
+        return len(self.humans())
 
     def pad_w(self):
-        n = max(1, self.active_count())
+        n = max(1, self.active_count() + (1 if self.mode == "local" and self.ghost and self.ghost.get("bot") else 0))
         return clamp(PAD_W0 / (n ** 0.5), PAD_WMIN, PAD_W0)
 
     # ---------- мяч(и) ----------
@@ -175,15 +183,9 @@ class AirHockey:
         return {"x": x, "y": y, "vx": vx, "vy": vy, "bounces": 0, "touch": touch}
 
     def _kick(self, n_balls=1):
-        # когда игрок один (и нет бота) — подача летит В ЕГО сторону; иначе случайно
-        lone = self._lone_human() if (self.bot is None and self.human_count() == 1) else None
         self.balls = []
         for _ in range(max(1, n_balls)):
-            if lone:
-                dir_y = 1 if lone.side == "bottom" else -1
-            else:
-                dir_y = random.choice((-1, 1))
-            self.balls.append(self._newball(random.uniform(-0.3, 0.3), dir_y * BALL_V0))
+            self.balls.append(self._newball(random.uniform(-0.3, 0.3), random.choice((-1, 1)) * BALL_V0))
         self.combo = 0
 
     def _rand_ip(self):
@@ -202,29 +204,30 @@ class AirHockey:
                 self.board[tnick] = self.board.get(tnick, 0) + (-1 if own else 1)
             elif tnick == BOT_NICK:
                 label = BOT_NICK
-            # одиночные голы считаем и анониму (tnick=None) — бот должен приходить и к нему
-            if tnick != BOT_NICK and not own and self.bot is None and self.human_count() == 1:
-                self.solo_goals += 1
         self.last.insert(0, {"nick": label, "own": own})
         del self.last[3:]
         self.gid += 1
         self.goal_event = {"side": side, "x": round(gx, 4), "own": own,
                            "nick": label, "score": self.score[side]}
         if self.score[side] % 10 == 0:
-            self._jubilee()           # случайное событие на каждый кратный 10 гол
+            ev, add = self._jubilee()  # случайное событие на каждый кратный 10 гол
+            self.goal_event["ev"], self.goal_event["add"] = ev, add   # в режиме local мячи добавит клиент
         self._save()
 
     def _jubilee(self):
         """Случайное событие на юбилейный счёт."""
         ev = random.choice(("wave", "balls"))
+        add = 0
         if ev == "wave":
             self.wave = 0.18          # граница активной зоны начинает колебаться и затухать
             self.wave_t = 0.0
-        elif ev == "balls" and len(self.balls) < MAX_BALLS:
-            add = random.randint(1, min(3, MAX_BALLS - len(self.balls)))
-            for _ in range(add):
-                a = random.uniform(0, 6.283)
-                self.balls.append(self._newball(math.cos(a) * BALL_V0, math.sin(a) * BALL_V0))
+        elif ev == "balls":
+            add = random.randint(1, 3)
+            if self.mode == "online" and len(self.balls) < MAX_BALLS:
+                for _ in range(min(add, MAX_BALLS - len(self.balls))):
+                    a = random.uniform(0, 6.283)
+                    self.balls.append(self._newball(math.cos(a) * BALL_V0, math.sin(a) * BALL_V0))
+        return ev, add
 
     def _update_zone(self, dt):
         if self.wave > 0.005:
@@ -302,48 +305,40 @@ class AirHockey:
                     self._bounce_paddle(b, p, w)
         return None
 
-    def _manage_bot(self, now):
-        """Лёгкий бот primitiveAI против одиночки; с кулдауном, чтобы не пропадать от случайного вывода курсора."""
-        human = self._lone_human()
-        humans = self.human_count()
-        if humans >= 2:                        # реальная игра вдвоём+ — бот не нужен сразу
-            if self.bot is not None:
-                self.pads.pop(("bot", "bot"), None); self.bot = None
-            self.solo_goals = 0
-            return
-        if human is None:                      # игрок увёл курсор — даём боту «остыть»
-            if self.bot is not None:
-                if not self.bot_cool:
-                    self.bot_cool = now + 4.0
-                elif now >= self.bot_cool:
-                    self.pads.pop(("bot", "bot"), None); self.bot = None; self.bot_cool = 0.0; self.solo_goals = 0
-            return
-        self.bot_cool = 0.0                     # игрок вернулся — отменяем остывание
-        if self.bot is None:
-            if self.solo_goals < BOT_TRIGGER:
-                return
-            self.bot = Player(None, BOT_NICK, "bot")
-            self.bot.active = True; self.bot.x = 0.5; self.bot.y = 0.1
-            self.pads[("bot", "bot")] = self.bot
-        side = "top" if human.side == "bottom" else "bottom"
-        self.bot.side = side
-        w = self.pad_w()
-        lo, hi = (0.0, self.top_eff) if side == "top" else (self.bot_eff, 1.0)
-        if random.random() < 0.03:
-            self.bot_err = random.uniform(-BOT_ERR, BOT_ERR)
-        ball = min(self.balls, key=lambda b: abs(b["y"] - self.bot.y)) if self.balls else None
-        maxd = BOT_SPEED * DT
-        if ball:
-            tx = clamp(ball["x"] + self.bot_err, w / 2, 1 - w / 2)
-            self.bot.x = clamp(self.bot.x + clamp(tx - self.bot.x, -maxd, maxd), w / 2, 1 - w / 2)
-            # теперь бот ездит и вверх-вниз в своей зоне: подъезжает к мячу, когда тот близко
-            ty = clamp(ball["y"], lo + PAD_H / 2, hi - PAD_H / 2)
-            self.bot.y = clamp(self.bot.y + clamp(ty - self.bot.y, -maxd, maxd), lo + PAD_H / 2, hi - PAD_H / 2)
+    def _expire(self, now):
+        """Платформы ушедших игроков освобождают слот, когда истёк GRACE."""
+        for p in self.pads.values():
+            if p.active and p.leave_at and now >= p.leave_at:
+                p.active = False
+                p.leave_at = 0.0
+
+    def _update_mode(self):
+        hs = self.humans()
+        if len(hs) >= 2:
+            if self.mode != "online":
+                # подхватываем поле одиночки (свежий снимок), иначе — новая подача
+                self.mode = "online"
+                g = self.ghost
+                if g and time.monotonic() - g["t"] < 1.5 and g["balls"]:
+                    self.balls = [self._newball(b["vx"], b["vy"], b["x"], b["y"]) for b in g["balls"]]
+                    self.reset_at = 0.0
+                else:
+                    self._kick()
+                self.combo = 0
+            self.owner = None
+            self.ghost = None
+        else:
+            self.mode = "local"
+            self.owner = next(iter(hs)) if hs else None
+            self.reset_at = 0.0
 
     def step(self):
         now = time.monotonic()
         self._update_zone(DT)
-        self._manage_bot(now)
+        self._expire(now)
+        self._update_mode()
+        if self.mode != "online":
+            return                    # одиночку считает его браузер
         if self.reset_at:
             if now < self.reset_at:
                 return
@@ -375,17 +370,26 @@ class AirHockey:
     def snapshot(self, me_ws):
         w = self.pad_w()
         pads = [{"x": round(p.x, 4), "y": round(p.y, 4), "side": p.side, "kind": p.kind,
-                 "me": p.ws is me_ws, "nick": p.nick}
+                 "me": p.ws is me_ws, "nick": p.nick, "away": bool(p.leave_at)}
                 for p in self.pads.values() if p.active]
+        src = self.balls
+        if self.mode == "local":
+            g = self.ghost
+            src = g["balls"] if g and g["balls"] else [self._newball(0.0, 0.0)]
+            if g and g.get("bot"):
+                bt = g["bot"]
+                pads.append({"x": bt["x"], "y": bt["y"], "side": bt["side"], "kind": "bot",
+                             "me": False, "nick": BOT_NICK, "away": False})
         balls = [{"x": round(b["x"], 4), "y": round(b["y"], 4),
-                  "vx": round(b["vx"], 4), "vy": round(b["vy"], 4)} for b in self.balls]
-        return {"t": "state",
+                  "vx": round(b["vx"], 4), "vy": round(b["vy"], 4)} for b in src]
+        return {"t": "state", "mode": self.mode, "sim": self.mode == "local" and self.owner is me_ws,
                 "balls": balls, "ball": balls[0] if balls else {"x": .5, "y": .5, "vx": 0, "vy": 0},
                 "pw": round(w, 4), "pads": pads, "score": self.score, "last": self.last,
                 "players": self.active_count(), "cap": MAX_PLAYERS, "combo": self.combo,
                 "top": round(self.top_eff, 4), "bot": round(self.bot_eff, 4),
                 "gid": self.gid, "goal": self.goal_event, "hid": self.hid, "wid": self.wid,
-                "launch_in": round(max(0.0, self.reset_at - time.monotonic()), 3) if self.reset_at else 0.0,
+                "launch_in": round(max(0.0, self.reset_at - time.monotonic()), 3)
+                             if self.reset_at and self.mode == "online" else 0.0,
                 "freeze": FREEZE}
 
     # ---------- цикл ----------
@@ -430,8 +434,8 @@ class AirHockey:
             side = self._in_active(y)
             p = self.pads.get(key)
             if side is None:
-                if p:
-                    p.active = False     # ушёл в мёртвую зону/за поле
+                if p and p.active and not p.leave_at:
+                    p.leave_at = time.monotonic() + GRACE   # ушёл в мёртвую зону — платформа ещё постоит
                 return
             if p is None or not p.active:
                 if self.active_count() >= MAX_PLAYERS:
@@ -441,6 +445,7 @@ class AirHockey:
                 if p is None:
                     p = self.pads[key] = Player(ws, nick, kind)
                 p.active = True
+            p.leave_at = 0.0
             w = self.pad_w()
             p.side = side
             p.x = clamp(x, w / 2, 1 - w / 2)
@@ -448,8 +453,74 @@ class AirHockey:
             p.y = clamp(y, lo + PAD_H / 2, hi - PAD_H / 2)
         elif t == "leave":
             p = self.pads.get(key)
-            if p:
-                p.active = False
+            if p and p.active and not p.leave_at:
+                p.leave_at = time.monotonic() + GRACE
+        elif t == "sim":
+            self._take_sim(ws, d)
+        elif t == "goal":
+            self._take_goal(ws, nick, d)
+
+    # ---------- режим local: то, что присылает браузер одиночки ----------
+    @staticmethod
+    def _num(v, lo, hi):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return clamp(f, lo, hi) if math.isfinite(f) else None
+
+    def _take_sim(self, ws, d):
+        if self.mode != "local" or ws is not self.owner:
+            return
+        balls = []
+        for b in (d.get("balls") or [])[:MAX_BALLS]:
+            if not isinstance(b, dict):
+                continue
+            x, y = self._num(b.get("x"), 0, 1), self._num(b.get("y"), 0, 1)
+            vx, vy = self._num(b.get("vx"), -BALL_VMAX, BALL_VMAX), self._num(b.get("vy"), -BALL_VMAX, BALL_VMAX)
+            if None not in (x, y, vx, vy):
+                balls.append(self._newball(vx, vy, x, y))
+        bot = None
+        bt = d.get("bot")
+        if isinstance(bt, dict) and bt.get("side") in ("top", "bottom"):
+            x, y = self._num(bt.get("x"), 0, 1), self._num(bt.get("y"), 0, 1)
+            if x is not None and y is not None:
+                bot = {"x": round(x, 4), "y": round(y, 4), "side": bt["side"]}
+        self.ghost = {"balls": balls, "bot": bot, "t": time.monotonic()}
+
+    def _take_goal(self, ws, nick, d):
+        if self.mode != "local" or ws is not self.owner:
+            return
+        now = time.monotonic()
+        if now - self.local_goal_t < FREEZE * 0.8:   # чаще, чем позволяет физика, — не верим
+            return
+        side = d.get("side")
+        if side not in ("top", "bottom"):
+            return
+        self.local_goal_t = now
+        other = "bottom" if side == "top" else "top"
+        own = bool(d.get("own"))
+        by = d.get("by")
+        touch = None
+        if by == "me":
+            touch = (nick, side if own else other)
+            try:
+                cmb = int(d.get("combo") or 0)
+            except (TypeError, ValueError):
+                cmb = 0
+            if nick and 0 < cmb < 1000:
+                self.combo_board[nick] = max(self.combo_board.get(nick, 0), cmb)
+        elif by == "bot":
+            touch = (BOT_NICK, side if own else other)
+        self._score(side, touch, self._num(d.get("x"), 0, 1) or 0.5)
+
+    @staticmethod
+    def phys():
+        """Параметры физики для клиента (режим local считает в браузере по тем же правилам)."""
+        return {"v0": BALL_V0, "vmax": BALL_VMAX, "gain": BOUNCE_GAIN, "freeze": FREEZE,
+                "split": SPLIT_AT, "maxBalls": MAX_BALLS, "padW0": PAD_W0, "padWmin": PAD_WMIN,
+                "padH": PAD_H, "ballR": BALL_R, "botSpeed": BOT_SPEED, "botErr": BOT_ERR,
+                "grace": GRACE, "botNick": BOT_NICK}
 
     async def _send(self, ws, data):
         if not ws.closed:
@@ -469,7 +540,8 @@ class AirHockey:
         self.conns[ws] = nick
         # играть можно всем; аноним в счёте показывается случайным «IP» (генерится на каждый гол)
         await ws.send_str(json.dumps({"t": "hello", "cap": MAX_PLAYERS, "can_play": True, "anon": not nick,
-                                      "top": TOP_ACTIVE, "bot": BOT_ACTIVE, "goalL": GOAL_L, "goalR": GOAL_R}))
+                                      "top": TOP_ACTIVE, "bot": BOT_ACTIVE, "goalL": GOAL_L, "goalR": GOAL_R,
+                                      "phys": self.phys()}))
         self.ensure_loop()
         try:
             async for msg in ws:
@@ -487,7 +559,7 @@ class AirHockey:
                             self.pads[k].nick = nick
                     await self._send(ws, {"t": "hello", "cap": MAX_PLAYERS, "can_play": True, "anon": not nick,
                                           "nick": nick, "top": TOP_ACTIVE, "bot": BOT_ACTIVE,
-                                          "goalL": GOAL_L, "goalR": GOAL_R})
+                                          "goalL": GOAL_L, "goalR": GOAL_R, "phys": self.phys()})
                     continue
                 await self.handle(ws, nick, d)   # nick может быть None (аноним)
         finally:

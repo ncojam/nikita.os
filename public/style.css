@@ -679,6 +679,11 @@ html, body {
   display: flex; flex-direction: column; }
 .air-lb-x { align-self: flex-end; }
 .air-strip.locked { opacity: 0.4; }
+/* обучение: тачпад пульсирует, пока по нему ни разу не провели */
+.air-strip.tut { opacity: 1; border-color: var(--accent); animation: air-tut 1.1s ease-in-out infinite; }
+@keyframes air-tut { 0%, 100% { box-shadow: 0 0 0 0 rgba(138,180,255,0.0); background-color: rgba(138,180,255,0.06); }
+  50% { box-shadow: 0 0 22px 2px rgba(138,180,255,0.55); background-color: rgba(138,180,255,0.2); } }
+@media (prefers-reduced-motion: reduce) { .air-strip.tut { animation: none; background-color: rgba(138,180,255,0.18); } }
 
 /* ================= Браузер ================= */
 .br { display: flex; flex-direction: column; height: 100%; }

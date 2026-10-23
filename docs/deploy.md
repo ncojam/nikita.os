@@ -25,7 +25,7 @@
 | `NOS_POST_*` | см. `posts.py` | Лимиты записей |
 | `NOS_UFS_MAX_*` | см. `userfs.py` | Лимиты папок |
 | `NOS_FORUM_*` | см. `forum.py` | Лимиты форума |
-| `NOS_AIR_MAX` | см. `airhockey.py` | Игроков на арене |
+| `NOS_AIR_MAX`, `NOS_AIR_GRACE` | см. `airhockey.py` | Игроков на арене; сколько держится платформа ушедшего |
 
 ## Что важно при деплое
 
