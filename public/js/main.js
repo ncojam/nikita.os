@@ -20,6 +20,7 @@ import { init_ui_glow } from "./ui/glow.js";
 import { init_wm } from "./wm.js";
 import { init_vfs } from "./core/vfs.js";
 import { init_params } from "./core/params.js";
+import "./core/uiparams.js";   // любые регуляторы и окна ОС — цели для проводков
 
 // пользовательский слой fs (Service Worker) — до первых запросов к /api/ls
 await init_vfs();

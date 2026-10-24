@@ -2,7 +2,7 @@ import { el, store } from "../../core/util.js";
 import { VFS } from "../../core/vfs.js";
 import { notify } from "../../ui/notify.js";
 import { WM } from "../../wm.js";
-import { Engine, newProject } from "./engine.js";
+import { Engine, demoProject } from "./engine.js";
 import { fromFile } from "./format.js";
 import { applyTheme } from "./ui.js";
 import { MODULES } from "./windows.js";
@@ -188,5 +188,5 @@ export async function openDawn(path) {
     try { Dawn.start(draft.project, draft.path); Engine.dirty = true; Dawn.retitle(); return; }
     catch { /* битый черновик — начнём с нуля */ }
   }
-  Dawn.start(newProject(), null);
+  Dawn.start(demoProject(), null);   // при открытии DAWN — демо; «✚ Новый» — пустой трек
 }

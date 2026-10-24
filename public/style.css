@@ -1014,6 +1014,14 @@ html[style*="--os-sat"] .window > .content, html[style*="--os-sat"] .window > .t
 [data-dawn-theme=light] .dk-mod { stroke: #ff3d97; filter: none; }
 .dk.modded .dk-label::after { content: " ∿"; color: var(--dk); }
 .dk.wire-hover { outline: 2px dashed var(--dw-lemon); outline-offset: 2px; border-radius: 50%; }
+input.wire-hover { outline: 2px dashed var(--dw-lemon, #fff59e); outline-offset: 3px; }
+.dw-wiring input[type=range], .dw-wiring input[type=number] { cursor: crosshair; }
+.dw-modcard.focus { box-shadow: 0 0 0 2px var(--mc), 0 0 18px -4px var(--mc); }
+.dw-wiretags { position: fixed; inset: 0; pointer-events: none; z-index: 9001; }
+.dw-wiretag { position: absolute; pointer-events: auto; max-width: 230px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 600 11px/1 system-ui, sans-serif; padding: 5px 9px; border-radius: 999px; cursor: pointer; color: #111;
+  background: var(--tc); border: 1px solid rgba(0,0,0,0.25); box-shadow: 0 3px 10px rgba(0,0,0,0.35); }
+.dw-wiretag:hover { filter: brightness(1.12); }
 html.dw-wiring, html.dw-wiring * { cursor: crosshair !important; }
 .dw-wires { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9000; overflow: visible; }
 .dw-jack { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--jc); background: radial-gradient(circle, #1a1130 35%, var(--jc) 36%, var(--jc) 55%, transparent 56%);

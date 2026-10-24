@@ -245,6 +245,7 @@ const WM = {
       setTitle(t) { titleEl.textContent = t; task.title = t; task.lastChild.textContent = t; },
     };
     this.wins.set(id, w);
+    if (key) node.dataset.wkey = key;
     $("#windows").append(node);
     (taskList || $("#task-list")).append(task);
 

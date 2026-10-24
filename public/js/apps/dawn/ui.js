@@ -63,6 +63,9 @@ export function knob(o) {
     ModView.subs.add(sub);
   }
 
+  // крутилка без адреса DAWN — всё равно цель для проводков (через core/uiparams.js)
+  if (!o.path) node._ctl = { spec, get: o.get, set: v => { o.set(v); paint(); }, label: o.label ?? spec.label };
+
   function paint() {
     const v = o.get(), n = toNorm(v, spec), a = -ARC / 2 + ARC * n;
     const zero = spec.bipolar ? 0 : -ARC / 2;

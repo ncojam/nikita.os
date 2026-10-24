@@ -79,7 +79,7 @@ export function buildSchema() {
           title: f.name, type: "object", properties: { type: { const: type }, on: { type: "boolean" }, ...props(Object.keys(f.params), f.params),
             ...Object.fromEntries(Object.entries(f.params).filter(([, s]) => s.kind === "channel").map(([k]) => [k, { type: "string", description: "channel id that triggers it (e.g. the kick)" }])) } })) } } } } },
       mods: { type: "array", description: "modulation sources wired to parameters", items: { type: "object", required: ["type", "wires"], properties: {
-        id: { type: "string" }, name: { type: "string" }, type: { enum: ["knob", "env", "lfo"] },
+        id: { type: "string" }, name: { type: "string" }, type: { enum: ["knob", "env", "lfo", "meter", "trig"] },
         value: { type: "number", minimum: 0, maximum: 1, description: "knob position" },
         env: { type: "object", properties: { len: { type: "number", description: "beats" }, loop: { type: "boolean" },
           pts: { type: "array", items: { type: "array", prefixItems: [{ type: "number", description: "beat" }, { type: "number", minimum: 0, maximum: 1 }] } } } },
@@ -135,7 +135,7 @@ Sidechain: { type: "side", src: "<kick channel id>", amount, attack, release } o
 Delay "sync" index: ${SYNC.map((s, i) => `${i}=${s[0]}`).join(", ")}.
 
 ## Modulation ("mods") — sources wired to parameters
-- Source types: knob (value 0..1, set by hand), env (points [beat, 0..1], len in beats, follows song/pattern position, loop), lfo (sync index, shape ${LFO_SHAPES.join("/")}).
+- Source types: knob (value 0..1, set by hand), env (points [beat, 0..1], len in beats, follows song/pattern position, loop), lfo (sync index, shape ${LFO_SHAPES.join("/")}), trig ({ ch, att, hold, rel } in ms — envelope restarted by every note of channel ch; wire it with negative amt to other channels' vol for sidechain ducking), meter ({ mix, gain } — live level of a mixer insert).
 - wires: [{to: address, amt: -1..1}]. Target value = base + amt * (source − c) * (max − min), c = 0.5 for LFO, 0 otherwise. Several wires into one target add up.
 - Addresses: ch.<channel id>.vol | ch.<id>.pan | ch.<id>.<param> (cut, res, att, …) | ch.<id>.osc<1-3>.<o_vol|o_crs|o_fin|o_pan> |
   ch.<id>.op<1-4>.<ratio|fine|level|out> | ch.<id>.<m21..m43> | mix.<insert>.vol | mix.<insert>.pan | mix.<insert>.<fx slot>.<param> |

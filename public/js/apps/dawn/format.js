@@ -59,7 +59,7 @@ export function toFile(P) {
     mixer: P.mixer.map((m, i) => ({ name: m.name, ...(i ? { color: m.color } : {}), vol: q(m.vol), pan: q(m.pan),
       ...(m.mute ? { mute: true } : {}), fx: m.fx.map(f => ({ type: f.type, on: f.on, ...roundDeep(f.p) })) })),
     mods: (P.mods || []).map(m => roundDeep({ id: m.id, type: m.type, name: m.name, color: m.color,
-      ...(m.type === "knob" ? { value: m.value } : m.type === "env" ? { env: m.env } : { lfo: m.lfo }), wires: m.wires })),
+      ...(m.type === "knob" ? { value: m.value } : m.type === "env" ? { env: m.env } : m.type === "meter" ? { meter: m.meter } : m.type === "trig" ? { trig: m.trig } : { lfo: m.lfo }), wires: m.wires })),
     layout: P.layout || {},
   };
 }
@@ -133,13 +133,16 @@ export function fromFile(raw) {
 
   for (const ch of channels) if (ch.mix >= mixer.length) ch.mix = 0;
   const fixAddr = a => String(a || "").replace(/^ch\.([^.]+)\./, (m, id) => `ch.${chMap[id] || id}.`);
-  const mods = (Array.isArray(raw.mods) ? raw.mods : []).filter(m => ["knob", "env", "lfo"].includes(m?.type)).slice(0, 32).map((m, i) => ({
+  const mods = (Array.isArray(raw.mods) ? raw.mods : []).filter(m => ["knob", "env", "lfo", "meter", "trig"].includes(m?.type)).slice(0, 32).map((m, i) => ({
     id: String(m.id || "mod" + (i + 1)).slice(0, 24), type: m.type, name: String(m.name || m.type).slice(0, 24),
     color: m.color || PASTEL[(i + 5) % PASTEL.length],
     value: clamp(m.value, 0, 1, 0.5),
     env: { len: clamp(m.env?.len, 0.25, 4096, 16), loop: m.env?.loop !== false,
       pts: (Array.isArray(m.env?.pts) ? m.env.pts : [[0, 0], [16, 1]]).filter(p => Array.isArray(p)).map(([x, y]) => [clamp(x, 0, 4096, 0), clamp(y, 0, 1, 0)]) },
     lfo: { sync: Math.round(clamp(m.lfo?.sync, 0, 8, 3)), shape: m.lfo?.shape || "sine", phase: clamp(m.lfo?.phase, 0, 1, 0) },
+    meter: { mix: Math.round(clamp(m.meter?.mix, 0, 64, 1)), gain: clamp(m.meter?.gain, 0, 8, 1.5) },
+    trig: { ch: chMap[m.trig?.ch] || m.trig?.ch || channels[0]?.id || "", att: clamp(m.trig?.att, 0, 500, 5), hold: clamp(m.trig?.hold, 0, 1000, 40),
+      rel: clamp(m.trig?.rel, 1, 3000, 250), vel: m.trig?.vel !== false },
     wires: (Array.isArray(m.wires) ? m.wires : []).filter(w => w?.to).slice(0, 64).map(w => ({ to: fixAddr(w.to), amt: clamp(w.amt, -1, 1, 0.5) })),
   }));
   const P = { name: String(raw.name || "Трек").slice(0, 60), bpm: clamp(raw.bpm, 40, 300, 128), swing: clamp(raw.swing, 0, 0.6, 0), mods, live: !!raw.live,

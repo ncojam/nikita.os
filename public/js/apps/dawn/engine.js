@@ -181,7 +181,19 @@ const songLen = P => P.playlist.reduce((m, c) => Math.max(m, c.s + c.l), 0);
 
 /* ======================= проект ======================= */
 /* новый проект — демо-трек (собирается из того же формата, что пишется в файл) */
-export function newProject() { return fromFile(JSON.parse(JSON.stringify(DEMO))); }
+export function demoProject() { return fromFile(JSON.parse(JSON.stringify(DEMO))); }
+/* новый трек — пустой: три ударных, синт, микшер */
+export function newProject() {
+  return fromFile({ format: "dawn/2", name: "Новый трек", bpm: 140, mode: "pattern",
+    channels: [{ id: "kick", type: "sampler", name: "Kick", sample: "builtin:kick", mixer: 1 },
+      { id: "snare", type: "sampler", name: "Snare", sample: "builtin:snare", mixer: 2 },
+      { id: "hat", type: "sampler", name: "Hat", sample: "builtin:hat", mixer: 3, vol: 0.55 },
+      { id: "synth", type: "osc3", name: "Synth", mixer: 4 }],
+    patterns: [{ id: "pattern", name: "Pattern 1", sig: "4/4", notes: {} }],
+    mixer: [{ name: "Master" }, { name: "Kick" }, { name: "Snare" }, { name: "Hat" }, { name: "Synth" }] });
+}
+/* журнал начал нот — для огибающих «по ноте» */
+export function logNote(log, id, t, v) { const l = (log[id] ||= []); l.push({ t, v }); if (l.length > 12) l.shift(); }
 
 export const Engine = {
   ctx: null, G: null, project: null, path: null, dirty: false,
@@ -205,7 +217,9 @@ export const Engine = {
     this.path = path; this.dirty = false;
     this.G = buildGraph(this.ctx, this.project);
     // живой фон ОС вспыхивает в момент ноты канала, у которого задан цвет вспышки (✦)
+    this.noteLog = {};
     this.G.onNote = (ch, t, v) => {
+      logNote(this.noteLog, ch.id, t, v);
       const color = flashOf(ch);
       if (!color) return;
       setTimeout(() => dispatchEvent(new CustomEvent("nos-pulse", { detail: { color, strength: v, ch: ch.id } })), Math.max(0, (t - this.ctx.currentTime) * 1000));
@@ -355,6 +369,8 @@ export const Engine = {
   fxToggle(i, k) { const f = this.project.mixer[i].fx[k]; f.on = !f.on; this.G.rebuildFx(i); this.touch({ mixer: true, param: true }); },
   fxParam(i, k) { this.G.fxSet(i, k); },
   applyInsert(i) { this.G.applyInsert(i); },
+  /* живые данные для модуляции: уровни, ноты, время */
+  rt() { return { now: this.ctx?.currentTime || 0, notes: id => this.noteLog?.[id] || [], meter: i => this.meter(i) }; },
   meter(i) {   // пик последнего окна, 0..1+
     const a = this.G?.inserts[i]?.meter;
     if (!a) return 0;
@@ -458,14 +474,16 @@ export const Engine = {
     const lenBeats = song ? songLen(P) : this.patLength();
     const tail = 3, sec = lenBeats * this.beatDur() + tail, sr = 44100;
     const oc = new OfflineAudioContext(2, Math.ceil(sr * sec), sr);
-    const G = buildGraph(oc, P);
+    const G = buildGraph(oc, P), log = {};
+    G.onNote = (ch, t, v) => logNote(log, ch.id, t, v);
+    const rt = q => ({ now: q, notes: id => log[id] || [], meter: () => 0 });
     const td = this.stepDur(), mode = song ? "song" : "pat", hasMods = (P.mods || []).some(m => m.wires?.length);
     // каждый тик рендер приостанавливается: считаем модуляцию (огибающие, LFO) и ставим ноты — как вживую
     for (let k = 0, beat = 0; beat < lenBeats - 1e-9; k++, beat += TICK) {
       const t = 0.02 + k * td, b = beat;
       if (!hasMods) { playTick(G, P, mode, b, t); continue; }
       const q = Math.floor(Math.max(0, t - 0.005) * sr / 128) * 128 / sr;   // кратно 128 сэмплам
-      oc.suspend(q).then(() => { G.applyOver(computeOver(P, b)); playTick(G, P, mode, b, t); oc.resume(); });
+      oc.suspend(q).then(() => { G.applyOver(computeOver(P, b, null, b, rt(q))); playTick(G, P, mode, b, t); oc.resume(); });
     }
     onProgress?.("рендер…");
     const buf = await oc.startRendering();

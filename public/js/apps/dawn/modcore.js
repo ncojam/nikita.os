@@ -5,7 +5,9 @@ import { SYNC } from "./fx.js";
 
 /* ================= DAWN — ядро модуляции (без UI, без звука) =================
  * Источник модуляции (project.mods[]):
- *   { id, type: "knob" | "env" | "lfo", name, color,
+ *   { id, type: "knob" | "env" | "lfo" | "meter" | "trig", name, color,
+ *     meter: { mix, gain }                          — уровень инсерта микшера (бочка громче → больше)
+ *     trig: { ch, att, hold, rel (мс), vel }        — огибающая, которая стартует от каждой ноты канала ch
  *     value: 0..1                                   — knob: ручка, которую крутят руками
  *     env: { len (доли), loop, pts: [[x, y]] }      — огибающая: точки (x — доли, y — 0..1), едет вместе с песней
  *     lfo: { sync: 0..N, shape, phase }             — LFO: период из SYNC (как у дилея), формы sine/tri/saw/square/random
@@ -19,8 +21,11 @@ import { SYNC } from "./fx.js";
 export const LFO_SHAPES = ["sine", "triangle", "saw", "square", "random"];
 export const LFO_SYNC = [...SYNC, ["2 такта", 8], ["4 такта", 16]];
 
-export function srcValue(src, beat) {
+/* rt — «живые» данные, которых нет в проекте: rt.meter(i) — уровень инсерта, rt.notes(chId) — [{t, v}] начала нот, rt.now — время звука */
+export function srcValue(src, beat, rt) {
   if (src.type === "knob") return clamp01(src.value ?? 0.5);
+  if (src.type === "meter") return clamp01((rt?.meter?.(src.meter?.mix ?? 1) || 0) * (src.meter?.gain ?? 1));
+  if (src.type === "trig") return trigValue(src.trig || {}, rt?.notes?.(src.trig?.ch) || [], rt?.now ?? 0);
   if (src.type === "env") {
     const e = src.env || {}, pts = (e.pts || []).slice().sort((a, b) => a[0] - b[0]), len = Math.max(0.25, e.len || 16);
     if (!pts.length) return 0;
@@ -44,6 +49,17 @@ export function srcValue(src, beat) {
     }
   }
   return 0;
+}
+/* огибающая по ноте: атака → удержание → спад (мс); стартует от каждой ноты канала-источника */
+export function trigValue(tr, notes, now) {
+  let last = null;
+  for (const n of notes) if (n.t <= now && (!last || n.t > last.t)) last = n;
+  if (!last) return 0;
+  const dt = (now - last.t) * 1000, a = Math.max(0, tr.att ?? 5), h = Math.max(0, tr.hold ?? 40), r = Math.max(1, tr.rel ?? 250);
+  const k = tr.vel === false ? 1 : last.v ?? 1;
+  if (dt < a) return k * dt / a;
+  if (dt < a + h) return k;
+  return k * Math.max(0, 1 - (dt - a - h) / r) ** 2;
 }
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
 
@@ -97,11 +113,11 @@ export function dawnTargets(P) {
 
 /* итоговые значения целей в позиции beat: Map(адрес → значение). resolve(addr) → { spec, base() } для не-DAWN адресов.
  * lfoBeat — отдельные часы для LFO (на остановленном транспорте LFO всё равно качает) */
-export function computeOver(P, beat, resolve, lfoBeat = beat) {
+export function computeOver(P, beat, resolve, lfoBeat = beat, rt = null) {
   const acc = new Map();
   for (const src of P.mods || []) {
     if (!src.wires?.length) continue;
-    const v = srcValue(src, src.type === "lfo" ? lfoBeat : beat), center = src.type === "lfo" ? 0.5 : 0;
+    const v = srcValue(src, src.type === "lfo" ? lfoBeat : beat, rt), center = src.type === "lfo" ? 0.5 : 0;
     for (const w of src.wires) {
       const t = acc.get(w.to) || { sum: 0 };
       t.sum += (w.amt ?? 1) * (v - center);
