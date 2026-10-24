@@ -29,7 +29,12 @@
   мяч прилипает, бросок ЛКМ/кнопкой (наклон платформы задаёт направление), сам отлипает через
   STICKY_HOLD · slowpad — платформы жертвы медленные · holes — 1–2 чёрные дыры в нейтральной зоне:
   закручивают мячи и подтягивают ближние платформы.
-Поле и глобальные эффекты считает сервер в обоих режимах (их видит и Sim одиночки). Бонусы из очереди игрок применяет по одному (ЛКМ / кнопка).
+  orbit — всё окно игры кружит вокруг своего центра с затухающим радиусом; мячи стоят на месте
+  в мире, т.е. относительно стола двигаются стенки и ворота (физика — в системе стола: из скорости
+  мяча вычитается скорость стола, отражение — относительное).
+Поле и глобальные эффекты считает сервер в обоих режимах (их видит и Sim одиночки).
+Ники из Telegram в лидерборде, ленте забивших и над платформами показываются со звёздочками
+(«@c***m»), пока сам игрок не нажмёт в окне лидерборда «Показывать мой юзернейм». Бонусы из очереди игрок применяет по одному (ЛКМ / кнопка).
 Анти-пролёт: внутри тика платформа интерполируется из прошлого положения в новое (субшаги считаются
 и по её смещению), отскок — по относительной скорости мяча и платформы.
 Ушедший игрок (курсор/палец убран) держит платформу ещё GRACE секунд — потом слот освобождается.
@@ -77,7 +82,8 @@ SLOWB_K, SLOWB_HOLD, SLOWB_RAMP = 0.3, 3.0, 4.0  # slowballs: множитель
 STICKY_DUR, STICKY_HOLD = 8.0, 2.5   # sticky: сколько клеится платформа, через сколько мяч отлипает сам
 SLOWPAD_DUR, SLOWPAD_V = 6.0, 0.35   # slowpad: сколько, скорость платформы (единиц поля в сек)
 HOLE_DUR, HOLE_G, HOLE_SWIRL, HOLE_PULL = 10.0, 0.02, 0.9, 0.035   # holes
-JUBILEE = ("wave", "balls", "strip", "round", "slowballs", "sticky", "slowpad", "holes")
+ORB_R, ORB_W, ORB_DUR = 0.06, 2.6, 9.0   # orbit: радиус (доля поля), угловая скорость рад/с, длительность
+JUBILEE = ("wave", "balls", "strip", "round", "slowballs", "sticky", "slowpad", "holes", "orbit")
 GRACE = float(os.environ.get("NOS_AIR_GRACE", "3"))          # сколько держим платформу ушедшего игрока, с
 BOT_SPEED = float(os.environ.get("NOS_AIR_BOT_SPEED", "0.6")) # скорость бота (лёгкий), units/сек
 BOT_ERR = float(os.environ.get("NOS_AIR_BOT_ERR", "0.09"))   # промах прицела бота
@@ -116,6 +122,15 @@ def tg_nick(init_data):
     return name[:24]
 
 
+def mask_nick(n):
+    """«@cojam» -> «@c***m»: всё, кроме первой и последней буквы, — звёздочки."""
+    pre = "@" if n.startswith("@") else ""
+    core = n[len(pre):]
+    if len(core) <= 2:
+        return pre + core[:1] + "*" * (len(core) - 1)
+    return pre + core[0] + "*" * (len(core) - 2) + core[-1]
+
+
 def clamp(v, a, b):
     return a if v < a else b if v > b else v
 
@@ -147,6 +162,10 @@ class AirHockey:
         self.balls = []
         self.combo = 0            # текущее комбо (подряд отбитий платформами в розыгрыше)
         self.combo_board = {}     # лидерборд комбо: nick -> лучшее комбо
+        self.tg_names = set()     # ники, пришедшие из Telegram (их маскируем)
+        self.tg_show = set()      # кто из них разрешил показывать ник целиком
+        self.tg_ws = set()        # соединения, вошедшие через Telegram
+        self.orb = None           # orbit: (начало, фаза) или None
         self.score = {"top": 0, "bottom": 0}
         self.last = []            # последние забившие: [{nick, own}]
         self.reset_at = 0.0       # пауза после гола до
@@ -191,6 +210,8 @@ class AirHockey:
             self.last = [x for x in d.get("last", []) if isinstance(x, dict)][:3]
             self.board = {str(k): int(v) for k, v in d.get("board", {}).items()}
             self.combo_board = {str(k): int(v) for k, v in d.get("combo_board", {}).items()}
+            self.tg_names = {str(x) for x in d.get("tg", [])}
+            self.tg_show = {str(x) for x in d.get("tg_show", [])}
         except (OSError, ValueError, TypeError):
             pass
 
@@ -204,10 +225,15 @@ class AirHockey:
         try:
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps({"score": self.score, "last": self.last, "board": self.board,
-                                       "combo_board": self.combo_board}, ensure_ascii=False), encoding="utf-8")
+                                       "combo_board": self.combo_board, "tg": sorted(self.tg_names),
+                                       "tg_show": sorted(self.tg_show)}, ensure_ascii=False), encoding="utf-8")
             os.replace(tmp, self.path)
         except OSError:
             pass
+
+    def shown(self, n):
+        """Как показывать ник другим: ник из Telegram — со звёздочками, пока владелец не разрешил."""
+        return mask_nick(n) if n and n in self.tg_names and n not in self.tg_show else n
 
     # ---------- слоты ----------
     def active_count(self):
@@ -386,6 +412,8 @@ class AirHockey:
                 self.fx.setdefault(key[0], {"wide": 0.0, "q": []})["sticky"] = now + STICKY_DUR
         elif ev == "slowpad":
             self.slowpad = (victim, now + SLOWPAD_DUR)
+        elif ev == "orbit":
+            self.orb = (now, random.uniform(0, 6.283))
         elif ev == "holes":
             self.holes = []
             for _ in range(random.randint(1, 2)):
@@ -395,6 +423,26 @@ class AirHockey:
         return ev, add
 
     # ---------- глобальные эффекты ----------
+    def _orb_at(self, e, ph):
+        r = ORB_R * min(1.0, e / 0.6) * (1 - e / ORB_DUR) ** 2   # плавный вход, затухающий радиус
+        a = ORB_W * e + ph
+        return r * math.cos(a), r * math.sin(a)
+
+    def orbit(self, now):
+        """Смещение стола (ox, oy) и его скорость (vx, vy) в долях поля, или None."""
+        if not self.orb:
+            return None
+        t0, ph = self.orb
+        e = now - t0
+        if e >= ORB_DUR:
+            self.orb = None
+            return None
+        h = 0.005
+        x1, y1 = self._orb_at(max(0.0, e - h), ph)
+        x2, y2 = self._orb_at(e + h, ph)
+        ox, oy = self._orb_at(e, ph)
+        return ox, oy, (x2 - x1) / (2 * h), (y2 - y1) / (2 * h)
+
     def _hole_list(self, now):
         """Живые дыры с силой a (плавно появляются и исчезают за 0.8 с)."""
         out = []
@@ -510,7 +558,19 @@ class AirHockey:
         self._boost(b)
         return True
 
-    def _advance(self, b, w, tscale, holes=(), rnd=False):
+    def _advance(self, b, w, tscale, holes=(), rnd=False, orb=None):
+        """Orbit: стол едет со скоростью (ovx, ovy), мяч в мире — нет. Считаем в системе стола:
+        вычитаем скорость стола, после — возвращаем. Отражения от стенок/ворот выходят относительными."""
+        if not orb:
+            return self._advance_core(b, w, tscale, holes, rnd)
+        ovx, ovy = orb[2], orb[3]
+        b["vx"] -= ovx; b["vy"] -= ovy
+        g = self._advance_core(b, w, tscale, holes, rnd)
+        if b["k"] != 2:
+            b["vx"] += ovx; b["vy"] += ovy
+        return g
+
+    def _advance_core(self, b, w, tscale, holes=(), rnd=False):
         """Один мяч на тик (с субшагами). Возвращает (side, gx) при голе, иначе None.
         Платформы внутри тика едут из (ox, oy) в (x, y) — субшагов хватает и на быстрый взмах."""
         tscale *= b["sl"]
@@ -617,13 +677,14 @@ class AirHockey:
                 b["sl"] = min(1.0, b["sl"] + DT * (1 - SLOWB_K) / SLOWB_RAMP)   # медленные разгоняются
         frozen = now < self.ice_until
         rnd = now < self.round_until
+        orb = self.orbit(now)
         tscale = SLOW_K if now < self.slow_until else 1.0
         w = self.pad_w()
         add, remove = [], []
         for b in self.balls:
             if b["k"] == 2 or frozen:
                 continue
-            g = self._advance(b, w, tscale, holes, rnd)
+            g = self._advance(b, w, tscale, holes, rnd, orb)
             if g:
                 remove.append(b)
                 if g[0] != "dead":             # голы салюта тоже засчитываются
@@ -651,7 +712,7 @@ class AirHockey:
         ice = self.ice_side if now < self.ice_until else None
         holes = self._hole_list(now)
         pads = [{"x": round(p.px, 4), "y": round(p.py, 4), "side": p.side, "kind": p.kind,
-                 "me": p.ws is me_ws, "nick": p.nick, "away": bool(p.leave_at),
+                 "me": p.ws is me_ws, "nick": self.shown(p.nick), "away": bool(p.leave_at),
                  "pw": round(self.pad_width(p, w), 4), "ice": p.side == ice}
                 for p in self.pads.values() if p.active]
         src = self.balls
@@ -664,19 +725,23 @@ class AirHockey:
                              "me": False, "nick": BOT_NICK, "away": False, "pw": round(w, 4), "ice": False})
         tscale = SLOW_K if now < self.slow_until and self.mode == "online" else 1.0
         still = 0.0 if ice and self.mode == "online" else tscale
+        orb = self.orbit(now) if self.mode == "online" else None
+        ovx, ovy = (orb[2], orb[3]) if orb else (0.0, 0.0)   # клиенту — скорость в системе стола
         balls = [{"x": round(b["x"], 4), "y": round(b["y"], 4),
-                  "vx": round(b["vx"] * (0 if b.get("k") == 2 else still * b.get("sl", 1)), 4),
-                  "vy": round(b["vy"] * (0 if b.get("k") == 2 else still * b.get("sl", 1)), 4),
+                  "vx": round((b["vx"] - ovx) * (0 if b.get("k") == 2 else still * b.get("sl", 1)), 4),
+                  "vy": round((b["vy"] - ovy) * (0 if b.get("k") == 2 else still * b.get("sl", 1)), 4),
                   "k": b.get("k", 0), "l": b.get("lives", 0), "s": round(b.get("sl", 1), 3),
                   "r": round(max(0.0, b["rel"] - now), 2) if b.get("rel") else 0,
                   "m": bool(b.get("stuck") and b["stuck"][0] is me_ws)} for b in src]
         f = self.fx.get(me_ws) or {}
         return {"t": "state", "mode": self.mode, "sim": self.mode == "local" and self.owner is me_ws,
                 "balls": balls, "ball": balls[0] if balls else {"x": .5, "y": .5, "vx": 0, "vy": 0},
-                "pw": round(w, 4), "pads": pads, "score": self.score, "last": self.last,
+                "pw": round(w, 4), "pads": pads, "score": self.score,
+                "last": [{**x, "nick": self.shown(x.get("nick"))} for x in self.last],
                 "players": self.active_count(), "cap": MAX_PLAYERS, "combo": self.combo,
                 "top": round(self.top_eff, 4), "bot": round(self.bot_eff, 4),
-                "gid": self.gid, "goal": self.goal_event, "hid": self.hid, "wid": self.wid,
+                "gid": self.gid, "hid": self.hid, "wid": self.wid,
+                "goal": {**self.goal_event, "nick": self.shown(self.goal_event.get("nick"))} if self.goal_event else None,
                 "launch_in": round(max(0.0, self.reset_at - time.monotonic()), 3)
                              if self.reset_at and self.mode == "online" else 0.0,
                 "freeze": FREEZE,
@@ -688,7 +753,8 @@ class AirHockey:
                 "itop": round(self.top_in, 4), "ibot": round(self.bot_in, 4),
                 "round": round(max(0.0, self.round_until - now), 2),
                 "slowpad": self.slowpad[0] if now < self.slowpad[1] else None,
-                "holes": [{"x": round(x, 4), "y": round(y, 4), "s": s_, "a": round(a, 3)} for x, y, s_, a in holes]}
+                "holes": [{"x": round(x, 4), "y": round(y, 4), "s": s_, "a": round(a, 3)} for x, y, s_, a in holes],
+                "orb": {"e": round(now - self.orb[0], 3), "ph": round(self.orb[1], 4)} if self.orb and self.orbit(now) else None}
 
     # ---------- цикл ----------
     async def run(self):
@@ -847,7 +913,7 @@ class AirHockey:
                 "stickV": STICK_V, "barrageN": BARRAGE_N, "barrageLives": BARRAGE_LIVES, "barrageV": BARRAGE_V,
                 "roundR": ROUND_R, "slowbK": SLOWB_K, "slowbHold": SLOWB_HOLD, "slowbRamp": SLOWB_RAMP,
                 "stickyHold": STICKY_HOLD, "stickyDur": STICKY_DUR, "slowpadV": SLOWPAD_V, "holeG": HOLE_G, "holeSwirl": HOLE_SWIRL,
-                "holePull": HOLE_PULL}
+                "holePull": HOLE_PULL, "orbR": ORB_R, "orbW": ORB_W, "orbDur": ORB_DUR}
 
     async def _send(self, ws, data):
         if not ws.closed:
@@ -882,15 +948,27 @@ class AirHockey:
                     tn = tg_nick(d.get("init"))
                     if tn and not nick:
                         nick = self.conns[ws] = tn
+                        self.tg_ws.add(ws)
+                        if tn not in self.tg_names:
+                            self.tg_names.add(tn)
+                            self._save(force=True)
                         for k in [k for k in self.pads if k[0] is ws]:
                             self.pads[k].nick = nick
                     await self._send(ws, {"t": "hello", "cap": MAX_PLAYERS, "can_play": True, "anon": not nick,
                                           "nick": nick, "top": TOP_ACTIVE, "bot": BOT_ACTIVE,
-                                          "goalL": GOAL_L, "goalR": GOAL_R, "phys": self.phys()})
+                                          "goalL": GOAL_L, "goalR": GOAL_R, "phys": self.phys(),
+                                          "tg": ws in self.tg_ws, "show_name": nick in self.tg_show})
+                    continue
+                if d.get("t") == "showname":    # игрок из Telegram разрешил/запретил показывать ник целиком
+                    if ws in self.tg_ws and nick:
+                        (self.tg_show.add if d.get("on") else self.tg_show.discard)(nick)
+                        self._save(force=True)
+                        await self._send(ws, {"t": "showname", "on": nick in self.tg_show})
                     continue
                 await self.handle(ws, nick, d)   # nick может быть None (аноним)
         finally:
             self.conns.pop(ws, None)
+            self.tg_ws.discard(ws)
             self.fx.pop(ws, None)
             for b in self.balls:
                 if b["k"] == 2 and b["stuck"] and b["stuck"][0] is ws:
@@ -902,8 +980,8 @@ class AirHockey:
     async def api_leaderboard(self, request):
         pts = sorted(self.board.items(), key=lambda kv: (-kv[1], kv[0]))[:50]
         cmb = sorted(self.combo_board.items(), key=lambda kv: (-kv[1], kv[0]))[:50]
-        return web.json_response({"board": [{"nick": n, "points": p} for n, p in pts],
-                                  "combo": [{"nick": n, "points": p} for n, p in cmb]})
+        return web.json_response({"board": [{"nick": self.shown(n), "points": p} for n, p in pts],
+                                  "combo": [{"nick": self.shown(n), "points": p} for n, p in cmb]})
 
     def routes(self, app):
         app.router.add_get("/api/air/ws", self.ws_handler)

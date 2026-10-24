@@ -13,7 +13,10 @@ import { WM } from "../wm.js";
  * Платформа наклоняется от скорости по X и пружинисто «отыгрывает» по дуге (гибкость).
  * Гол трясёт окно игры; свой гол трясёт и остальные окна — тем слабее, чем дальше от эпицентра.
  * Юбилейные события (каждый 10-й гол): поле, круги, slowpad и чёрные дыры сервер шлёт в каждом кадре
- * (state.round / slowpad / holes / top-bot) — в обоих режимах; мячи и клейкость в local добавляет Sim.
+ * (state.round / slowpad / holes / orb / top-bot) — в обоих режимах; мячи и клейкость в local добавляет Sim.
+ * orbit: окно кружит вокруг центра (CSS translate), мячи стоят на месте на экране — относительно стола
+ * едут стенки и ворота. Физика — в системе стола (из скорости мяча вычитается скорость стола).
+ * Ники из Telegram сервер отдаёт со звёздочками, пока игрок не нажмёт «Показывать мой юзернейм».
  */
 const PAD_DRAW_H = 0.03;            // толщина платформы на экране (физика — P.padH с сервера)
 const SND = "/apps/airhockey/";
@@ -26,7 +29,18 @@ const P = { v0: 0.75, vmax: 2.4, gain: 0.035, freeze: 0.6, split: 64, maxBalls: 
   spreeWin: 1.8, wideK: 1.6, wideDur: 8, slowK: 0.35, slowDur: 5, iceDur: 2.5, stickV: 1.3,
   barrageN: 32, barrageLives: 5, barrageV: 0.9,
   roundR: 0.05, slowbK: 0.3, slowbHold: 3, slowbRamp: 4, stickyHold: 2.5, stickyDur: 8, slowpadV: 0.35,
-  holeG: 0.02, holeSwirl: 0.9, holePull: 0.035 };
+  holeG: 0.02, holeSwirl: 0.9, holePull: 0.035, orbR: 0.06, orbW: 2.6, orbDur: 9 };
+
+/* orbit: смещение стола (доли поля) — как на сервере (_orb_at): плавный вход, затухающий радиус */
+function orbAt(e, ph) {
+  const r = P.orbR * Math.min(1, e / 0.6) * (1 - e / P.orbDur) ** 2, a = P.orbW * e + ph;
+  return [r * Math.cos(a), r * Math.sin(a)];
+}
+function orbState(e, ph) {
+  if (e < 0 || e >= P.orbDur) return null;
+  const h = 0.005, [x1, y1] = orbAt(Math.max(0, e - h), ph), [x2, y2] = orbAt(e + h, ph), [ox, oy] = orbAt(e, ph);
+  return { ox, oy, vx: (x2 - x1) / (2 * h), vy: (y2 - y1) / (2 * h) };
+}
 
 /* притяжение платформы к чёрным дырам — как на сервере (hole_pull): от положения ввода, не копится */
 function holePull(x, y, holes) {
@@ -183,7 +197,17 @@ class Sim {
   }
 
   /* мяч за шаг; платформы внутри шага едут из (ox, oy) в (x, y) — субшагов хватает и на резкий взмах */
+  /* orbit: считаем в системе стола — вычитаем скорость стола, после шага возвращаем */
   advance(b, pads, tscale, ev, env, now) {
+    const o = env.orb;
+    if (!o) return this.advanceCore(b, pads, tscale, ev, env, now);
+    b.vx -= o.vx; b.vy -= o.vy;
+    const g = this.advanceCore(b, pads, tscale, ev, env, now);
+    if (b.k !== 2) { b.vx += o.vx; b.vy += o.vy; }
+    return g;
+  }
+
+  advanceCore(b, pads, tscale, ev, env, now) {
     const R = P.ballR, holes = env.holes || [];
     tscale *= b.sl;
     const pmove = pads.reduce((m, p) => Math.max(m, Math.abs(p.x - p.ox) + Math.abs(p.y - p.oy)), 0);
@@ -399,7 +423,9 @@ function mountAirHockey(c, w, opts = {}) {
   const mine = { m: { x: .5, y: .9, tx: .5, ty: .9, side: "bottom", active: false, leaveAt: 0, sendT: 0 },
                  k: { x: .5, y: .99, tx: .5, ty: .99, side: "top", active: false, leaveAt: 0, sendT: 0 } };
   /* глобальные эффекты юбилея — их считает сервер в обоих режимах */
-  const env = () => ({ round: (srv.round || 0) > (performance.now() - srvT) / 1000, holes: srv.holes || [], slowpad: srv.slowpad || null });
+  const orbNow = () => srv.orb ? orbState(srv.orb.e + (performance.now() - srvT) / 1000, srv.orb.ph) : null;
+  const env = () => ({ round: (srv.round || 0) > (performance.now() - srvT) / 1000, holes: srv.holes || [],
+                       slowpad: srv.slowpad || null, orb: orbNow() });
   let goneAt = 0;                 // когда у меня не осталось ни одной платформы (для ухода бота)
 
   function fitCanvas() {
@@ -545,9 +571,11 @@ function mountAirHockey(c, w, opts = {}) {
         if (d.phys) Object.assign(P, d.phys);
         if (typeof d.top === "number") { zone.top = zone.itop = d.top; zone.bot = zone.ibot = d.bot; GOAL.l = d.goalL; GOAL.r = d.goalR; }
         myNick = d.nick || myNick;
+        if (d.tg) { tgMe = true; showName = !!d.show_name; syncNameBtn(); }
         hint.textContent = d.anon ? (tg ? "Не удалось войти через Телеграм — играешь анонимно"
                                         : "Играешь анонимно — в счёте будет случайный номер (войди в чат для ника)")
                                   : (d.nick && tg ? `Ты — ${d.nick}. ` : "") + HINT;
+      } else if (d.t === "showname") { showName = !!d.on; syncNameBtn(); lbReload?.();
       } else if (d.t === "full") { playNah(); hint.textContent = "Все места заняты — подожди, пока кто-то выйдет"; }
     };
     ws.onclose = () => { if (!closed) setTimeout(connect, 2000); };
@@ -622,8 +650,11 @@ function mountAirHockey(c, w, opts = {}) {
   function syncTut() { strip?.classList.toggle("tut", tutStep() === "pad"); }
 
   /* ---------- ввод: компьютер (мышь) ---------- */
+  let lastPtr = null, lastStrip = null;   // orbit: окно едет под неподвижным курсором — переприменяем ввод
+  let applyPointer = null;
   if (!mobile) {
-    const applyPointer = e => {
+    applyPointer = e => {
+      lastPtr = { clientX: e.clientX, clientY: e.clientY };
       Snd.init();
       const r = cv.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
@@ -636,7 +667,7 @@ function mountAirHockey(c, w, opts = {}) {
     };
     cv.onpointermove = applyPointer;
     cv.onpointerdown = e => { focused = true; applyPointer(e); if (e.button === 0 && canUse(view()) && mine.m.active) useBonus(); };
-    cv.onpointerleave = () => { cv.classList.remove("playing"); leaveMine("m"); };
+    cv.onpointerleave = () => { lastPtr = null; cv.classList.remove("playing"); leaveMine("m"); };
   }
 
   /* ---------- ввод: телефон (тачпад под полем) ----------
@@ -665,7 +696,8 @@ function mountAirHockey(c, w, opts = {}) {
       const y = (e.clientY - r.top) / r.height;
       if (y <= zone.itop) setSide("top"); else if (y >= zone.ibot) setSide("bottom");
     };
-    const onStrip = e => {
+    var onStrip = e => {
+      lastStrip = { clientX: e.clientX, clientY: e.clientY };
       const r = strip.getBoundingClientRect();
       touch.x = clamp01((e.clientX - r.left) / r.width);
       touch.fy = clamp01((e.clientY - r.top) / r.height);   // 0 — верх полосы, 1 — низ
@@ -851,6 +883,17 @@ function mountAirHockey(c, w, opts = {}) {
     }
   }
 
+  /* orbit: двигаем само окно (CSS translate не мешает left/top и анимации тряски) */
+  let winMoved = false;
+  function moveWindow(o) {
+    const node = w.node;
+    if (!node?.style) return;
+    if (!o) { if (winMoved) { node.style.translate = ""; winMoved = false; } return; }
+    const r = cv.getBoundingClientRect();
+    node.style.translate = `${(o.ox * r.width).toFixed(1)}px ${(o.oy * r.height).toFixed(1)}px`;
+    winMoved = true;
+  }
+
   let prevT = performance.now();
   function draw() {
     fitCanvas();
@@ -860,8 +903,14 @@ function mountAirHockey(c, w, opts = {}) {
     expireMine(now);
     stepMine(fdt);
     stepKB(fdt);
+    const orb = orbNow();
+    if (orb) {   // окно кружит под неподвижным курсором/пальцем — платформа остаётся на месте экрана
+      if (lastPtr && applyPointer && mine.m.active && !mine.m.leaveAt) applyPointer(lastPtr);
+      if (lastStrip && touch.on && strip) onStrip(lastStrip);
+    }
     stepTouch();
     stepSim(fdt, now);
+    moveWindow(orb);
     const step = tutStep();
     const pulse = 0.5 + 0.5 * Math.sin(now / 260);
 
@@ -1005,10 +1054,23 @@ function mountAirHockey(c, w, opts = {}) {
       render: lbRender });
     placeLb(win, lw, lh);
   }
+  /* ник из Telegram другие видят со звёздочками, пока игрок сам не разрешит показывать его целиком */
+  let tgMe = false, showName = false, lbReload = null;
+  const nameBtns = new Set();
+  function syncNameBtn() {
+    for (const b of nameBtns) {
+      if (!b.isConnected) { nameBtns.delete(b); continue; }
+      b.hidden = !tgMe;
+      b.textContent = showName ? "🙈 Скрыть мой юзернейм" : "👁 Показывать мой юзернейм";
+    }
+  }
   function lbRender(cc) {
     const body = el("div", { className: "air-lb-body", textContent: "Загрузка…" });
     const refresh = el("button", { className: "btn small", textContent: "⟳ Обновить", onclick: () => load() });
-    cc.append(el("div", { className: "air-lb2" }, body, refresh));
+    const nameBtn = el("button", { className: "btn small", hidden: true,
+      onclick: () => send({ t: "showname", on: !showName }) });
+    nameBtns.add(nameBtn); syncNameBtn();
+    cc.append(el("div", { className: "air-lb2" }, body, el("div", { className: "air-lb-btns" }, refresh, nameBtn)));
     const section = (title, rows, unit) => {
       const box = el("div", { className: "air-lb-sec" }, el("div", { className: "air-lb-sec-h", textContent: title }));
       if (!rows.length) box.append(el("div", { className: "air-lb-empty", textContent: "пока пусто" }));
@@ -1027,6 +1089,7 @@ function mountAirHockey(c, w, opts = {}) {
           section("🔥 Лучшее комбо", d.combo || [], "×"));
       } catch { body.textContent = "Не удалось загрузить"; }
     }
+    lbReload = load;
     load();
   }
   function placeLb(win, lw, lh) {
@@ -1042,7 +1105,7 @@ function mountAirHockey(c, w, opts = {}) {
   fitCanvas(); connect();
   let raf = requestAnimationFrame(draw);
   let hudRaf = requestAnimationFrame(renderHud);
-  w.onClose = () => { closed = true; cancelAnimationFrame(raf); cancelAnimationFrame(hudRaf);
+  w.onClose = () => { closed = true; cancelAnimationFrame(raf); cancelAnimationFrame(hudRaf); moveWindow(null);
     document.removeEventListener("keydown", kd); document.removeEventListener("keyup", ku);
     document.removeEventListener("pointerdown", focusOn, true); try { ws?.close(); } catch {} };
 }

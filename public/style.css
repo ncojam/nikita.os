@@ -798,3 +798,4 @@ html, body {
 .air-slow .air-cv, .air-slow .air-score, .air-slow .air-strip, .air-slow .air-row, .air-slow .air-bonus {
   outline: 1px solid rgba(210,236,255,0.85); outline-offset: 2px; border-radius: 12px; }
 .window.air-slow-win { outline: 1px solid rgba(210,236,255,0.85); outline-offset: 0; }
+.air-lb-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
