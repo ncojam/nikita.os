@@ -1,4 +1,5 @@
 import { el, store } from "../../core/util.js";
+import "../../i18n/dawn.js";   // языковой пакет DAWN
 import { VFS } from "../../core/vfs.js";
 import { notify } from "../../ui/notify.js";
 import { WM } from "../../wm.js";

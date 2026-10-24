@@ -7,7 +7,8 @@
  * и подсказки (title, placeholder, aria-label), если для них есть перевод. Новые приложения получают перевод,
  * просто добавив свой пакет. В коде, где текст не попадает в DOM (canvas, confirm), используйте t("…").
  *
- * Язык: cookie nos_lang → иначе по часовому поясу (местоположению) → иначе по языку браузера.
+ * Язык: cookie nos_lang → иначе по часовому поясу (местоположению) → иначе английский.
+ * Если у строки нет японского перевода, показывается английский.
  */
 export const LANGS = [["ru", "Русский"], ["en", "English"], ["ja", "日本語"]];
 const IDX = { en: 0, ja: 1 };
@@ -23,13 +24,7 @@ function detect() {
   try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { /* старый браузер */ }
   if (tz === "Asia/Tokyo") return "ja";
   if (RU_TZ.test(tz)) return "ru";
-  for (const l of navigator.languages || [navigator.language || ""]) {
-    const k = String(l).slice(0, 2).toLowerCase();
-    if (k === "ru" || k === "be" || k === "uk" || k === "kk") return "ru";
-    if (k === "ja") return "ja";
-    if (k === "en") return "en";
-  }
-  return "en";
+  return "en";   // для страны нет своего языка — английский
 }
 export const lang = detect();
 export const locale = { ru: "ru-RU", en: "en-US", ja: "ja-JP" }[lang];
@@ -58,14 +53,14 @@ const fill = (s, args) => s.replace(/\{(\d)\}/g, (m, i) => args[+i] ?? m);
 /* перевод строки целиком (или шаблона); null — перевода нет */
 function tr(s) {
   const v = exact.get(s);
-  if (v) return v[IDX[lang]] ?? null;
+  if (v) return (v[IDX[lang]] ?? v[0]) ?? null;
   for (const p of patterns) {
     const m = s.match(p.re);
     if (!m) continue;
     // подставляемые части — числа, имена, пути или переводимые фразы; русский текст внутри значит, что шаблон поймал лишнее
     const args = m.slice(1).map(x => tr(x.trim()) ?? x);
     if (args.some(x => /[А-Яа-яЁё]{3}/.test(x) && x.split(/\s+/).length > 2)) continue;
-    const out = p.out[IDX[lang]];
+    const out = p.out[IDX[lang]] ?? p.out[0];
     return out == null ? null : fill(out, args);
   }
   return null;
@@ -86,24 +81,26 @@ function translate(text) {
   if (whole != null) return whole;
   // текст склеен из нескольких фраз — меняем известные длинные куски
   let out = text, hit = false;
-  for (const k of long) if (out.includes(k)) { const v = exact.get(k)[IDX[lang]]; if (v != null) { out = out.split(k).join(v); hit = true; } }
+  for (const k of long) if (out.includes(k)) { const v = exact.get(k)[IDX[lang]] ?? exact.get(k)[0]; if (v != null) { out = out.split(k).join(v); hit = true; } }
   return hit ? out : null;
 }
 
 /* для кода: t("Удалить {0}?", name) */
 export function t(s, ...args) {
-  const r = lang === "ru" ? s : (exact.get(s)?.[IDX[lang]] ?? s);
+  const r = lang === "ru" ? s : (exact.get(s)?.[IDX[lang]] ?? exact.get(s)?.[0] ?? s);
   return args.length ? fill(r, args) : r;
 }
 
 const ATTRS = ["title", "placeholder", "aria-label"];
-const SKIP = "script, style, textarea, input, [contenteditable], [data-no-i18n], .no-i18n";
+const SKIP = "script, style, textarea, input, [contenteditable], [data-no-i18n], .no-i18n";   // текст не трогаем
+const NOATTR = "[data-no-i18n], .no-i18n";                                                     // подсказки — у всех, кроме этих
 function walk(root) {
   if (root.nodeType === 3) return node(root);
-  if (root.nodeType !== 1 || root.closest?.(SKIP)) return;
+  if (root.nodeType !== 1 || root.closest?.(NOATTR)) return;
   attrs(root);
+  if (root.closest(SKIP)) return;
   const it = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
-    acceptNode: n => n.nodeType === 1 && n.matches(SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    acceptNode: n => n.nodeType === 1 && n.matches(NOATTR) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
   for (let n = it.nextNode(); n; n = it.nextNode()) n.nodeType === 3 ? node(n) : attrs(n);
 }
 function node(n) {
@@ -112,6 +109,7 @@ function node(n) {
   if (r != null && r !== n.nodeValue) n.nodeValue = r;
 }
 function attrs(e) {
+  if (e.closest?.(NOATTR)) return;
   for (const a of ATTRS) {
     const v = e.getAttribute?.(a);
     if (!v) continue;
