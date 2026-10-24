@@ -11,6 +11,7 @@
 | Записи | `apps/post.js`, `apps/comments.js` | `.запись`, см. [social.md](social.md) |
 | Чат | `apps/chat.js` | `app: "chat"` |
 | Браузер | `apps/browser.js` | `app: "browser"` (`path` — стартовый адрес), см. [browser.md](browser.md) |
+| DAWN | `apps/dawn/` | `app: "dawn"`, файлы `.dawn`; каждый модуль — отдельное окно, см. [dawn.md](dawn.md) |
 | Настройки | `apps/settings.js` | обои, окна (прилипание, зазор, поля) |
 | Джус (аэро-арканоид) | `apps/airhockey.js`, `airhockey.py`, `public/tg.html` | `app: "airhockey"`; также Telegram Mini App |
 | «Загрузчик» | `apps/fakedl.js`, `server.py: serve_grab` | ярлык `{app:"fakedl", file, size}` |

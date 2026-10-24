@@ -55,6 +55,7 @@ mimetypes.add_type("text/javascript", ".js")
 for _ext in (".gba", ".gb", ".gbc"):
     mimetypes.add_type("application/octet-stream", _ext)
 mimetypes.add_type("application/json", ".lnk")
+mimetypes.add_type("application/json", ".dawn")
 
 AUDIO_EXT = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".opus"}
 
@@ -71,6 +72,7 @@ DEFAULT_DESKTOP = {
                           "open": "/home/nikita/Projects/Graveblood 0.0.1.1.5.2 demo.gba"},
     "08 Джус.lnk": {"name": "Джус", "icon": "🍒", "app": "airhockey"},
     "07 Браузер.lnk": {"name": "Браузер", "icon": "🌐", "app": "browser"},
+    "06 DAWN.lnk": {"name": "DAWN", "icon": "🌸", "app": "dawn"},
     "09 Настройки.lnk": {"name": "Настройки", "icon": "⚙️", "app": "settings"},
 }
 

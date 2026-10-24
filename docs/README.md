@@ -15,6 +15,7 @@
 | [social.md](social.md) | Аккаунты, чат, комментарии, записи, модерация |
 | [browser.md](browser.md) | Браузер и псевдо-сайты, форум Kursk Artists |
 | [apps.md](apps.md) | Остальные приложения: плеер, GBA, Flash, Джус, «загрузчик», настройки |
+| [dawn.md](dawn.md) | DAWN — пастельная DAW: окна-модули, движок, формат `.dawn` |
 | [deploy.md](deploy.md) | Запуск локально, Docker, nginx/Caddy, переменные окружения |
 | [code-rules.md](code-rules.md) | Правила и соглашения по коду |
 

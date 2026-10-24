@@ -4,6 +4,7 @@ import { D, EASE } from "../core/anim.js";
 import { $ } from "../core/util.js";
 import { openAbout } from "../open.js";
 import { openBrowser } from "../apps/browser.js";
+import { openDawn } from "../apps/dawn/index.js";
 import { WM } from "../wm.js";
 
 /* ================= пуск (с анимацией) ================= */
@@ -66,6 +67,7 @@ export function init_ui_taskbar() {
     if (b.dataset.app === "about") openAbout();
     if (b.dataset.app === "settings") openSettings();
     if (b.dataset.app === "browser") openBrowser();
+    if (b.dataset.app === "dawn") openDawn();
     toggleStart(false);
   });
 

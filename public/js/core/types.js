@@ -8,6 +8,7 @@ const EXT = {
   flash: ["swf"],
   link: ["lnk"],
   post: ["запись"],
+  dawn: ["dawn"],
 };
 
 const kindOf = name => {
@@ -16,9 +17,9 @@ const kindOf = name => {
   return "other";
 };
 
-const GLYPH = { dir: "📁", audio: "🎵", video: "🎬", image: "🖼️", text: "📄", web: "🎮", rom: "🕹️", flash: "⚡", link: "🔗", post: "📝", other: "📦" };
+const GLYPH = { dir: "📁", audio: "🎵", video: "🎬", image: "🖼️", text: "📄", web: "🎮", rom: "🕹️", flash: "⚡", link: "🔗", post: "📝", dawn: "🌸", other: "📦" };
 
 const KIND_NAME = { dir: "Папка", audio: "Аудио", video: "Видео", image: "Изображение", text: "Текст",
-  web: "Веб-страница / игра", rom: "ROM (GBA / GB)", flash: "Flash-игра (SWF)", link: "Ярлык", post: "Запись", other: "Файл" };
+  web: "Веб-страница / игра", rom: "ROM (GBA / GB)", flash: "Flash-игра (SWF)", link: "Ярлык", post: "Запись", dawn: "Проект DAWN", other: "Файл" };
 
 export { kindOf, GLYPH, KIND_NAME };
