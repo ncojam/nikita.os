@@ -84,6 +84,18 @@ DEFAULT_CONFIGS = {
         "wallpaperDir": "/home/nikita/Wallpapers",
         "dim": 0.25,
     },
+    "params.json": {
+        "_help": "Параметры ОС, которые можно модулировать (например, проводками из DAWN). Каждый — CSS-переменная на :root: id, label, var, min, max, def, unit (px/deg или пусто), group. Чтобы добавить свой — допиши строку и используй var(...) в CSS.",
+        "params": [
+            {"id": "hue", "label": "Оттенок окон", "var": "--os-hue", "min": -180, "max": 180, "def": 0, "unit": "deg", "group": "Окна"},
+            {"id": "sat", "label": "Насыщенность окон", "var": "--os-sat", "min": 0, "max": 2.5, "def": 1, "group": "Окна"},
+            {"id": "radius", "label": "Скругление окон", "var": "--radius", "min": 0, "max": 40, "def": 16, "unit": "px", "group": "Окна"},
+            {"id": "blur", "label": "Размытие стекла", "var": "--os-blur", "min": 0, "max": 60, "def": 28, "unit": "px", "group": "Окна"},
+            {"id": "font", "label": "Размер заголовков", "var": "--os-font", "min": 0.7, "max": 2, "def": 1, "group": "Окна"},
+            {"id": "wall", "label": "Яркость обоев", "var": "--os-wall", "min": 0.2, "max": 1.8, "def": 1, "group": "Рабочий стол"},
+            {"id": "wallhue", "label": "Оттенок обоев", "var": "--os-wall-hue", "min": -180, "max": 180, "def": 0, "unit": "deg", "group": "Рабочий стол"},
+        ],
+    },
     "gba.json": {
         "_help": "Настройки эмулятора GBA (mGBA). keys: кнопка GBA -> клавиша (имена SDL: X, Z, A, S, Return, Backspace, Up, Down, Left, Right, Space, Left Shift ...). hotkeys: клавиши окна эмулятора (имена KeyboardEvent.code). audio.contextRate: частота звукового контекста (48000 по умолчанию, или 'device'); audio.sampleRate: 'auto' или число; audio.bufferSize: 1024/2048/4096 — больше = стабильнее звук, но больше задержка; audio.output: 'worklet' (отдельный аудиопоток, по умолчанию) или 'sdl' (старый вывод); audio.latencyMs: запас звука для worklet. Сохранения хранятся в браузере (IndexedDB).",
         "keys": {
@@ -732,6 +744,7 @@ def make_app():
     app["forum"] = Forum(UFS_ROOT, app["chat"].user_by_token)
     app["forum"].routes(app)
     app.router.add_get("/browser{tail:(/.*)?}", serve_browser)  # прямые ссылки -> та же ОС, браузер откроет адрес
+    app.router.add_get("/dawn{tail:(/.*)?}", serve_browser)     # /dawn и /dawn/<путь к .dawn> -> ОС откроет DAWN
     app.router.add_get("/fs/{tail:.*}", serve_fs)
     app.router.add_get("/{tail:.*}", serve_public)
     return app

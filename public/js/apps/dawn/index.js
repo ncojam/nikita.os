@@ -6,6 +6,7 @@ import { Engine, newProject } from "./engine.js";
 import { fromFile } from "./format.js";
 import { applyTheme } from "./ui.js";
 import { MODULES } from "./windows.js";
+import { Mod } from "./mod.js";
 
 /* ================= DAWN — хаб =================
  * У приложения нет «главного окна» с вкладками: каждый модуль — отдельное окно ОС.
@@ -64,6 +65,7 @@ export const Dawn = {
     applyTheme();
     Engine.init();
     Engine.load(project, path);
+    Mod.start();
     this.pianoCh = Engine.project.channels.find(c => c.type === "osc3")?.id || Engine.project.channels[0]?.id || null;
     this.unsub.push(Engine.on("change", () => this.autosave()));
     const open = Object.keys(Engine.project.layout || {}).filter(k => Engine.project.layout[k][4]);
@@ -125,6 +127,7 @@ export const Dawn = {
 
   shutdown() {
     Engine.stop();
+    Mod.stop();
     if (Engine.dirty) {   // окна закрыли без сохранения — черновик уже в браузере
       Engine.project.layout = this.layoutNow();
       store.set(AUTOSAVE, { path: Engine.path, project: Engine.project, t: Date.now() });

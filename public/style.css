@@ -22,7 +22,8 @@ html, body {
 
 /* ---------- обои ---------- */
 #desktop { position: fixed; inset: 0; background: #07070a; }
-#wallpaper { position: absolute; inset: 0; overflow: hidden; }
+#wallpaper { position: absolute; inset: 0; overflow: hidden;
+  filter: brightness(var(--os-wall, 1)) hue-rotate(var(--os-wall-hue, 0deg)); }
 .wp-layer {
   position: absolute; inset: 0;
   background-position: center; background-size: cover; background-repeat: no-repeat;
@@ -85,8 +86,8 @@ html, body {
 /* ---------- liquid glass ---------- */
 .glass {
   background: var(--glass-bg);
-  backdrop-filter: blur(28px) saturate(170%);
-  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  backdrop-filter: blur(var(--os-blur, 28px)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--os-blur, 28px)) saturate(170%);
   border: 1px solid var(--glass-border);
   box-shadow:
     inset 0 1px 0 var(--glass-hi),
@@ -151,7 +152,7 @@ html, body {
   border-bottom: 1px solid var(--glass-border);
 }
 .window.dragging .titlebar { cursor: grabbing; }
-.titlebar .title { flex: 1; font-weight: 600; font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.titlebar .title { flex: 1; font-weight: 600; font-size: calc(13px * var(--os-font, 1)); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .titlebar .controls { display: flex; gap: 6px; }
 .titlebar .controls button {
   width: 28px; height: 28px; border-radius: 9px; border: 0;
@@ -1001,3 +1002,44 @@ html, body {
 [data-dawn-theme=light] .dw-file-row { color: #1e8a6c; }
 [data-dawn-theme=light] .dw-play::after { border-left-color: #23a985; }
 [data-dawn-theme=light] .dw-stop::after { background: #e0479b; }
+
+/* параметры ОС для модуляции (см. core/params.js и fs/etc/params.json) */
+/* фильтр включается, только пока переменная задана (иначе не трогаем композитинг окон с играми) */
+html[style*="--os-hue"] .window > .content, html[style*="--os-hue"] .window > .titlebar,
+html[style*="--os-sat"] .window > .content, html[style*="--os-sat"] .window > .titlebar {
+  filter: hue-rotate(var(--os-hue, 0deg)) saturate(var(--os-sat, 1)); }
+
+/* ---- DAWN, этап 3: модуляция, Grapefruit, огибающие ---- */
+.dk-mod { fill: none; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; opacity: .9; filter: drop-shadow(0 0 2px #fff); }
+[data-dawn-theme=light] .dk-mod { stroke: #ff3d97; filter: none; }
+.dk.modded .dk-label::after { content: " ∿"; color: var(--dk); }
+.dk.wire-hover { outline: 2px dashed var(--dw-lemon); outline-offset: 2px; border-radius: 50%; }
+html.dw-wiring, html.dw-wiring * { cursor: crosshair !important; }
+.dw-wires { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9000; overflow: visible; }
+.dw-jack { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--jc); background: radial-gradient(circle, #1a1130 35%, var(--jc) 36%, var(--jc) 55%, transparent 56%);
+  cursor: grab; padding: 0; flex: none; box-shadow: 0 0 8px var(--jc); }
+.dw-mods-win .dw-modlist { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.dw-empty { padding: 20px; line-height: 1.5; text-align: center; }
+.dw-modcard { border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+  background: color-mix(in srgb, var(--mc) 12%, rgba(0,0,0,0.15)); border: 1px solid color-mix(in srgb, var(--mc) 45%, transparent); }
+[data-dawn-theme=light] .dw-modcard { background: rgba(255,255,255,0.5); }
+.dw-modhead { display: flex; align-items: center; gap: 8px; }
+.dw-modtype { font-size: 16px; width: 20px; text-align: center; }
+.dw-modname { width: 140px; }
+.dw-modmeter { flex: 1; height: 8px; border-radius: 4px; background: rgba(127,127,127,0.2); overflow: hidden; }
+.dw-modmeter i { display: block; height: 100%; width: 0; background: var(--mc); border-radius: 4px; }
+.dw-modbody { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dw-envbox { flex-direction: column; align-items: stretch; }
+.dw-envtools { display: flex; gap: 6px; align-items: center; }
+.dw-envcv { width: 100%; height: 90px; border-radius: 8px; touch-action: none; cursor: crosshair; }
+.dw-wirelist { display: flex; flex-direction: column; gap: 3px; }
+.dw-wire { display: flex; align-items: center; gap: 8px; padding: 2px 6px; border-radius: 8px; background: rgba(127,127,127,0.1); }
+.dw-wire-to { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.dw-adsr { width: 100%; height: 70px; border-radius: 8px; }
+.dw-adsr-box { padding: 6px 10px; }
+.dw-op { flex-wrap: wrap; gap: 8px; }
+.dw-adsr-mini { width: 120px; height: 40px; flex: none; }
+.dw-matrix { display: flex; gap: 10px; flex-wrap: wrap; }
+.dw-live.on { background: color-mix(in srgb, #ff7aa8 55%, transparent); border-color: #ff7aa8; box-shadow: 0 0 10px #ff7aa8; }
+.dw-tool { font-size: 13px; }
+.dw-pr-cv:focus { outline: none; }

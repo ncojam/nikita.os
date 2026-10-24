@@ -1,5 +1,6 @@
 import { fxDefaults, FX } from "./fx.js";
 import { DEFAULT_PARAMS, TYPES } from "./instruments.js";
+import { GF_PRESETS, gfDefaults } from "./grapefruit.js";
 import { EDOS, degreeNames, parsePitch, pitchToFile, scalesOf } from "./tuning.js";
 
 /* ================= DAWN — формат файла .dawn (dawn/2) =================
@@ -30,7 +31,7 @@ export function toFile(P) {
   return {
     format: FORMAT,
     _about: "DAWN project (nikita.os). Times in beats (quarter notes); pitches are note names. Spec: docs/dawn-format.md",
-    name: P.name, bpm: P.bpm, swing: q(P.swing || 0), mode: P.mode, current: P.cur,
+    name: P.name, bpm: P.bpm, swing: q(P.swing || 0), mode: P.mode, current: P.cur, ...(P.live ? { live: true } : {}),
     channels: P.channels.map(c => {
       const { path, ...params } = c.params;
       const roots = degreeNames(c.edo || 12);
@@ -38,6 +39,7 @@ export function toFile(P) {
       if (c.type === "sampler") out.sample = path || null;
       if ((c.edo || 12) !== 12) out.edo = c.edo;
       if (c.scale && c.scale.mode !== "chromatic") out.scale = { root: roots[c.scale.root] ?? c.scale.root, mode: c.scale.mode, snap: !!c.scale.snap };
+      if (c.poly && c.poly !== 16) out.poly = c.poly;
       if (c.mute) out.mute = true;
       if (c.solo) out.solo = true;
       out.params = roundDeep(params);
@@ -46,11 +48,17 @@ export function toFile(P) {
     patterns: P.patterns.map(p => ({
       id: p.id, name: p.name, color: p.color, sig: `${p.sig[0]}/${p.sig[1]}`, ...(p.len ? { length: q(p.len) } : {}),
       notes: Object.fromEntries(Object.entries(p.notes || {}).filter(([, L]) => L.length).map(([ch, L]) =>
-        [ch, [...L].sort((a, b) => a.s - b.s || a.n - b.n).map(n => [q(n.s), q(n.l), pitchToFile(n.n, edoOf[ch] || 12), q(n.v)])])),
+        [ch, [...L].sort((a, b) => a.s - b.s || a.n - b.n).map(n => {
+          const a = [q(n.s), q(n.l), pitchToFile(n.n, edoOf[ch] || 12), q(n.v)];
+          if (n.b) a.push(q(n.b));     // изгиб к концу ноты, в ступенях строя
+          return a;
+        })])),
     })),
     playlist: P.playlist.map(c => ({ pattern: c.p, track: c.t + 1, start: q(c.s), length: q(c.l) })),
     mixer: P.mixer.map((m, i) => ({ name: m.name, ...(i ? { color: m.color } : {}), vol: q(m.vol), pan: q(m.pan),
       ...(m.mute ? { mute: true } : {}), fx: m.fx.map(f => ({ type: f.type, on: f.on, ...roundDeep(f.p) })) })),
+    mods: (P.mods || []).map(m => roundDeep({ id: m.id, type: m.type, name: m.name, color: m.color,
+      ...(m.type === "knob" ? { value: m.value } : m.type === "env" ? { env: m.env } : { lfo: m.lfo }), wires: m.wires })),
     layout: P.layout || {},
   };
 }
@@ -72,6 +80,11 @@ export function fromFile(raw) {
     const params = { ...DEFAULT_PARAMS[type](), ...(c.params || {}) };
     if (type === "sampler") params.path = c.sample ?? params.path ?? null;
     if (type === "osc3" && Array.isArray(params.oscs)) params.oscs = DEFAULT_PARAMS.osc3().oscs.map((d, k) => ({ ...d, ...(params.oscs[k] || {}) }));
+    if (type === "grapefruit") {   // пресет по имени + поверх — то, что задано явно
+      const base = gfDefaults(GF_PRESETS[c.params?.preset] ? c.params.preset : "E-Piano");
+      params.ops = base.ops.map((d, k) => ({ ...d, ...((c.params?.ops || [])[k] || {}) }));
+      params.mod = { ...base.mod, ...(c.params?.mod || {}) };
+    }
     let scale = { root: 0, mode: "chromatic", snap: false };
     if (c.scale) {
       const r = typeof c.scale.root === "number" ? c.scale.root : degreeNames(edo).indexOf(String(c.scale.root));
@@ -79,7 +92,7 @@ export function fromFile(raw) {
     }
     return { id, type, name: String(c.name || TYPES[type].name).slice(0, 24), color: c.color || PASTEL[i % PASTEL.length],
       vol: clamp(c.vol, 0, 1.25, 0.8), pan: clamp(c.pan, -1, 1, 0), mute: !!c.mute, solo: !!c.solo,
-      mix: Math.max(0, Math.round(+c.mixer || 0)), edo, scale, params };
+      mix: Math.max(0, Math.round(+c.mixer || 0)), edo, scale, params, poly: Math.round(clamp(c.poly, 1, 32, 16)) };
   });
 
   const pids = new Set(), patMap = {};
@@ -117,7 +130,17 @@ export function fromFile(raw) {
   }).filter(Boolean);
 
   for (const ch of channels) if (ch.mix >= mixer.length) ch.mix = 0;
-  const P = { name: String(raw.name || "Трек").slice(0, 60), bpm: clamp(raw.bpm, 40, 300, 128), swing: clamp(raw.swing, 0, 0.6, 0),
+  const fixAddr = a => String(a || "").replace(/^ch\.([^.]+)\./, (m, id) => `ch.${chMap[id] || id}.`);
+  const mods = (Array.isArray(raw.mods) ? raw.mods : []).filter(m => ["knob", "env", "lfo"].includes(m?.type)).slice(0, 32).map((m, i) => ({
+    id: String(m.id || "mod" + (i + 1)).slice(0, 24), type: m.type, name: String(m.name || m.type).slice(0, 24),
+    color: m.color || PASTEL[(i + 5) % PASTEL.length],
+    value: clamp(m.value, 0, 1, 0.5),
+    env: { len: clamp(m.env?.len, 0.25, 4096, 16), loop: m.env?.loop !== false,
+      pts: (Array.isArray(m.env?.pts) ? m.env.pts : [[0, 0], [16, 1]]).filter(p => Array.isArray(p)).map(([x, y]) => [clamp(x, 0, 4096, 0), clamp(y, 0, 1, 0)]) },
+    lfo: { sync: Math.round(clamp(m.lfo?.sync, 0, 8, 3)), shape: m.lfo?.shape || "sine", phase: clamp(m.lfo?.phase, 0, 1, 0) },
+    wires: (Array.isArray(m.wires) ? m.wires : []).filter(w => w?.to).slice(0, 64).map(w => ({ to: fixAddr(w.to), amt: clamp(w.amt, -1, 1, 0.5) })),
+  }));
+  const P = { name: String(raw.name || "Трек").slice(0, 60), bpm: clamp(raw.bpm, 40, 300, 128), swing: clamp(raw.swing, 0, 0.6, 0), mods, live: !!raw.live,
     mode: raw.mode === "song" ? "song" : "pat", channels, patterns, playlist, tracks: 16, mixer,
     cur: patMap[raw.current] || patterns[0].id, songStart: 0, layout: raw.layout && typeof raw.layout === "object" ? raw.layout : {} };
   for (const c of playlist) if (!c.l) c.l = patLen(P, c.p);
@@ -139,7 +162,10 @@ function parseNote(n, edo) {
   else if (n && typeof n === "object") ({ start: s = n.s, length: l = n.l, pitch: p = n.n, vel: v = n.v } = n);
   else return null;
   s = +s; if (!isFinite(s) || s < 0) return null;
-  return { s, l: clamp(l, 1 / 64, 1024, 0.25), n: parsePitch(p, edo), v: clamp(v, 0, 1, 0.8) };
+  const b = Array.isArray(n) ? n[4] : (n.bend ?? n.b);
+  const out = { s, l: clamp(l, 1 / 64, 1024, 0.25), n: parsePitch(p, edo), v: clamp(v, 0, 1, 0.8) };
+  if (b && isFinite(+b)) out.b = clamp(b, -4 * edo, 4 * edo, 0);
+  return out;
 }
 export const barLen = p => p.sig[0] * 4 / p.sig[1];        // в долях (четвертях)
 export function patLen(P, id) {
@@ -164,22 +190,4 @@ function fromV1(r) {
   return fromFile(file);
 }
 
-/* ---------- выжимка формата для нейросети (кнопка «Нейросеть» → «Скопировать с описанием») ---------- */
-export const AI_BRIEF = `You are editing a DAWN project (a small browser DAW). The project is JSON in format "dawn/2".
-Return ONLY the full JSON (no comments, no markdown). Rules:
-- Time is in BEATS (quarter notes): 0.25 = 1/16, 1 = 1/4, 4 = one 4/4 bar. Tempo: "bpm".
-- channels[]: { id, type: "osc3" | "sampler", name, vol 0..1.25, pan -1..1, mixer: insert index (0 = master),
-  edo?: 12 (default) | 24 | 19 | 31 | 17 | 22 | 5 | 7, scale?: { root: "C", mode: "minor" },
-  sample (sampler only): "builtin:kick" | "builtin:snare" | "builtin:clap" | "builtin:hat" | "builtin:openhat" | "builtin:tom" | "/path/in/site/fs.wav",
-  params: osc3 → { oscs: [3 × { wave: "sine"|"triangle"|"sawtooth"|"square"|"noise", o_vol 0..1, o_crs -24..24 semitones, o_fin -100..100 cents, o_pan -1..1 }],
-                    att, dec, sus 0..1, rel (seconds), cut 40..18000 Hz, res 0.1..18 };
-          sampler → { root: MIDI note of the sample (60), tune -12..12, start 0..0.95, att, rel, oneshot: bool, rev: bool } }.
-- patterns[]: { id, name, sig: "4/4" | "7/4" | "6/8" ..., length?: beats (omit = auto by notes, whole bars),
-  notes: { <channel id>: [[start, length, pitch, velocity], ...] } }.
-  pitch: note name "C4" (= MIDI 60), "F#3", "Bb2"; drums use "C4". In 24-EDO "C↑4" = quarter-tone up;
-  in other EDOs use "octave:step", e.g. "4:7". velocity 0..1.
-- playlist[]: { pattern: <pattern id>, track: 1.., start: beats, length: beats } — the song timeline; "mode": "song" plays it, "pat" loops "current".
-- mixer[]: index 0 = Master, then inserts: { name, vol, pan, mute?, fx: [ { type: "delay", on, sync: 0..6 (1/16,1/8,1/8.,1/4,1/4.,1/2,1 bar), fb 0..0.92, mix 0..1, damp Hz, pp: 0|1 }
-  | { type: "reverb", on, decay 0.3..8 s, pre 0..0.2 s, damp Hz, low Hz, mix 0..1 }
-  | { type: "eq", on, lf, lg, mf, mg, mq, hf, hg (Hz / dB -18..18) } ] } (max 4 fx per insert).
-- Keep ids short and readable; omit "layout". Unknown fields are ignored, missing ones get defaults.`;
+/* инструкция и JSON Schema для нейросети генерируются из реестров — см. schema.js */

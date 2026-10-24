@@ -1,6 +1,9 @@
 import { FX, fxDefaults } from "./fx.js";
 import { PASTEL, barLen, fromFile, newInsert, patLen, slug, toFile } from "./format.js";
 import { BUILTIN, DEFAULT_PARAMS, TYPES, ensureSample, playOsc3, playSampler, sampleNow } from "./instruments.js";
+import { playGrapefruit } from "./grapefruit.js";
+import { computeOver, effOf, effParams } from "./modcore.js";
+import { DEMO } from "./demo.js";
 import { c4 } from "./tuning.js";
 
 export { SPECS, WAVES, WAVE_GLYPH, TYPES, BUILTIN, sampleNow } from "./instruments.js";
@@ -33,6 +36,9 @@ function buildGraph(ctx, P) {
 
   const G = {
     ctx, P, final, analyser, inserts: [], strips: new Map(), bpm: P.bpm,
+    over: new Map(),       // текущие значения модулируемых параметров (адрес → значение), см. modcore.js
+    active: {},            // канал → звучащие голоса (для полифонии и живой модуляции фильтра)
+    fxSig: "",
 
     ensureInserts() {
       while (G.inserts.length < P.mixer.length) {
@@ -50,8 +56,8 @@ function buildGraph(ctx, P) {
       const ins = G.inserts[i], m = P.mixer[i];
       ins.input.disconnect();
       ins.fx.forEach(f => f?.dispose());
-      ins.fx = m.fx.map(f => {
-        const n = FX[f.type].create(ctx, f.p);
+      ins.fx = m.fx.map((f, k) => {
+        const n = FX[f.type].create(ctx, G.fxParams(i, k));
         n.tempo(G.bpm);
         return n;
       });
@@ -61,10 +67,35 @@ function buildGraph(ctx, P) {
     },
     applyInsert(i) {
       const m = P.mixer[i], ins = G.inserts[i];
-      ins.post.gain.value = m.mute ? 0 : m.vol;
-      ins.pan.pan.value = m.pan;
+      ins.post.gain.value = m.mute ? 0 : effOf(G.over, `mix.${i}.vol`, m.vol);
+      ins.pan.pan.value = effOf(G.over, `mix.${i}.pan`, m.pan);
     },
-    fxSet(i, k) { const f = P.mixer[i].fx[k]; G.inserts[i]?.fx[k]?.set(f.p); },
+    fxParams(i, k) {
+      const f = P.mixer[i].fx[k], pre = `mix.${i}.${k}.`;
+      let p = f.p;
+      for (const [a, v] of G.over) if (a.startsWith(pre)) { if (p === f.p) p = { ...f.p }; p[a.slice(pre.length)] = v; }
+      return p;
+    },
+    fxSet(i, k) { G.inserts[i]?.fx[k]?.set(G.fxParams(i, k)); },
+    /* модуляция: новые значения целей; непрерывные параметры (громкость, пан, фильтр, эффекты) — сразу */
+    applyOver(over) {
+      const prev = G.over;
+      G.over = over;
+      const changed = new Set([...prev.keys(), ...over.keys()].filter(a => prev.get(a) !== over.get(a)));
+      if (!changed.size) return;
+      for (const ch of P.channels) {
+        const pre = `ch.${ch.id}.`;
+        if (changed.has(pre + "vol") || changed.has(pre + "pan")) G.strip(ch);
+        if (changed.has(pre + "cut") || changed.has(pre + "res")) {
+          const p = effParams(ch, over), now = ctx.currentTime;
+          for (const h of G.active[ch.id] || []) if (h.flt && h.end > now) { h.flt.frequency.value = p.cut; h.flt.Q.value = p.res; }
+        }
+      }
+      P.mixer.forEach((m, i) => {
+        if (changed.has(`mix.${i}.vol`) || changed.has(`mix.${i}.pan`)) G.applyInsert(i);
+        m.fx.forEach((f, k) => { if ([...changed].some(a => a.startsWith(`mix.${i}.${k}.`))) G.fxSet(i, k); });
+      });
+    },
     tempo(bpm) { G.bpm = bpm; for (const ins of G.inserts) for (const f of ins.fx) f.tempo(bpm); },
     audible(ch) {
       const anySolo = P.channels.some(c => c.solo);
@@ -81,8 +112,8 @@ function buildGraph(ctx, P) {
         G.strips.set(ch.id, s);
       }
       if (s.mix !== mix) { s.pan.disconnect(); s.pan.connect(G.inserts[mix].input); s.mix = mix; }
-      s.gain.gain.value = G.audible(ch) ? ch.vol : 0;
-      s.pan.pan.value = ch.pan;
+      s.gain.gain.value = G.audible(ch) ? effOf(G.over, `ch.${ch.id}.vol`, ch.vol) : 0;
+      s.pan.pan.value = effOf(G.over, `ch.${ch.id}.pan`, ch.pan);
       return s;
     },
     refresh() {
@@ -91,11 +122,18 @@ function buildGraph(ctx, P) {
       for (const ch of P.channels) G.strip(ch);
       for (const [id, s] of G.strips) if (!P.channels.some(c => c.id === id)) { s.gain.disconnect(); s.pan.disconnect(); G.strips.delete(id); }
     },
-    voice(ch, t, durSec, n, v) {
+    /* нота: параметры с учётом модуляции, изгиб, полифония (лишний старый голос крадём) */
+    voice(ch, t, durSec, n, v, bend = 0) {
       if (!G.audible(ch)) return;
-      const out = G.strip(ch).gain, edo = ch.edo || 12;
-      if (ch.type === "osc3") playOsc3(ctx, out, ch.params, t, durSec, n, v, edo);
-      else playSampler(ctx, out, ch.params, t, durSec, n, v, sampleNow(ch.params.path), edo);
+      const out = G.strip(ch).gain, edo = ch.edo || 12, p = effParams(ch, G.over);
+      const h = ch.type === "osc3" ? playOsc3(ctx, out, p, t, durSec, n, v, edo, bend)
+        : ch.type === "grapefruit" ? playGrapefruit(ctx, out, p, t, durSec, n, v, edo, bend)
+        : playSampler(ctx, out, p, t, durSec, n, v, sampleNow(p.path), edo, bend);
+      if (!h) return;
+      const now = ctx.currentTime, list = (G.active[ch.id] = (G.active[ch.id] || []).filter(x => x.end > now));
+      const sounding = list.filter(x => x.end > t);
+      for (let k = sounding.length - Math.max(1, ch.poly || 16) + 1; k > 0; k--) sounding.shift().kill(t);
+      list.push(h);
     },
     dispose() {
       for (const ins of G.inserts) { ins.input.disconnect(); ins.meter.disconnect(); ins.fx.forEach(f => f.dispose()); }
@@ -124,37 +162,18 @@ function collect(P, mode, beat, cb) {
     emitPattern(P, pat, local, until, cb);
   }
 }
-function emitPattern(P, pat, from, to, cb) {
+function emitPattern(P, pat, from, to, cb) {   // cb(канал, нота{s,l,n,v,b?}, смещение)
   for (const ch of P.channels) for (const n of pat.notes[ch.id] || []) if (n.s >= from - 1e-9 && n.s < to - 1e-9) cb(ch, n, n.s - from);
 }
 const songLen = P => P.playlist.reduce((m, c) => Math.max(m, c.s + c.l), 0);
 
 /* ======================= проект ======================= */
-/* новый проект собирается из того же формата, что пишется в файл (заодно — живой пример формата) */
-export function newProject() {
-  return fromFile({
-    format: "dawn/2", name: "Новый трек", bpm: 128,
-    channels: [
-      { id: "kick", type: "sampler", name: "Kick", sample: "builtin:kick", mixer: 1, color: "#ffc59e" },
-      { id: "clap", type: "sampler", name: "Clap", sample: "builtin:clap", mixer: 2, color: "#b8f59e" },
-      { id: "hat", type: "sampler", name: "Hat", sample: "builtin:hat", mixer: 3, vol: 0.6, color: "#9fd3ff" },
-      { id: "lead", type: "osc3", name: "3XOSC", mixer: 4, color: "#ff9ecf", scale: { root: "A", mode: "minor" } },
-    ],
-    patterns: [{ id: "drums", name: "Drums", sig: "4/4", notes: {
-      kick: [0, 1, 2, 3].map(s => [s, 0.25, "C4", 0.9]), clap: [[1, 0.25, "C4", 0.8], [3, 0.25, "C4", 0.8]],
-      hat: [0.5, 1.5, 2.5, 3.5].map(s => [s, 0.25, "C4", 0.6]) } },
-      { id: "melody", name: "Melody", sig: "4/4", color: "#c3a6ff", notes: {
-        lead: [[0, 0.75, "A4", 0.8], [1, 0.75, "C5", 0.8], [2, 0.5, "E5", 0.8], [3, 1, "D5", 0.8]] } }],
-    playlist: [{ pattern: "drums", track: 1, start: 0, length: 16 }, { pattern: "melody", track: 2, start: 4, length: 12 }],
-    mixer: [{ name: "Master" }, { name: "Kick" }, { name: "Clap", fx: [{ type: "reverb", mix: 0.2 }] }, { name: "Hat" },
-      { name: "Lead", fx: [{ type: "delay", mix: 0.25 }, { type: "reverb", mix: 0.2 }] }],
-    current: "drums",
-  });
-}
+/* новый проект — демо-трек (собирается из того же формата, что пишется в файл) */
+export function newProject() { return fromFile(JSON.parse(JSON.stringify(DEMO))); }
 
 export const Engine = {
   ctx: null, G: null, project: null, path: null, dirty: false,
-  playing: false, beat: 0, nextT: 0, hist: [], timer: null,
+  playing: false, beat: 0, nextT: 0, hist: [], timer: null, queued: null,
   listeners: {},
 
   on(ev, cb) { (this.listeners[ev] ||= new Set()).add(cb); return () => this.listeners[ev].delete(cb); },
@@ -259,11 +278,29 @@ export const Engine = {
     this.emit("pattern");
     return true;
   },
+  /* LIVE: во время игры паттерн переключается только на конце текущего (как в живом сете) */
   selectPattern(id) {
     if (!this.pat(id)) return;
+    if (this.playing && this.project.mode === "pat" && this.project.live && id !== this.project.cur) {
+      this.queued = id;
+      this.emit("pattern");
+      return;
+    }
+    this.queued = null;
     this.project.cur = id;
     if (this.playing && this.project.mode === "pat") this.beat = this.beat % this.patLength();
     this.emit("pattern");
+  },
+  cloneChannel(id) {
+    const src = this.chan(id);
+    if (!src) return null;
+    const ch = this.addChannel(src.type, src.name + " 2", JSON.parse(JSON.stringify(src.params)));
+    Object.assign(ch, { vol: src.vol, pan: src.pan, edo: src.edo, scale: { ...src.scale }, poly: src.poly, color: src.color });
+    const P = this.project, i = P.channels.indexOf(ch);
+    P.channels.splice(i, 1); P.channels.splice(P.channels.indexOf(src) + 1, 0, ch);   // клон — сразу под оригиналом
+    this.G.refresh();
+    this.touch({ channels: true, mixer: true });
+    return ch;
   },
   setMode(m) {
     if (this.project.mode === m) return;
@@ -304,11 +341,17 @@ export const Engine = {
   },
 
   /* ---------- звук ---------- */
+  /* пощупать звук. В LIVE во время игры — в ровный момент: на ближайшую 1/16 сетки */
   preview(ch, n, v = 0.85, len = 0.25) {
     this.init();
     if (!ch) return;
     if (n == null) n = this.defaultPitch(ch);
-    this.G.voice(ch, this.ctx.currentTime + 0.01, len, n, v);
+    let t = this.ctx.currentTime + 0.01;
+    if (this.playing && this.project.live) {
+      const now = this.ctx.currentTime, next = this.hist.find(h => h[0] > now + 0.005);
+      t = next ? next[0] : this.nextT;
+    }
+    this.G.voice(ch, t, len, n, v);
   },
   async previewPath(path) {
     this.init();
@@ -354,7 +397,12 @@ export const Engine = {
       if (this.hist.length > 64) this.hist.shift();
       this.nextT += td;
       this.beat += TICK;
-      if (P.mode === "pat") { if (this.beat >= this.patLength() - 1e-9) this.beat = 0; }
+      if (P.mode === "pat") {
+        if (this.beat >= this.patLength() - 1e-9) {
+          this.beat = 0;
+          if (this.queued && this.pat(this.queued)) { P.cur = this.queued; this.queued = null; setTimeout(() => this.emit("pattern"), Math.max(0, (this.nextT - this.ctx.currentTime) * 1000)); }
+        }
+      }
       else if (this.beat >= songLen(P) - 1e-9) this.beat = 0;   // песня по кругу
     }
   },
@@ -387,8 +435,14 @@ export const Engine = {
     const tail = 3, sec = lenBeats * this.beatDur() + tail, sr = 44100;
     const oc = new OfflineAudioContext(2, Math.ceil(sr * sec), sr);
     const G = buildGraph(oc, P);
-    const td = this.stepDur();
-    for (let k = 0, beat = 0; beat < lenBeats - 1e-9; k++, beat += TICK) playTick(G, P, song ? "song" : "pat", beat, 0.02 + k * td);
+    const td = this.stepDur(), mode = song ? "song" : "pat", hasMods = (P.mods || []).some(m => m.wires?.length);
+    // каждый тик рендер приостанавливается: считаем модуляцию (огибающие, LFO) и ставим ноты — как вживую
+    for (let k = 0, beat = 0; beat < lenBeats - 1e-9; k++, beat += TICK) {
+      const t = 0.02 + k * td, b = beat;
+      if (!hasMods) { playTick(G, P, mode, b, t); continue; }
+      const q = Math.floor(Math.max(0, t - 0.005) * sr / 128) * 128 / sr;   // кратно 128 сэмплам
+      oc.suspend(q).then(() => { G.applyOver(computeOver(P, b)); playTick(G, P, mode, b, t); oc.resume(); });
+    }
     onProgress?.("рендер…");
     const buf = await oc.startRendering();
     return encodeWav(buf);
@@ -400,7 +454,7 @@ export const Engine = {
 function playTick(G, P, mode, beat, t) {
   const bd = 60 / P.bpm, td = bd / 4;
   const swing = (Math.round(beat * 4) % 2 === 1) ? (P.swing || 0) * td * 0.5 : 0;
-  collect(P, mode, beat, (ch, n, off) => G.voice(ch, Math.max(t + off * bd + swing, G.ctx.currentTime), n.l * bd, n.n, n.v));
+  collect(P, mode, beat, (ch, n, off) => G.voice(ch, Math.max(t + off * bd + swing, G.ctx.currentTime), n.l * bd, n.n, n.v, n.b || 0));
 }
 
 /* JSON, где короткие массивы (ноты) — в одну строку: и человеку, и нейросети читать удобнее */

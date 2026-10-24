@@ -3,8 +3,12 @@ import { SPECS } from "./instruments.js";
 
 /* ================= DAWN — общие элементы интерфейса =================
  * Крутилка (knob): тянуть вверх/вниз (Shift — точно), колесо, двойной клик — по умолчанию.
- * У каждой крутилки есть адрес (path) — в этапе 3 по нему повесим огибающие.
+ * У крутилки есть адрес (path, напр. "ch.lead.cut") — на него цепляются проводки модуляции (mod.js).
+ * Если параметр модулируется, поверх рисуется тонкая дуга текущего значения (ModView).
  */
+/* что сейчас модулируется: адрес → значение; окно модуляции обновляет, крутилки подписаны */
+export const ModView = { over: new Map(), subs: new Set(),
+  set(over) { this.over = over; for (const f of [...this.subs]) f(); } };
 const toNorm = (v, s) => ((v - s.min) / (s.max - s.min)) ** (1 / (s.curve || 1));
 const fromNorm = (n, s) => {
   let v = s.min + (s.max - s.min) * Math.max(0, Math.min(1, n)) ** (s.curve || 1);
@@ -35,16 +39,29 @@ export function knob(o) {
   svg.setAttribute("viewBox", "0 0 36 36");
   svg.classList.add("dk-svg");
   const track = document.createElementNS(svgNS, "path"), val = document.createElementNS(svgNS, "path");
-  const dot = document.createElementNS(svgNS, "circle");
+  const dot = document.createElementNS(svgNS, "circle"), modArc = document.createElementNS(svgNS, "path");
   track.setAttribute("class", "dk-track"); val.setAttribute("class", "dk-val"); dot.setAttribute("class", "dk-dot");
+  modArc.setAttribute("class", "dk-mod");
   dot.setAttribute("r", "2.6");
   track.setAttribute("d", arcPath(-ARC / 2, ARC / 2));
-  svg.append(track, val, dot);
+  svg.append(track, val, modArc, dot);
   const readout = el("div", { className: "dk-label", textContent: o.label ?? spec.label });
   const node = el("div", { className: "dk", title: "" }, svg, readout);
   node.style.setProperty("--dk", o.color || "var(--dw-pink)");
   if (o.size) node.style.setProperty("--dk-size", o.size + "px");
-  if (o.path) node.dataset.path = o.path;
+  if (o.path) {
+    node.dataset.path = o.path;
+    const sub = () => {
+      if (!node.isConnected) { if (node._seen) ModView.subs.delete(sub); return; }
+      node._seen = true;
+      const m = ModView.over.get(o.path);
+      node.classList.toggle("modded", m != null);
+      if (m == null) { modArc.setAttribute("d", ""); return; }
+      const a0 = -ARC / 2 + ARC * toNorm(o.get(), spec), a1 = -ARC / 2 + ARC * toNorm(m, spec);
+      modArc.setAttribute("d", arcPath(Math.min(a0, a1), Math.max(a0, a1)) || arcPath(a1 - 3, a1 + 3));
+    };
+    ModView.subs.add(sub);
+  }
 
   function paint() {
     const v = o.get(), n = toNorm(v, spec), a = -ARC / 2 + ARC * n;
