@@ -101,7 +101,7 @@ const Wires = {
   },
   center(elm) { const r = elm.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; },
   visible(elm) {
-    if (!elm?.isConnected) return false;
+    if (!elm?.isConnected || !elm.getClientRects().length) return false;   // скрыт (другая вкладка, display:none)
     const w = elm.closest(".window");
     return !w || !w.classList.contains("minimized");
   },

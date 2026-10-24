@@ -1080,3 +1080,13 @@ html.dw-wiring, html.dw-wiring * { cursor: crosshair !important; }
 [data-dawn-theme=light] .dw-libcard { background: rgba(255,255,255,0.55); }
 .dw-lib-tgt { padding: 4px 10px; display: flex; gap: 6px; align-items: center; }
 .dw-lib .dw-hint { padding: 7px 10px; margin: 0; border-bottom: 1px solid var(--dw-line); line-height: 1.4; }
+
+/* выделение текста не должно цепляться при таскании окон и нот */
+.window .titlebar, .window canvas, .dk, .dw-dock { user-select: none; -webkit-user-select: none; }
+.set-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.set-tabs { display: flex; gap: 4px; padding: 8px 10px 0; flex-wrap: wrap; flex: none; }
+.set-tab { border: 0; border-radius: 10px 10px 0 0; padding: 7px 12px; cursor: pointer; font: inherit; color: inherit;
+  background: rgba(255,255,255,0.06); opacity: 0.75; }
+.set-tab:hover { opacity: 1; }
+.set-tab.on { background: rgba(255,255,255,0.16); opacity: 1; font-weight: 600; }
+.set-wrap > .settings { flex: 1; min-height: 0; overflow: auto; }

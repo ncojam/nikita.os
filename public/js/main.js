@@ -33,6 +33,12 @@ init_desktop();
 init_ui_taskbar();
 init_ui_wallpaper();
 init_ui_glow();
+// Браузер начинает «родное» перетаскивание, если зацепить выделенный текст или картинку, — и тащит
+// снимок всей страницы вместо окна или нот. Разрешаем его только тем, кто явно draggable="true".
+document.addEventListener("dragstart", e => {
+  const t = e.target;
+  if (t.nodeType !== 1 || !t.closest('[draggable="true"]')) e.preventDefault();
+}, true);
 init_ui_context_menu();
 
 /* стартовое окно: прямая ссылка /browser/<адрес> открывает браузер на этом адресе */

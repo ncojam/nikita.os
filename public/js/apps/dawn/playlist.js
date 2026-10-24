@@ -2,6 +2,7 @@ import { el } from "../../core/util.js";
 import { Engine } from "./engine.js";
 import { dwBtn, pal, select, shell } from "./ui.js";
 import { LIB_MIME, instantiate } from "./library.js";
+import { srcValue } from "./modcore.js";
 
 /* ================= DAWN — плейлист (общий таймлайн) =================
  * Клипы паттернов на дорожках: { id, p: паттерн, t: дорожка, s: начало, l: длина } (доли).
@@ -9,6 +10,8 @@ import { LIB_MIME, instantiate } from "./library.js";
  * ЛКМ по пустому — поставить клип выбранного паттерна; по клипу — двигать (и между дорожками);
  * за правый край — длина (длиннее паттерна — паттерн повторяется). ПКМ — удалить (можно вести).
  * Двойной клик по клипу — выбрать его паттерн. Клик по линейке — откуда играть песню.
+ * Под дорожками — полосы огибающих (источники «Огибающая» из Модуляции): видно, что и когда они крутят;
+ * клик — точка, тянуть — двигать, ПКМ — удалить (как в окне Модуляция).
  * Сетка — 4/4 (такт = 4 доли); паттерны в 7/4 и т. п. просто занимают свою длину.
  */
 const HEAD_W = 74, RULER = 24, TRACK_H = 42, SIDE_W = 132;
@@ -68,6 +71,13 @@ export const PLAYLIST = {
     const ty = t => RULER + t * TRACK_H - view.y;
     const yt = y => Math.floor((y - RULER + view.y) / TRACK_H);
     const snap = () => +snapV;
+    const envs = () => (P().mods || []).filter(m => m.type === "env");
+    // полосы огибающих закреплены внизу окна (видны всегда, дорожки прокручиваются над ними)
+    const ENV_H = 28, envTop = () => H - envs().length * ENV_H, laneY = i => envTop() + i * ENV_H;
+    const laneIdx = y => y >= envTop() ? Math.floor((y - envTop()) / ENV_H) : -1;
+    const laneOf = y => envs()[laneIdx(y)] || null;
+    // огибающая на таймлайне песни: x доли → значение; с повтором — по кругу
+    const envX = (e, b) => e.loop === false ? b : ((b % e.len) + e.len) % e.len;
 
     function draw() {
       if (!W) return;
@@ -90,7 +100,7 @@ export const PLAYLIST = {
         if (!pat) continue;
         const x = sx(cl.s), y = ty(cl.t) + 2, w = cl.l * view.px, h = TRACK_H - 4;
         if (x + w < HEAD_W || x > W || y + h < RULER || y > H) continue;
-        g.save(); g.beginPath(); g.rect(HEAD_W, RULER, W - HEAD_W, H - RULER); g.clip();
+        g.save(); g.beginPath(); g.rect(HEAD_W, RULER, W - HEAD_W, envTop() - RULER); g.clip();
         g.globalAlpha = 0.9; g.fillStyle = pat.color; rr(x, y, w - 1, h, 6); g.fill(); g.globalAlpha = 1;
         // повторы паттерна внутри клипа
         const pl = Engine.patLength(pat.id);
@@ -124,7 +134,32 @@ export const PLAYLIST = {
       // головы дорожек
       g.fillStyle = C.panel; g.fillRect(0, RULER, HEAD_W, H - RULER);
       g.fillStyle = C.dim; g.font = "10px system-ui";
-      for (let t = 0; t < tracks; t++) { const y = ty(t); if (y + TRACK_H > RULER && y < H) g.fillText("Track " + (t + 1), 10, y + TRACK_H / 2 + 3); }
+      for (let t = 0; t < tracks; t++) { const y = ty(t); if (y + TRACK_H > RULER && y + TRACK_H / 2 + 4 < envTop()) g.fillText("Track " + (t + 1), 10, y + TRACK_H / 2 + 3); }
+      envs().forEach((src, i) => { const y = laneY(i);
+        g.fillStyle = C.panel; g.fillRect(0, y, HEAD_W, ENV_H);
+        g.fillStyle = src.color; g.fillRect(4, y + 6, 3, ENV_H - 12);
+        g.fillStyle = C.dim; g.fillText(src.name, 10, y + ENV_H / 2 + 3, HEAD_W - 14); });
+      // полосы огибающих
+      envs().forEach((src, i) => {
+        const y = laneY(i), e = src.env, TRACK_H = ENV_H;
+        g.save(); g.beginPath(); g.rect(HEAD_W, y, W - HEAD_W, ENV_H); g.clip();
+        g.fillStyle = C.panel; g.fillRect(HEAD_W, y, W - HEAD_W, TRACK_H); g.fillStyle = C.g2; g.fillRect(HEAD_W, y, W - HEAD_W, 1);
+        g.globalAlpha = 0.12; g.fillStyle = src.color; g.fillRect(HEAD_W, y, W - HEAD_W, TRACK_H); g.globalAlpha = 1;
+        const Y = v => y + TRACK_H - 4 - v * (TRACK_H - 8);
+        g.strokeStyle = src.color; g.lineWidth = 2; g.beginPath();
+        for (let x = HEAD_W; x <= W; x += 2) { const v = srcValue(src, xs(x)); x === HEAD_W ? g.moveTo(x, Y(v)) : g.lineTo(x, Y(v)); }
+        g.stroke();
+        g.globalAlpha = 0.2; g.fillStyle = src.color; g.lineTo(W, y + TRACK_H); g.lineTo(HEAD_W, y + TRACK_H); g.fill(); g.globalAlpha = 1;
+        // точки: у повторяющейся — в каждом повторе (первый — ярче)
+        const reps = e.loop === false ? [0] : (() => { const out = []; for (let k = Math.floor(view.x / e.len) * e.len; k <= xs(W); k += e.len) out.push(k); return out; })();
+        for (const k of reps) for (const [px, py] of e.pts) {
+          const x = sx(k + px); if (x < HEAD_W - 5 || x > W + 5) continue;
+          g.globalAlpha = k === 0 ? 1 : 0.5; g.fillStyle = "#fff"; g.beginPath(); g.arc(x, Y(py), 3.5, 0, 7); g.fill();
+          g.strokeStyle = src.color; g.lineWidth = 1.5; g.stroke(); g.globalAlpha = 1;
+        }
+        if (e.loop !== false) { g.fillStyle = src.color; for (const k of reps) if (k > 0) g.fillRect(sx(k), y, 1, TRACK_H); }
+        g.restore();
+      });
       const pos = Engine.positionSong();
       if (pos >= 0) { const x = sx(pos); if (x >= HEAD_W) { g.fillStyle = C.head; g.fillRect(x, 0, 2, H); } }
     }
@@ -151,6 +186,16 @@ export const PLAYLIST = {
         draw(); return;
       }
       if (x < HEAD_W || y < RULER) return;
+      const lane = laneOf(y);
+      if (lane) {   // правка огибающей прямо на плейлисте
+        const ev = lane.env, ly = laneY(laneIdx(y)), b = xs(x), lx = envX(ev, b);
+        const V = py => Math.max(0, Math.min(1, (ly + ENV_H - 4 - py) / (ENV_H - 8)));
+        let pt = ev.pts.find(p => Math.abs((p[0] - lx) * view.px) < 7 && Math.abs(ly + ENV_H - 4 - p[1] * (ENV_H - 8) - y) < 8);
+        if (e.button === 2) { if (pt && ev.pts.length > 1) { ev.pts = ev.pts.filter(p => p !== pt); Engine.touch({ param: true }); } draw(); return; }
+        if (!pt) { pt = [Math.round(lx * 4) / 4, +V(y).toFixed(3)]; ev.pts.push(pt); }
+        drag = { env: ev, pt, off: b - lx, V };
+        draw(); return;
+      }
       const h = hit(x, y);
       if (e.button === 2) { drag = { erase: true }; if (h) del(h.cl); return; }
       if (e.detail === 2 && h) { Engine.selectPattern(h.cl.p); Dawn.open("rack"); return; }
@@ -170,10 +215,14 @@ export const PLAYLIST = {
       const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       if (!drag) {
         const h = y > RULER && x > HEAD_W ? hit(x, y) : null;
-        cv.style.cursor = h ? (h.edge ? "ew-resize" : "grab") : y < RULER ? "pointer" : "crosshair";
+        cv.style.cursor = h ? (h.edge ? "ew-resize" : "grab") : y < RULER ? "pointer" : laneOf(y) ? "cell" : "crosshair";
         return;
       }
       if (drag.erase) { const h = hit(x, y); if (h) del(h.cl); return; }
+      if (drag.env) {
+        drag.pt[0] = Math.max(0, Math.min(drag.env.len, Math.round((xs(x) - drag.off) * 4) / 4)); drag.pt[1] = +drag.V(y).toFixed(3);
+        draw(); return;
+      }
       const q = snap();
       if (drag.move) {
         drag.cl.s = Math.max(0, Math.round((xs(x) - drag.ds) / q) * q);
@@ -181,14 +230,14 @@ export const PLAYLIST = {
       } else if (drag.resize) drag.cl.l = Math.max(Math.min(q, 0.25) || 0.25, Math.round((xs(x) - drag.cl.s) / q) * q || q);
       changed(); draw();
     });
-    const up = () => { if (drag && !drag.erase) Engine.touch({ playlist: true }); drag = null; };
+    const up = () => { if (drag?.env) Engine.touch({ param: true }); else if (drag && !drag.erase) Engine.touch({ playlist: true }); drag = null; };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     function del(cl) { const L = P().playlist, i = L.indexOf(cl); if (i >= 0) { L.splice(i, 1); changed(); tools(); draw(); } }
     cv.addEventListener("wheel", e => {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) return zoom(e.deltaY < 0 ? 1.12 : 0.89, e.clientX - cv.getBoundingClientRect().left);
       if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) view.x = Math.max(0, view.x + (e.deltaX || e.deltaY) / view.px);
-      else view.y = Math.max(0, Math.min(P().tracks * TRACK_H - (H - RULER), view.y + e.deltaY));
+      else view.y = Math.max(0, Math.min(P().tracks * TRACK_H - (envTop() - RULER), view.y + e.deltaY));
       draw();
     }, { passive: false });
 

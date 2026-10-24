@@ -13,6 +13,12 @@ if [ "${1:-}" != "--no-pull" ] && [ -d .git ]; then
   git pull --ff-only
 fi
 
+# общедоступные файлы из репозитория (seed/ → fs/): только недостающие, твои правки не перезаписываются
+if [ -d seed ]; then
+  echo "→ seed: докладываю недостающие файлы в fs/"
+  cp -rn seed/. fs/
+fi
+
 echo "→ сборка образа и перезапуск контейнера"
 docker compose up -d --build --remove-orphans
 

@@ -1,5 +1,5 @@
 import { pickFolder } from "./explorer.js";
-import { el, fmtSize, fsUrl, joinPath } from "../core/util.js";
+import { el, fmtSize, fsUrl, joinPath, store } from "../core/util.js";
 import { VFS } from "../core/vfs.js";
 import { IMAGE_EXT, Wallpaper } from "../ui/wallpaper.js";
 import { WM } from "../wm.js";
@@ -21,6 +21,19 @@ function glowSection() {
     chk("react", "Вспыхивать от музыки в DAWN (цвет вспышки — ✦ у канала в стойке)"),
     slider("count"), slider("hue"), slider("speed"), slider("glow"), slider("size"), slider("flash"),
     el("div", { className: "hint", textContent: "Всё это можно крутить и проводками из DAWN: цели «Живой фон» в окне Модуляция." }));
+}
+/* разделы: вкладки сверху, каждая показывает свои секции; последняя открытая запоминается */
+function tabs(box, list) {
+  const secs = [...box.children], bar = el("div", { className: "set-tabs" });
+  let cur = Math.min(list.length - 1, +store.get("settings.tab", 0) || 0);
+  const show = i => {
+    cur = i; store.set("settings.tab", i);
+    secs.forEach((s, k) => { s.hidden = !list[i].slice(1).includes(k); });
+    [...bar.children].forEach((b, k) => b.classList.toggle("on", k === i));
+  };
+  list.forEach(([name], i) => bar.append(el("button", { className: "set-tab", textContent: name, onclick: () => show(i) })));
+  show(cur);
+  return el("div", { className: "set-wrap" }, bar, box);
 }
 function openSettings() {
   WM.open({ title: "Настройки", icon: "⚙️", width: 660, height: 640, key: "settings", async render(c, w) {
@@ -52,7 +65,7 @@ function openSettings() {
     const vfsReset = el("button", { className: "btn", textContent: "↺ Сбросить пользовательский слой" });
     const tryArrange = el("button", { className: "btn", textContent: "▦ Разложить окна сейчас", onclick: () => WM.arrange() });
 
-    c.append(el("div", { className: "settings" },
+    const box = el("div", { className: "settings" },
       el("section", {}, el("h3", { textContent: "Фон рабочего стола" }),
         el("div", { className: "row dirrow" }, el("span", { className: "lbl", textContent: "Папка с обоями" }), dirBox, pick, refresh),
         tiles, hint),
@@ -69,7 +82,8 @@ function openSettings() {
         el("div", { className: "row" }, vfsInfo, vfsReset),
         el("div", { className: "hint", textContent: "Загруженные вами файлы, созданные папки, перемещения, удаления и расположение значков " +
           "хранятся только в этом браузере, сервер не меняется. Сброс вернёт всё как на сервере." })),
-    ));
+    );
+    c.append(tabs(box, [["🖼 Обои", 0, 1], ["✨ Живой фон", 2], ["🪟 Окна", 3], ["💾 Файлы", 4]]));
     const showUsage = async () => {
       if (!VFS.ready) { vfsInfo.textContent = "Недоступно: нужен HTTPS и поддержка Service Worker"; return; }
       const u = await VFS.usage();
