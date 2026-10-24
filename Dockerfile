@@ -14,7 +14,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY server.py chat.py posts.py userfs.py airhockey.py ./
+COPY *.py ./
 COPY public ./public
 
 USER nos
