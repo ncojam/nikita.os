@@ -150,6 +150,7 @@ export function init_ui_context_menu() {
 
   document.addEventListener("contextmenu", e => {
     const t = e.target;
+    if (e.defaultPrevented) return;   // приложение само обрабатывает правую кнопку (DAWN, игры)
     // родное меню браузера там, где оно полезно: поля ввода, ссылки, выделенный текст
     if (t.closest("input, textarea, a[href]")) return;
     const s = getSelection();

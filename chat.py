@@ -126,6 +126,10 @@ class Chat:
                         "WHERE s.token = ? AND s.expires > ?", tok, int(time.time())).fetchone()
         return row
 
+    def nick_exists(self, nick):
+        """Есть ли аккаунт чата с таким ником (без учёта регистра)."""
+        return self.db.q("SELECT 1 FROM users WHERE nick_lc = ?", str(nick).lower()).fetchone() is not None
+
     def new_session(self, uid, resp, request):
         tok = secrets.token_urlsafe(32)
         self.db.q("INSERT INTO sessions VALUES(?,?,?)", tok, uid, int(time.time()) + SESSION_TTL)

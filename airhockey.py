@@ -153,7 +153,7 @@ class Player:
 
 
 class AirHockey:
-    def __init__(self, user_of, data_dir=None):
+    def __init__(self, user_of, data_dir=None, is_account=None):
         self.user_of = user_of
         self.path = (Path(data_dir) / "air.json") if data_dir else None
         self.conns = {}           # ws -> nick (жизненный цикл соединения)
@@ -165,6 +165,8 @@ class AirHockey:
         self.tg_names = set()     # ники, пришедшие из Telegram (их маскируем)
         self.tg_show = set()      # кто из них разрешил показывать ник целиком
         self.tg_ws = set()        # соединения, вошедшие через Telegram
+        self.is_account = is_account   # nick -> есть ли такой аккаунт чата (остальные ники — из Telegram)
+        self._acc_cache = {}           # nick -> (есть ли аккаунт, когда проверили)
         self.orb = None           # orbit: (начало, фаза) или None
         self.score = {"top": 0, "bottom": 0}
         self.last = []            # последние забившие: [{nick, own}]
@@ -231,9 +233,26 @@ class AirHockey:
         except OSError:
             pass
 
+    def _is_tg(self, n):
+        """Ник из Telegram? Известные по входу через Telegram — да; остальные — если это не аккаунт чата
+        (так ловим старых игроков из Telegram, записанных до того, как мы начали их помечать)."""
+        if n in self.tg_names:
+            return True
+        if n == BOT_NICK or not self.is_account:
+            return False
+        hit = self._acc_cache.get(n)
+        now = time.monotonic()
+        if not hit or now - hit[1] > 60:
+            try:
+                hit = (bool(self.is_account(n)), now)
+            except Exception:
+                hit = (True, now)
+            self._acc_cache[n] = hit
+        return not hit[0]
+
     def shown(self, n):
         """Как показывать ник другим: ник из Telegram — со звёздочками, пока владелец не разрешил."""
-        return mask_nick(n) if n and n in self.tg_names and n not in self.tg_show else n
+        return mask_nick(n) if n and n not in self.tg_show and self._is_tg(n) else n
 
     # ---------- слоты ----------
     def active_count(self):
