@@ -129,6 +129,9 @@ function buildGraph(ctx, P) {
       const h = ch.type === "osc3" ? playOsc3(ctx, out, p, t, durSec, n, v, edo, bend)
         : ch.type === "grapefruit" ? playGrapefruit(ctx, out, p, t, durSec, n, v, edo, bend)
         : playSampler(ctx, out, p, t, durSec, n, v, sampleNow(p.path), edo, bend);
+      // сайдчейн: эффекты Sidechain, слушающие этот канал, ныряют ровно в момент ноты
+      P.mixer.forEach((m, i) => m.fx.forEach((f, k) => { if (f.on && f.type === "side" && f.p.src === ch.id) G.inserts[i]?.fx[k]?.duck?.(t); }));
+      G.onNote?.(ch, t, v);
       if (!h) return;
       const now = ctx.currentTime, list = (G.active[ch.id] = (G.active[ch.id] || []).filter(x => x.end > now));
       const sounding = list.filter(x => x.end > t);
@@ -165,6 +168,15 @@ function collect(P, mode, beat, cb) {
 function emitPattern(P, pat, from, to, cb) {   // cb(канал, нота{s,l,n,v,b?}, смещение)
   for (const ch of P.channels) for (const n of pat.notes[ch.id] || []) if (n.s >= from - 1e-9 && n.s < to - 1e-9) cb(ch, n, n.s - from);
 }
+/* цвет вспышки фона: задан на канале (null — выкл), иначе — бочке и малому по умолчанию */
+export const FLASH_COLORS = ["#ff5fa8", "#5fffd0", "#b58cff", "#ffb25f", "#5fb8ff", "#fff05f"];
+export function flashOf(ch) {
+  if (ch.flash !== undefined) return ch.flash;
+  const p = ch.params?.path || "";
+  if (p === "builtin:kick") return FLASH_COLORS[0];
+  if (p === "builtin:snare" || p === "builtin:clap") return FLASH_COLORS[1];
+  return null;
+}
 const songLen = P => P.playlist.reduce((m, c) => Math.max(m, c.s + c.l), 0);
 
 /* ======================= проект ======================= */
@@ -192,6 +204,12 @@ export const Engine = {
     this.project = project.channels && project.patterns && project.mixer ? project : fromFile(project);
     this.path = path; this.dirty = false;
     this.G = buildGraph(this.ctx, this.project);
+    // живой фон ОС вспыхивает в момент ноты канала, у которого задан цвет вспышки (✦)
+    this.G.onNote = (ch, t, v) => {
+      const color = flashOf(ch);
+      if (!color) return;
+      setTimeout(() => dispatchEvent(new CustomEvent("nos-pulse", { detail: { color, strength: v, ch: ch.id } })), Math.max(0, (t - this.ctx.currentTime) * 1000));
+    };
     this.preload();
     this.emit("change", { all: true });
     this.emit("pattern");
@@ -323,8 +341,14 @@ export const Engine = {
   setFx(i, k, type) {
     const fx = this.project.mixer[i].fx;
     if (!type) fx.splice(k, 1);
-    else if (k >= fx.length) fx.push({ type, on: true, p: fxDefaults(type) });
-    else fx[k] = { type, on: true, p: fxDefaults(type) };
+    else {
+      const p = fxDefaults(type);
+      if (type === "side") {   // источник сайдчейна — бочка, если есть
+        const C = this.project.channels;
+        p.src = (C.find(c => /kick|бочк/i.test(c.id + c.name)) || C.find(c => c.type === "sampler") || C[0])?.id || "";
+      }
+      if (k >= fx.length) fx.push({ type, on: true, p }); else fx[k] = { type, on: true, p };
+    }
     this.G.rebuildFx(i);
     this.touch({ mixer: true });
   },

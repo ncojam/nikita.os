@@ -1,10 +1,12 @@
 import { el } from "../../core/util.js";
 import { notify } from "../../ui/notify.js";
-import { BUILTIN, Engine, PASTEL, TYPES, WAVES, WAVE_GLYPH, newProject, sampleNow } from "./engine.js";
+import { BUILTIN, Engine, FLASH_COLORS, PASTEL, TYPES, WAVES, WAVE_GLYPH, flashOf, newProject, sampleNow } from "./engine.js";
 import { fromFile } from "./format.js";
-import { aiPackage, aiDoc, buildSchema } from "./schema.js";
+import { aiPackage, aiDoc } from "./schema.js";
 import { GF_PRESETS, GF_SPECS, GF_WAVES, MOD_KEYS, gfDefaults } from "./grapefruit.js";
 import { MODS } from "./mod.js";
+import { DRUMS, LIB_MIME, MELODIC, instantiate } from "./library.js";
+import { applyPreset, presetsFor } from "./presets.js";
 import { SPECS } from "./instruments.js";
 import { FX } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
@@ -82,6 +84,7 @@ const transport = {
         mod("🎛 Стойка", "rack", "Стойка каналов"), mod("🎹 Пиано ролл", "piano", "Ноты канала"),
         mod("🎞 Плейлист", "playlist", "Общий таймлайн"), mod("🎚 Микшер", "mixer", "Микшер и эффекты"),
         mod("🔌 Модуляция", "mods", "Ручки, огибающие и LFO на проводках"),
+        mod("📚 Библиотека", "lib", "Готовые грувы и паттерны в ладу"),
         mod("📂 Сэмплы", "browser", "Сэмплы из файловой системы"), mod("🤖", "ai", "Проект как текст — для нейросети")),
       el("div", { className: "dw-file" },
         dwBtn("💾", () => Dawn.save(), { title: "Сохранить (Ctrl+S)" }),
@@ -185,6 +188,7 @@ const rack = {
       body.replaceChildren(...P.channels.map(ch => row(ch, steps, group, barSteps)));
       foot.replaceChildren(
         dwBtn("＋ 3XOSC", () => { const ch = Engine.addChannel("osc3"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }),
+        dwBtn("📚 Библиотека", () => Dawn.open("lib"), { title: "Готовые грувы и паттерны в ладу — одной кнопкой" }),
         dwBtn("＋ Grapefruit", () => { const ch = Engine.addChannel("grapefruit"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }),
         dwBtn("＋ Sampler", () => { const ch = Engine.addChannel("sampler", "Sampler"); Dawn.open("inst", ch.id); }),
         select([["", "＋ Ударные…"], ...Object.entries(BUILTIN)], "", v => {
@@ -229,6 +233,7 @@ const rack = {
         stepsBox,
         dwBtn("🎹", () => { Dawn.pianoCh = ch.id; Dawn.open("piano"); Engine.emit("change", { param: true, piano: true }); build(); }, { title: "Пиано ролл этого канала" }),
         dwBtn("⧉", () => Engine.cloneChannel(ch.id), { title: "Клонировать канал (инструмент или сэмпл с настройками)" }),
+        flashBtn(ch),
         dwBtn("✕", () => { if (confirm(`Удалить канал «${ch.name}»?`)) { Dawn.close("inst", ch.id); Engine.removeChannel(ch.id); } }, { title: "Удалить канал", className: "dw-btn dw-x" }));
       r.querySelector(".dw-led").oncontextmenu = e => { e.preventDefault(); ch.solo = !ch.solo; Engine.refreshStrips(); Engine.touch({ channels: true }); };
       if (ch.solo) r.classList.add("solo");
@@ -262,6 +267,21 @@ const rack = {
     return () => { cancelAnimationFrame(raf); offs.forEach(f => f()); };
   },
 };
+
+/* ✦ — цвет, которым этот канал зажигает живой фон ОС (клик — следующий цвет, потом «выкл») */
+function flashBtn(ch) {
+  const cur = flashOf(ch);
+  const b = el("button", { className: "dw-btn dw-flash" + (cur ? " on" : ""), textContent: cur ? "✦" : "✧",
+    title: cur ? "Вспышка фона этим цветом (клик — сменить)" : "Не зажигает фон (клик — включить)",
+    onclick: () => {
+      const i = FLASH_COLORS.indexOf(flashOf(ch));
+      ch.flash = i < 0 ? FLASH_COLORS[0] : i === FLASH_COLORS.length - 1 ? null : FLASH_COLORS[i + 1];
+      if (ch.flash) dispatchEvent(new CustomEvent("nos-pulse", { detail: { color: ch.flash, strength: 1 } }));
+      Engine.touch({ channels: true });
+    } });
+  if (cur) b.style.setProperty("--fl", cur);
+  return b;
+}
 
 /* ======================= окно инструмента ======================= */
 function miniKeys(ch) {
@@ -335,7 +355,9 @@ function osc3Panel(ch) {
   return el("div", { className: "dw-panel" }, ...p.oscs.map(oscRow),
     el("div", { className: "dw-sect" },
       el("div", { className: "dw-sect-h", textContent: "Фильтр" }), paramKnob(ch, "cut", p, { color: "var(--dw-sky)" }), paramKnob(ch, "res", p, { color: "var(--dw-sky)" }),
-      el("div", { className: "dw-sect-h", textContent: "Огибающая" }), envK("att"), envK("dec"), envK("sus"), envK("rel")),
+      el("div", { className: "dw-sect-h", textContent: "Огибающая" }), envK("att"), envK("dec"), envK("sus"), envK("rel"),
+      el("div", { className: "dw-sect-h", textContent: "Unison" }), paramKnob(ch, "uni", p, { color: "var(--dw-pink)" }),
+      paramKnob(ch, "udet", p, { color: "var(--dw-pink)" }), paramKnob(ch, "uspr", p, { color: "var(--dw-pink)" })),
     el("div", { className: "dw-sect dw-adsr-box" }, view));
 }
 
@@ -421,7 +443,11 @@ const inst = {
       const head = el("div", { className: "dw-inst-head" },
         el("span", { className: "dw-inst-type", textContent: TYPES[ch.type].name }), name, route,
         paramKnob(ch, "vol", ch, { label: "Vol", onSet: () => Engine.refreshStrips() }), paramKnob(ch, "pan", ch, { label: "Pan", onSet: () => Engine.refreshStrips() }),
-        knob({ spec: "poly", color: ch.color, get: () => ch.poly || 16, set: v => { ch.poly = v; }, done: () => Engine.touch({ param: true }) }).node);
+        knob({ spec: "poly", color: ch.color, get: () => ch.poly || 16, set: v => { ch.poly = v; }, done: () => Engine.touch({ param: true }) }).node,
+        presetsFor(ch.type).length ? select([["", "✨ Пресет…"], ...presetsFor(ch.type).map(n => [n, n])], "", v => {
+          if (!v) return;
+          applyPreset(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
+        }, "Готовый звук (вместе с эффектами на инсерте)") : "");
       panel = ch.type === "osc3" ? osc3Panel(ch) : ch.type === "grapefruit" ? gfPanel(ch, build) : samplerPanel(ch, Dawn);
       root.replaceChildren(head, panel, miniKeys(ch));
     }
@@ -480,10 +506,12 @@ const mixer = {
           el("div", { className: "dw-fx-head" },
             led(f.on, () => Engine.fxToggle(i, k), "Вкл/выкл эффект", spec.color),
             el("b", { textContent: spec.icon + " " + spec.name }),
-            select([["delay", "Delay"], ["reverb", "Reverb"], ["eq", "EQ"]], f.type, v => Engine.setFx(i, k, v), "Тип эффекта"),
+            select(Object.entries(FX).map(([t, s2]) => [t, s2.name]), f.type, v => Engine.setFx(i, k, v), "Тип эффекта"),
             dwBtn("✕", () => Engine.setFx(i, k, null), { title: "Убрать", className: "dw-btn dw-x" })),
-          el("div", { className: "dw-fx-knobs" }, ...Object.entries(spec.params).map(([key, ps]) =>
-            knob({ spec: ps, color: spec.color, path: `mix.${i}.${k}.${key}`, get: () => f.p[key], set: v => { f.p[key] = v; Engine.fxParam(i, k); }, done: () => Engine.touch({ param: true }) }).node)));
+          el("div", { className: "dw-fx-knobs" }, ...Object.entries(spec.params).map(([key, ps]) => ps.kind === "channel"
+            ? el("label", { className: "dw-fx-src" }, el("span", { className: "dw-dim", textContent: ps.label }),
+                select(Engine.project.channels.map(c2 => [c2.id, c2.name]), f.p[key], v => { f.p[key] = v; Engine.fxParam(i, k); Engine.touch({ param: true }); }, "Чьи ноты дёргают сайдчейн"))
+            : knob({ spec: ps, color: spec.color, path: `mix.${i}.${k}.${key}`, get: () => f.p[key], set: v => { f.p[key] = v; Engine.fxParam(i, k); }, done: () => Engine.touch({ param: true }) }).node)));
       });
       fxBox.replaceChildren(
         el("div", { className: "dw-fx-title" }, el("b", { textContent: i ? `${i} · ${m.name}` : "Master" }), el("span", { className: "dw-dim", textContent: " — эффекты по порядку сверху вниз" })),
@@ -572,12 +600,11 @@ const ai = {
     const refresh = () => { ta.value = Engine.serialize(); };
     const copy = async (text, msg) => { try { await navigator.clipboard.writeText(text); notify(msg); } catch { ta.select(); notify("Выдели и скопируй вручную (Ctrl+C)"); } };
     root.append(
-      el("div", { className: "dw-ai-help dw-dim", textContent: "Формат dawn/2 — обычный JSON: время в долях, ноты именами (C4, F#3). «Копировать для нейросети» берёт инструкцию (микротональность, размеры, модуляция…), JSON Schema и сам проект — всё генерируется из кода DAWN, так что новые функции попадают туда сами. Отдай нейросети («допиши второй куплет в 11/8», «сделай бас в 19-EDO»), вставь ответ сюда и нажми «Загрузить»." }),
+      el("div", { className: "dw-ai-help dw-dim", textContent: "Формат dawn/2 — обычный JSON: время в долях, ноты именами (C4, F#3). «Дока + проект» — чтобы нейросеть доработала трек, «Только дока» — чтобы написала с нуля. Инструкция (микротональность, размеры, звуки, модуляция) собирается из кода DAWN, так что новые функции попадают туда сами. Отдай нейросети («допиши второй куплет в 11/8», «сделай бас в 19-EDO»), вставь ответ сюда и нажми «Загрузить»." }),
       el("div", { className: "dw-ai-btns" },
-        dwBtn("🤖 Копировать для нейросети (дока + схема + проект)", () => copy(aiPackage(Engine.serialize()), "Скопировано: инструкция + JSON Schema + проект"), { className: "dw-btn dw-primary" }),
+        dwBtn("🤖 Дока + проект", () => copy(aiPackage(Engine.serialize()), "Скопировано: инструкция + проект"), { className: "dw-btn dw-primary", title: "Чтобы нейросеть доработала этот трек" }),
+        dwBtn("📘 Только дока", () => copy(aiDoc(), "Инструкция скопирована"), { title: "Чтобы нейросеть написала трек с нуля" }),
         dwBtn("📋 Только проект", () => copy(Engine.serialize(), "Проект скопирован")),
-        dwBtn("📘 Дока", () => copy(aiDoc(), "Инструкция скопирована")),
-        dwBtn("🧩 Схема", () => copy(JSON.stringify(buildSchema(), null, 2), "JSON Schema скопирована")),
         dwBtn("↻ Обновить", refresh),
         dwBtn("⬆ Загрузить из текста", () => {
           const txt = ta.value.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");   // нейросеть любит обернуть в ```json
@@ -599,4 +626,39 @@ const ai = {
   },
 };
 
-export const MODULES = { transport, rack, piano: PIANO, playlist: PLAYLIST, mixer, inst, browser, ai, mods: MODS };
+/* ======================= библиотека паттернов ======================= */
+const lib = {
+  title: () => "Библиотека",
+  icon: "📚", color: "#ffb3b3",
+  size: () => [380, 560, Math.max(12, innerWidth - 400), 202],
+  render(c, win, _a, Dawn) {
+    const root = shell(c, "dw-lib", "#ffb3b3");
+    const body = el("div", { className: "dw-tree dw-lib-list" });
+    root.append(el("div", { className: "dw-dim dw-hint", textContent: "＋ — добавить паттерн; тащи карточку на плейлист — сразу клип. Мелодии строятся в ладу и строе выбранного канала." }), body);
+    const card = (item, sub) => {
+      const add = () => { const id = instantiate(item.id, Dawn); if (id) { Engine.selectPattern(id); notify("Паттерн «" + Engine.pat(id).name + "» добавлен"); } };
+      const r = el("div", { className: "dw-libcard", draggable: true },
+        el("div", {}, el("b", { textContent: item.name }), el("div", { className: "dw-dim", textContent: sub })),
+        dwBtn("＋", add, { title: "Добавить в проект" }));
+      r.ondragstart = e => { e.dataTransfer.setData(LIB_MIME, item.id); e.dataTransfer.effectAllowed = "copy"; };
+      r.ondblclick = add;
+      return r;
+    };
+    function build() {
+      const ch = Engine.chan(Dawn.pianoCh), tgt = ch && ch.type !== "sampler" ? ch : Engine.project.channels.find(x => x.type !== "sampler");
+      body.replaceChildren(
+        el("div", { className: "dw-dir-row open", textContent: "🥁 Ударные грувы" }),
+        ...DRUMS.map(d => card(d, `${d.sig} · ${d.tags}`)),
+        el("div", { className: "dw-dir-row open", textContent: "🎼 В ладу канала" }),
+        el("div", { className: "dw-dim dw-lib-tgt" }, "Для: ",
+          select(Engine.project.channels.filter(x => x.type !== "sampler").map(x => [x.id, x.name + ((x.edo || 12) !== 12 ? ` · ${x.edo}-EDO` : "")]), tgt?.id || "",
+            v => { Dawn.pianoCh = v; Engine.emit("change", { param: true, piano: true }); build(); }, "Канал для мелодии")),
+        ...MELODIC.map(m => card(m, tgt ? `${tgt.name} · ${tgt.scale?.mode !== "chromatic" ? tgt.scale.mode : "минор"}` : "нужен синт-канал")));
+    }
+    build();
+    const off = Engine.on("change", w => { if (w?.channels || w?.all || w?.piano) build(); });
+    return off;
+  },
+};
+
+export const MODULES = { transport, rack, piano: PIANO, playlist: PLAYLIST, mixer, inst, browser, ai, mods: MODS, lib };

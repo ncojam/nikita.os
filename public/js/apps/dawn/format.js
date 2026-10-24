@@ -40,6 +40,7 @@ export function toFile(P) {
       if ((c.edo || 12) !== 12) out.edo = c.edo;
       if (c.scale && c.scale.mode !== "chromatic") out.scale = { root: roots[c.scale.root] ?? c.scale.root, mode: c.scale.mode, snap: !!c.scale.snap };
       if (c.poly && c.poly !== 16) out.poly = c.poly;
+      if (c.flash !== undefined) out.flash = c.flash;
       if (c.mute) out.mute = true;
       if (c.solo) out.solo = true;
       out.params = roundDeep(params);
@@ -92,7 +93,8 @@ export function fromFile(raw) {
     }
     return { id, type, name: String(c.name || TYPES[type].name).slice(0, 24), color: c.color || PASTEL[i % PASTEL.length],
       vol: clamp(c.vol, 0, 1.25, 0.8), pan: clamp(c.pan, -1, 1, 0), mute: !!c.mute, solo: !!c.solo,
-      mix: Math.max(0, Math.round(+c.mixer || 0)), edo, scale, params, poly: Math.round(clamp(c.poly, 1, 32, 16)) };
+      mix: Math.max(0, Math.round(+c.mixer || 0)), edo, scale, params, poly: Math.round(clamp(c.poly, 1, 32, 16)),
+      ...(c.flash === null || /^#[0-9a-f]{6}$/i.test(c.flash || "") ? { flash: c.flash } : {}) };
   });
 
   const pids = new Set(), patMap = {};

@@ -1,6 +1,7 @@
 import { el } from "../../core/util.js";
 import { Engine } from "./engine.js";
 import { dwBtn, pal, select, shell } from "./ui.js";
+import { LIB_MIME, instantiate } from "./library.js";
 
 /* ================= DAWN — плейлист (общий таймлайн) =================
  * Клипы паттернов на дорожках: { id, p: паттерн, t: дорожка, s: начало, l: длина } (доли).
@@ -190,6 +191,21 @@ export const PLAYLIST = {
       else view.y = Math.max(0, Math.min(P().tracks * TRACK_H - (H - RULER), view.y + e.deltaY));
       draw();
     }, { passive: false });
+
+    // карточку из «Библиотеки» бросили на плейлист — паттерн + клип в этом месте
+    cv.addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes(LIB_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } });
+    cv.addEventListener("drop", e => {
+      const id = e.dataTransfer.getData(LIB_MIME);
+      if (!id) return;
+      e.preventDefault();
+      const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      const pid = instantiate(id, Dawn);
+      if (!pid) return;
+      const t = Math.max(0, Math.min(P().tracks - 1, yt(Math.max(RULER, y)))), s = Math.max(0, Math.floor(xs(Math.max(HEAD_W, x)) / snap()) * snap());
+      P().playlist.push({ id: "c" + Date.now().toString(36), p: pid, t, s, l: Engine.patLength(pid) });
+      Engine.selectPattern(pid);
+      Engine.touch({ playlist: true });
+    });
 
     const ro = new ResizeObserver(() => { fit(); draw(); });
     ro.observe(wrap);

@@ -27,6 +27,10 @@ export const SPECS = {
   root:  { min: 24, max: 96, def: 60, label: "Root", step: 1 },
   tune:  { min: -12, max: 12, def: 0, label: "Tune", bipolar: true },
   start: { min: 0, max: 0.95, def: 0, label: "Start" },
+  // unison у 3XOSC: сколько голосов на осциллятор, их разброс по высоте и по панораме
+  uni:   { min: 1, max: 8, def: 1, label: "Voices", step: 1 },
+  udet:  { min: 0, max: 100, def: 20, label: "Detune" },
+  uspr:  { min: 0, max: 1, def: 0.6, label: "Spread" },
   // общие для любого инструмента
   poly:  { min: 1, max: 32, def: 16, label: "Poly", step: 1 },
 };
@@ -42,7 +46,7 @@ export const DEFAULT_PARAMS = {
       { wave: "sawtooth", o_vol: 0.55, o_crs: 0, o_fin: 6, o_pan: 0.2 },
       { wave: "square", o_vol: 0.3, o_crs: -12, o_fin: 0, o_pan: 0 },
     ],
-    att: 0.005, dec: 0.3, sus: 0.6, rel: 0.3, cut: 6000, res: 1.2,
+    att: 0.005, dec: 0.3, sus: 0.6, rel: 0.3, cut: 6000, res: 1.2, uni: 1, udet: 20, uspr: 0.6,
   }),
   sampler: () => ({ path: null, root: 60, tune: 0, start: 0, att: 0.001, rel: 0.08, oneshot: true, rev: false }),
   grapefruit: () => gfDefaults(),
@@ -103,20 +107,25 @@ export function playOsc3(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
   flt.connect(env); env.connect(out);
   const end = adsr(env, t, dur, p, v * 0.35);
   const srcs = [];
+  const uni = Math.max(1, Math.round(p.uni || 1));
   for (const o of p.oscs) {
     if (o.o_vol <= 0.001) continue;
-    const g = ctx.createGain(); g.gain.value = o.o_vol;
-    const pan = ctx.createStereoPanner(); pan.pan.value = o.o_pan;
-    let src;
-    if (o.wave === "noise") { src = ctx.createBufferSource(); src.buffer = getNoise(ctx); src.loop = true; }
-    else {
-      src = ctx.createOscillator(); src.type = o.wave;
-      src.frequency.value = hz(n, edo) * 2 ** (o.o_crs / 12);
-      bendDetune(src.detune, t, dur, o.o_fin, bend, edo);
+    const voices = o.wave === "noise" ? 1 : uni;
+    for (let u = 0; u < voices; u++) {
+      const spread = voices > 1 ? u / (voices - 1) - 0.5 : 0;      // -0.5..0.5
+      const g = ctx.createGain(); g.gain.value = o.o_vol / Math.sqrt(voices);
+      const pan = ctx.createStereoPanner(); pan.pan.value = Math.max(-1, Math.min(1, o.o_pan + spread * 2 * (p.uspr ?? 0.6)));
+      let src;
+      if (o.wave === "noise") { src = ctx.createBufferSource(); src.buffer = getNoise(ctx); src.loop = true; }
+      else {
+        src = ctx.createOscillator(); src.type = o.wave;
+        src.frequency.value = hz(n, edo) * 2 ** (o.o_crs / 12);
+        bendDetune(src.detune, t, dur, o.o_fin + spread * (p.udet ?? 20), bend, edo);
+      }
+      src.connect(g); g.connect(pan); pan.connect(flt);
+      src.start(t + (u ? Math.random() * 0.003 : 0)); src.stop(end);   // крошечный разброс старта — фазы не совпадают
+      srcs.push(src);
     }
-    src.connect(g); g.connect(pan); pan.connect(flt);
-    src.start(t); src.stop(end);
-    srcs.push(src);
   }
   return handle(ctx, env, srcs, end, { flt });
 }

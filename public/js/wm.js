@@ -10,7 +10,14 @@ const WM = {
   origin: null, // откуда «вылетает» следующее окно (иконка, по которой кликнули)
 
   maxRect() {
-    return { left: 8, top: 8, width: innerWidth - 16, height: innerHeight - 8 - 64 - 10 };
+    const top = this.reservedTop() + 8;
+    return { left: 8, top, width: innerWidth - 16, height: innerHeight - top - 64 - 10 };
+  },
+  /* панели приложений сверху (класс .wm-reserve-top, напр. док DAWN) — окна под них не заезжают */
+  reservedTop() {
+    let b = 0;
+    for (const e of document.querySelectorAll(".wm-reserve-top")) if (!e.hidden && e.offsetParent !== null) b = Math.max(b, e.getBoundingClientRect().bottom);
+    return b;
   },
 
   /* ---------- прилипание и раскладка ---------- */
@@ -78,7 +85,7 @@ const WM = {
   // рабочая область: весь экран над панелью задач
   area() {
     const tb = $("#taskbar").getBoundingClientRect();
-    return { left: 0, top: 0, right: innerWidth, bottom: Math.min(innerHeight, tb.top) };
+    return { left: 0, top: this.reservedTop(), right: innerWidth, bottom: Math.min(innerHeight, tb.top) };
   },
   rectOf(w) {
     const n = w.node;
@@ -198,7 +205,8 @@ const WM = {
     return a.finished.then(() => { if (w.anim === a) w.anim = null; return true; }, () => false);
   },
 
-  open({ title, icon = "🪟", width = 720, height = 460, render, key }) {
+  /* taskList — свой список задач (у приложения может быть отдельная панель, как у DAWN) */
+  open({ title, icon = "🪟", width = 720, height = 460, render, key, taskList }) {
     if (key) {
       for (const w of this.wins.values()) if (w.key === key) { this.restore(w); return w; }
     }
@@ -208,7 +216,7 @@ const WM = {
     height = Math.min(height, vh - 20);
     const off = (this.wins.size % 8) * 28;
     const left = Math.max(10, (vw - width) / 2 - 100 + off);
-    const top = Math.max(10, (vh - height) / 2 - 60 + off);
+    const top = Math.max(10 + this.reservedTop(), (vh - height) / 2 - 60 + off);
 
     const titleEl = el("div", { className: "title", textContent: title });
     const btn = (cls, svg, tip) => {
@@ -238,7 +246,7 @@ const WM = {
     };
     this.wins.set(id, w);
     $("#windows").append(node);
-    $("#task-list").append(task);
+    (taskList || $("#task-list")).append(task);
 
     node.addEventListener("pointerdown", () => this.focus(w));
     bClose.onclick = e => { e.stopPropagation(); this.close(w); };

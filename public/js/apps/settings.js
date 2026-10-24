@@ -3,8 +3,25 @@ import { el, fmtSize, fsUrl, joinPath } from "../core/util.js";
 import { VFS } from "../core/vfs.js";
 import { IMAGE_EXT, Wallpaper } from "../ui/wallpaper.js";
 import { WM } from "../wm.js";
+import { GLOW_SPEC, Glow } from "../ui/glow.js";
 
 /* ================= настройки ================= */
+/* живой фон: светяшки поверх обоев, вспышки от музыки DAWN */
+function glowSection() {
+  const chk = (key, text) => { const c = el("input", { type: "checkbox", checked: Glow.cfg[key], onchange: () => Glow.set(key, c.checked) });
+    return el("label", { className: "row check" }, c, el("span", { textContent: text })); };
+  const slider = key => {
+    const s = GLOW_SPEC[key], val = el("span", { textContent: (+Glow.cfg[key]).toFixed(s.step ? 0 : 2) });
+    const r = el("input", { type: "range", min: s.min, max: s.max, step: s.step || (s.max - s.min) / 100, value: Glow.cfg[key],
+      oninput: () => { Glow.set(key, +r.value); val.textContent = (+r.value).toFixed(s.step ? 0 : 2); } });
+    return el("div", { className: "row" }, el("span", { className: "lbl", textContent: s.label.replace("Фон · ", "") }), r, val);
+  };
+  return el("section", {}, el("h3", { textContent: "Живой фон" }),
+    chk("on", "Светяшки поверх обоев"),
+    chk("react", "Вспыхивать от музыки в DAWN (цвет вспышки — ✦ у канала в стойке)"),
+    slider("count"), slider("hue"), slider("speed"), slider("glow"), slider("size"), slider("flash"),
+    el("div", { className: "hint", textContent: "Всё это можно крутить и проводками из DAWN: цели «Живой фон» в окне Модуляция." }));
+}
 function openSettings() {
   WM.open({ title: "Настройки", icon: "⚙️", width: 660, height: 640, key: "settings", async render(c, w) {
     const tiles = el("div", { className: "wp-grid" });
@@ -41,6 +58,7 @@ function openSettings() {
         tiles, hint),
       el("section", {}, el("h3", { textContent: "Затемнение картинки" }),
         el("div", { className: "row" }, dim, dimVal)),
+      glowSection(),
       el("section", {}, el("h3", { textContent: "Окна" }),
         el("label", { className: "row check" }, snap,
           el("span", { textContent: "Прилипать к краям экрана и друг к другу (на расстоянии 7 px; Alt — двигать свободно)" })),

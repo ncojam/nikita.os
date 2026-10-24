@@ -46,7 +46,7 @@ export function buildSchema() {
           params: { type: "object", description: "depends on type", oneOf: [
             { title: "osc3", properties: { oscs: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", properties: {
                 wave: { enum: WAVES }, ...props(Object.keys(osc3.oscs[0]).filter(k => k !== "wave"), SPECS) } } },
-              ...props([...envKeys, "cut", "res"], SPECS) } },
+              ...props([...envKeys, "cut", "res", "uni", "udet", "uspr"], SPECS) } },
             { title: "sampler", properties: { ...props(Object.keys(smp).filter(k => typeof smp[k] === "number"), SPECS),
               oneshot: { type: "boolean" }, rev: { type: "boolean" } } },
             { title: "grapefruit", properties: {
@@ -76,7 +76,8 @@ export function buildSchema() {
       mixer: { type: "array", description: "index 0 = Master", items: { type: "object", properties: {
         name: { type: "string" }, vol: num(SPECS.vol), pan: num(SPECS.pan), mute: { type: "boolean" },
         fx: { type: "array", maxItems: 4, items: { oneOf: Object.entries(FX).map(([type, f]) => ({
-          title: f.name, type: "object", properties: { type: { const: type }, on: { type: "boolean" }, ...props(Object.keys(f.params), f.params) } })) } } } } },
+          title: f.name, type: "object", properties: { type: { const: type }, on: { type: "boolean" }, ...props(Object.keys(f.params), f.params),
+            ...Object.fromEntries(Object.entries(f.params).filter(([, s]) => s.kind === "channel").map(([k]) => [k, { type: "string", description: "channel id that triggers it (e.g. the kick)" }])) } })) } } } } },
       mods: { type: "array", description: "modulation sources wired to parameters", items: { type: "object", required: ["type", "wires"], properties: {
         id: { type: "string" }, name: { type: "string" }, type: { enum: ["knob", "env", "lfo"] },
         value: { type: "number", minimum: 0, maximum: 1, description: "knob position" },
@@ -100,7 +101,7 @@ export function aiDoc() {
   }).join("\n");
   return `# DAWN project format "dawn/2" — guide for AI
 You read and write DAWN projects (a browser DAW on the site nikita.os). Return ONLY the complete JSON project (no markdown, no comments).
-The JSON Schema below is generated from the app's code and is authoritative for fields and ranges.
+If a project is attached below, keep its structure and ids and change only what is asked. Unknown fields are ignored, missing ones get defaults.
 
 ## Time
 - All times are in BEATS (quarter notes): 0.25 = 1/16, 0.5 = 1/8, 1 = 1/4. Triplets: 1/3, 1/6.
@@ -122,11 +123,15 @@ ${edoRows}
 - grapefruit: 4-operator FM. Each op: wave, ratio (frequency multiple), fine (cents), level, ADSR, out (how much goes to audio; carriers > 0, modulators usually 0).
   mod.mJK = how strongly operator J modulates operator K (only higher → lower: ${MOD_KEYS.map(m => m[0]).join(", ")}). Presets: ${Object.keys(GF_PRESETS).join(", ")}.
   Bright metallic tones: non-integer ratios (3.5, 5.19). Warm: integer ratios, low mod.
+- osc3 unison: uni (voices per oscillator 1..8), udet (cents spread), uspr (stereo spread) — big detuned supersaws/reeses.
+- Ready sound presets (set the params yourself or ask the user to pick in the UI): osc3 — Sub Bass, Reese, Riddim Growl, Wobble, Hoover, Supersaw Lead, Neon Pluck, Ambient Pad, Chip Lead, Noise Riser.
 - sampler: plays "sample" re-pitched (root = MIDI note of the original). Built-in drums: ${Object.keys(BUILTIN).map(k => "builtin:" + k).join(", ")}.
 - poly: max voices per channel (1 = mono). vol/pan per channel; "mixer" routes the channel to an insert.
 
 ## Mixer
 mixer[0] is Master, then inserts. Up to 4 effects per insert, processed in order: ${Object.entries(FX).map(([k, f]) => `${k} (${Object.keys(f.params).join(", ")})`).join("; ")}.
+Heavy bass needs fx: dist (drive, shape 0 soft/1 hard/2 fold/3 crush, tone, mix, out) + ott (depth, time, low/mid/high dB) + eq. comp = compressor.
+Sidechain: { type: "side", src: "<kick channel id>", amount, attack, release } on pads/bass inserts — ducks exactly on each kick note.
 Delay "sync" index: ${SYNC.map((s, i) => `${i}=${s[0]}`).join(", ")}.
 
 ## Modulation ("mods") — sources wired to parameters
@@ -142,5 +147,5 @@ Delay "sync" index: ${SYNC.map((s, i) => `${i}=${s[0]}`).join(", ")}.
 }
 
 export function aiPackage(projectJson) {
-  return `${aiDoc()}\n\n## JSON Schema\n${JSON.stringify(buildSchema())}\n\n## Current project\n${projectJson}\n`;
+  return `${aiDoc()}\n\n## Current project\n${projectJson}\n`;
 }

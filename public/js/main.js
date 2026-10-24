@@ -16,6 +16,7 @@ import "./ui/icons.js";
 import "./ui/notify.js";
 import { init_ui_taskbar } from "./ui/taskbar.js";
 import { init_ui_wallpaper } from "./ui/wallpaper.js";
+import { init_ui_glow } from "./ui/glow.js";
 import { init_wm } from "./wm.js";
 import { init_vfs } from "./core/vfs.js";
 import { init_params } from "./core/params.js";
@@ -30,6 +31,7 @@ init_apps_player();
 init_desktop();
 init_ui_taskbar();
 init_ui_wallpaper();
+init_ui_glow();
 init_ui_context_menu();
 
 /* стартовое окно: прямая ссылка /browser/<адрес> открывает браузер на этом адресе */

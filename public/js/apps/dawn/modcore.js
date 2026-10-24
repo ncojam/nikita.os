@@ -70,7 +70,7 @@ export function dawnParam(P, addr) {
     const pre = (i ? m.name : "Master") + " · ";
     if (a[2] === "vol" || a[2] === "pan") return { label: pre + a[2], spec: SPECS[a[2]], get: () => m[a[2]] };
     const f = m.fx[+a[2]];
-    if (f && a[3] && FX[f.type].params[a[3]]) return { label: pre + FX[f.type].name + " " + a[3], spec: FX[f.type].params[a[3]], get: () => f.p[a[3]] };
+    if (f && a[3] && FX[f.type].params[a[3]] && FX[f.type].params[a[3]].kind !== "channel") return { label: pre + FX[f.type].name + " " + a[3], spec: FX[f.type].params[a[3]], get: () => f.p[a[3]] };
   }
   return null;
 }
@@ -90,7 +90,7 @@ export function dawnTargets(P) {
   P.mixer.forEach((m, i) => {
     const g = "Микшер: " + (i ? m.name : "Master");
     add(`mix.${i}.vol`, g); add(`mix.${i}.pan`, g);
-    m.fx.forEach((f, k) => Object.keys(FX[f.type].params).forEach(key => add(`mix.${i}.${k}.${key}`, g)));
+    m.fx.forEach((f, k) => Object.keys(FX[f.type].params).filter(key => FX[f.type].params[key].kind !== "channel").forEach(key => add(`mix.${i}.${k}.${key}`, g)));
   });
   return out;
 }

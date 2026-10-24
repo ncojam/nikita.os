@@ -1043,3 +1043,32 @@ html.dw-wiring, html.dw-wiring * { cursor: crosshair !important; }
 .dw-live.on { background: color-mix(in srgb, #ff7aa8 55%, transparent); border-color: #ff7aa8; box-shadow: 0 0 10px #ff7aa8; }
 .dw-tool { font-size: 13px; }
 .dw-pr-cv:focus { outline: none; }
+
+/* док DAWN: своя панель задач сверху */
+.dw-dock { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); height: 40px; max-width: calc(100% - 20px);
+  border-radius: 14px; padding: 0 8px; display: flex; align-items: center; gap: 6px; z-index: 99999;
+  border-color: color-mix(in srgb, #ff9ecf 40%, transparent); box-shadow: 0 8px 30px rgba(0,0,0,0.35), 0 0 18px rgba(255,158,207,0.18); }
+.dw-dock-logo { font-weight: 800; letter-spacing: .08em; font-size: 12px; padding: 0 6px;
+  background: linear-gradient(90deg, #ff9ecf, #c3a6ff, #8fe8cf); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.dw-dock-btn { width: 30px; height: 28px; border-radius: 9px; border: 0; background: rgba(255,255,255,0.08); color: var(--text); cursor: pointer; flex: none; }
+.dw-dock-btn:hover { background: rgba(255,255,255,0.16); }
+.dw-dock-btn.on { background: color-mix(in srgb, #8fe8cf 40%, transparent); box-shadow: 0 0 10px #8fe8cf; }
+.dw-dock-pos { font: 600 12px ui-monospace, monospace; color: #fff09e; min-width: 34px; text-align: center; }
+.dw-dock-list { display: flex; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+.dw-dock .task { height: 30px; padding: 0 9px; border-radius: 9px; }
+.dw-dock .task span:last-child { font-size: 12px; max-width: 120px; }
+[data-dawn-theme=light] .dw-dock { --glass-bg: rgba(255,240,250,0.82); color: #3b2a55; }
+[data-dawn-theme=light] .dw-dock .task, [data-dawn-theme=light] .dw-dock-btn { color: #3b2a55; }
+[data-dawn-theme=light] .dw-dock-pos { color: #c2367a; }
+.bg-lights { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; mix-blend-mode: screen; z-index: 0; }
+.dw-flash { padding: 4px 7px; }
+.dw-flash.on { color: var(--fl); text-shadow: 0 0 8px var(--fl); border-color: color-mix(in srgb, var(--fl) 55%, transparent); }
+.dw-fx-src { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.dw-libcard { display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin: 3px 4px; border-radius: 10px; cursor: grab;
+  background: rgba(255,179,179,0.10); border: 1px solid rgba(255,179,179,0.3); }
+.dw-libcard > div { flex: 1; min-width: 0; }
+.dw-libcard b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-libcard:hover { background: rgba(255,179,179,0.2); }
+[data-dawn-theme=light] .dw-libcard { background: rgba(255,255,255,0.55); }
+.dw-lib-tgt { padding: 4px 10px; display: flex; gap: 6px; align-items: center; }
+.dw-lib .dw-hint { padding: 7px 10px; margin: 0; border-bottom: 1px solid var(--dw-line); line-height: 1.4; }

@@ -1,4 +1,4 @@
-import { store } from "../../core/util.js";
+import { el, store } from "../../core/util.js";
 import { VFS } from "../../core/vfs.js";
 import { notify } from "../../ui/notify.js";
 import { WM } from "../../wm.js";
@@ -29,7 +29,7 @@ export const Dawn = {
     const m = MODULES[name];
     if (!m) return null;
     const def = m.size(arg);
-    const w = WM.open({ title: m.title(arg), icon: m.icon, width: def[0], height: def[1], key: "dawn:" + key,
+    const w = WM.open({ title: m.title(arg), icon: m.icon, width: def[0], height: def[1], key: "dawn:" + key, taskList: this.dock().list,
       render: (c, win) => {
         const cleanup = m.render(c, win, arg, this) || (() => {});
         win.onKey = e => this.key(e);
@@ -45,13 +45,40 @@ export const Dawn = {
     w.node.classList.add("dw-win");
     if (col) w.node.style.setProperty("--acc", col);
     const lay = Engine.project.layout?.[key];
-    if (lay) Object.assign(w.node.style, { left: lay[0] + "px", top: lay[1] + "px", width: lay[2] + "px", height: lay[3] + "px" });
-    else if (def[2] != null) Object.assign(w.node.style, { left: def[2] + "px", top: def[3] + "px" });
+    const top0 = WM.reservedTop();   // под доком DAWN
+    if (lay) Object.assign(w.node.style, { left: lay[0] + "px", top: Math.max(top0 + 6, lay[1]) + "px", width: lay[2] + "px", height: lay[3] + "px" });
+    else if (def[2] != null) Object.assign(w.node.style, { left: def[2] + "px", top: (def[3] + top0) + "px" });
     return w;
   },
   close(name, arg) {
     const w = this.wins.get(arg ? `${name}:${arg}` : name);
     if (w) WM.close(w);
+  },
+
+  /* ---------- своя панель задач: окна DAWN живут не на панели ОС, а в доке сверху ---------- */
+  _dock: null,
+  dock() {
+    if (this._dock?.node.isConnected) return this._dock;
+    const list = el("div", { className: "dw-dock-list" });
+    const play = el("button", { className: "dw-dock-btn", title: "Пуск / стоп", onclick: () => Engine.toggle() });
+    const pos = el("span", { className: "dw-dock-pos", textContent: "1:1" });
+    const allMin = el("button", { className: "dw-dock-btn", textContent: "▁", title: "Свернуть все окна DAWN", onclick: () => { for (const w of this.wins.values()) if (!w.minimized) WM.minimize(w); } });
+    const allUp = el("button", { className: "dw-dock-btn", textContent: "▣", title: "Показать все окна DAWN", onclick: () => { for (const w of this.wins.values()) WM.restore(w); } });
+    const node = el("div", { className: "dw-dock glass wm-reserve-top" },
+      el("span", { className: "dw-dock-logo", textContent: "🌸 DAWN" }), play, pos, list, allUp, allMin);
+    document.body.append(node);
+    let raf = 0;
+    const tick = () => {
+      if (!node.isConnected) return;
+      play.textContent = Engine.playing ? "■" : "▶";
+      play.classList.toggle("on", Engine.playing);
+      const st = Engine.project ? Engine.position() : -1;
+      pos.textContent = st >= 0 ? `${Math.floor(st / 4) + 1}:${Math.floor(st % 4) + 1}` : "—";
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    this._dock = { node, list, stop: () => cancelAnimationFrame(raf) };
+    return this._dock;
   },
 
   /* общие клавиши во всех окнах DAWN */
@@ -134,6 +161,7 @@ export const Dawn = {
     }
     for (const [k, w] of [...this.wins]) if (k !== "transport") WM.close(w);
     this.wins.clear();
+    setTimeout(() => { if (!this.wins.size && this._dock) { this._dock.stop(); this._dock.node.remove(); this._dock = null; } }, 300);
     this.unsub.forEach(f => f()); this.unsub = [];
     Engine.project = null;
   },

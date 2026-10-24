@@ -35,6 +35,21 @@ export const GF_PRESETS = {
   "Pluck": { ops: [op({ out: 1, dec: 0.35, sus: 0, rel: 0.2 }), op({ ratio: 2, level: 1, dec: 0.15, sus: 0 }),
     op({ ratio: 3, level: 0.5, dec: 0.08, sus: 0 }), op({ ratio: 1, out: 0, level: 0 })],
     mod: { m21: 0.7, m31: 0, m41: 0, m32: 0.4, m42: 0, m43: 0 }, cut: 8000, res: 1 },
+  "Neuro Bass": { ops: [op({ out: 1, dec: 0.4, sus: 0.9, rel: 0.1 }), op({ ratio: 1, level: 1, dec: 0.3, sus: 0.8 }),
+    op({ ratio: 2, level: 0.7, att: 0.01, dec: 0.5, sus: 0.6 }), op({ ratio: 0.5, out: 0.7, dec: 0.3, sus: 1, rel: 0.08 })],
+    mod: { m21: 0.75, m31: 0, m41: 0, m32: 0.55, m42: 0, m43: 0 }, cut: 3200, res: 3 },
+  "Riddim FM": { ops: [op({ wave: "square", out: 0.8, dec: 0.2, sus: 0.85, rel: 0.05 }), op({ ratio: 1.5, level: 1, dec: 0.15, sus: 0.7 }),
+    op({ ratio: 3, level: 0.6, dec: 0.1, sus: 0.4 }), op({ ratio: 0.5, out: 0.6, sus: 1, rel: 0.05 })],
+    mod: { m21: 0.6, m31: 0, m41: 0, m32: 0.45, m42: 0, m43: 0 }, cut: 2200, res: 6 },
+  "Metal Pluck": { ops: [op({ out: 1, dec: 0.35, sus: 0, rel: 0.25 }), op({ ratio: 3.5, level: 0.9, dec: 0.2, sus: 0 }),
+    op({ ratio: 7.13, level: 0.5, dec: 0.08, sus: 0 }), op({ ratio: 1, out: 0.3, dec: 0.5, sus: 0, rel: 0.3 })],
+    mod: { m21: 0.6, m31: 0.2, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 12000, res: 0.8 },
+  "Digital Keys": { ops: [op({ out: 0.9, dec: 0.8, sus: 0.4, rel: 0.4 }), op({ ratio: 2, level: 0.7, dec: 0.4, sus: 0.2 }),
+    op({ ratio: 1, out: 0.5, dec: 0.9, sus: 0.3, rel: 0.4 }), op({ ratio: 5, level: 0.4, dec: 0.15, sus: 0 })],
+    mod: { m21: 0.3, m31: 0, m41: 0, m32: 0, m42: 0, m43: 0.25 }, cut: 9000, res: 0.7 },
+  "Sub FM": { ops: [op({ out: 1, dec: 0.3, sus: 1, rel: 0.08 }), op({ ratio: 1, level: 0.4, dec: 0.1, sus: 0.1 }),
+    op({ ratio: 1, out: 0, level: 0 }), op({ ratio: 1, out: 0, level: 0 })],
+    mod: { m21: 0.15, m31: 0, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 900, res: 0.7 },
 };
 export const MOD_KEYS = [["m21", 2, 1], ["m31", 3, 1], ["m41", 4, 1], ["m32", 3, 2], ["m42", 4, 2], ["m43", 4, 3]];
 export const gfDefaults = (name = "E-Piano") => ({ preset: name, ...JSON.parse(JSON.stringify(GF_PRESETS[name])) });
