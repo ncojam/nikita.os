@@ -1,5 +1,5 @@
-import { el } from "../../core/util.js";
-import { SPECS } from "./engine.js";
+import { el, store } from "../../core/util.js";
+import { SPECS } from "./instruments.js";
 
 /* ================= DAWN — общие элементы интерфейса =================
  * Крутилка (knob): тянуть вверх/вниз (Shift — точно), колесо, двойной клик — по умолчанию.
@@ -12,6 +12,7 @@ const fromNorm = (n, s) => {
   return v;
 };
 export const fmt = (v, s) => {
+  if (s.names) return s.names[Math.round(v)] ?? String(v);
   if (s.step) return String(Math.round(v));
   const a = Math.abs(v);
   if (s.max >= 1000) return v >= 1000 ? (v / 1000).toFixed(1) + "k" : Math.round(v) + "";
@@ -91,12 +92,44 @@ export function led(on, onClick, title, color) {
 
 export const dwBtn = (text, onClick, extra = {}) => el("button", { className: "dw-btn", textContent: text, onclick: onClick, ...extra });
 
-/* общий «корпус» окна модуля: пастельная шапка-полоска цвета модуля */
+/* общий «корпус» окна модуля: пастельная шапка-полоска цвета модуля.
+ * Правую кнопку DAWN забирает себе (удаление нот/клипов) — меню ОС внутри не открывается. */
 export function shell(c, cls, accent) {
   const root = el("div", { className: "dw " + cls });
   if (accent) root.style.setProperty("--acc", accent);
+  root.addEventListener("contextmenu", e => { if (!e.target.closest("input, textarea")) e.preventDefault(); });
   c.append(root);
   return root;
+}
+
+/* ---------- темы: тёмная (неон на тёмном) и светлая (каждое окно — в своём пастельном цвете) ---------- */
+export const theme = () => store.get("dawn.theme", "dark") === "light" ? "light" : "dark";
+export function applyTheme(t = theme()) {
+  store.set("dawn.theme", t);
+  document.documentElement.dataset.dawnTheme = t;
+}
+/* цвета для canvas (пиано ролл, плейлист, микшер) — CSS туда не дотягивается */
+export function pal() {
+  return theme() === "light" ? {
+    rowW: "rgba(255,255,255,0.55)", rowB: "rgba(110,80,170,0.12)", rowIn: "rgba(110,80,170,0.10)", rowOut: "rgba(60,40,100,0.10)",
+    rowRoot: "rgba(255,95,168,0.20)", oct: "rgba(110,80,170,0.45)",
+    g1: "rgba(80,50,130,0.08)", g2: "rgba(80,50,130,0.22)", g3: "rgba(255,95,168,0.65)",
+    keyW: "#ffffff", keyB: "#6f5c96", keyIn: "#e9dcff", keyLbl: "#6f5c96", text: "#3b2a55", dim: "#7d6b99",
+    shade: "rgba(80,60,120,0.12)", panel: "rgba(255,255,255,0.55)", head: "#ff3d97", noteText: "rgba(40,20,70,0.85)", clipText: "#3b2a55",
+  } : {
+    rowW: "rgba(255,255,255,0.025)", rowB: "rgba(20,10,40,0.55)", rowIn: "rgba(143,232,207,0.07)", rowOut: "rgba(0,0,0,0.25)",
+    rowRoot: "rgba(255,158,207,0.16)", oct: "rgba(195,166,255,0.30)",
+    g1: "rgba(255,255,255,0.04)", g2: "rgba(255,255,255,0.13)", g3: "rgba(255,158,207,0.45)",
+    keyW: "#f6eefc", keyB: "#2a1f3d", keyIn: "#d9f7ec", keyLbl: "#7a5fa8", text: "#f4ecff", dim: "#a898c4",
+    shade: "rgba(0,0,0,0.35)", panel: "rgba(10,5,20,0.6)", head: "#fff09e", noteText: "rgba(30,15,50,0.85)", clipText: "#1d1430",
+  };
+}
+
+/* выпадающий список: [[значение, подпись], ...] */
+export function select(items, value, onChange, title = "") {
+  const s = el("select", { className: "dw-sel", title, onchange: () => onChange(s.value) },
+    ...items.map(([v, t]) => el("option", { value: v, textContent: t, selected: String(v) === String(value) })));
+  return s;
 }
 
 export const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];

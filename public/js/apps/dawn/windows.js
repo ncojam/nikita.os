@@ -1,20 +1,23 @@
 import { el } from "../../core/util.js";
 import { notify } from "../../ui/notify.js";
-import { BUILTIN, Engine, PASTEL, STEPS_PER_BAR, TYPES, WAVES, WAVE_GLYPH, sampleNow } from "./engine.js";
+import { BUILTIN, Engine, PASTEL, TYPES, WAVES, WAVE_GLYPH, newProject, sampleNow } from "./engine.js";
+import { AI_BRIEF, fromFile } from "./format.js";
+import { FX } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
-import { dwBtn, knob, led, noteName, shell } from "./ui.js";
+import { PLAYLIST } from "./playlist.js";
+import { applyTheme, dwBtn, knob, led, select, shell, theme } from "./ui.js";
+import { noteNameE } from "./tuning.js";
 
 /* ================= DAWN — окна модулей =================
- * Каждый модуль: { title(arg), icon, size(arg) -> [w, h, left?, top?], render(c, win, arg, Dawn) -> cleanup }.
+ * Модуль: { title(arg), icon, color, size(arg) -> [w, h, left?, top?], render(c, win, arg, Dawn) -> cleanup }.
  * Окна подписываются на Engine.on("change") и перерисовываются; правка крутилок шлёт { param: true } —
  * на неё окна НЕ перестраиваются (иначе крутилка пропала бы из-под мыши).
  */
 const SAMPLE_MIME = "application/x-dawn-sample";
 const NOS_MIME = "application/x-nikita-paths";        // перетаскивание из проводника ОС
 const AUDIO = /\.(wav|mp3|ogg|flac|m4a|aac|opus)$/i;
-const vw = () => innerWidth, vh = () => innerHeight - 70;
+const vw = () => innerWidth;
 
-/* что за сэмпл тащат: из браузера DAWN или из проводника */
 function droppedPaths(e) {
   const dt = e.dataTransfer;
   const a = dt.getData(SAMPLE_MIME);
@@ -22,90 +25,107 @@ function droppedPaths(e) {
   try { return (JSON.parse(dt.getData(NOS_MIME) || "[]") || []).filter(p => AUDIO.test(p)); } catch { return []; }
 }
 const isSampleDrag = e => [...(e.dataTransfer?.types || [])].some(t => t === SAMPLE_MIME || t === NOS_MIME);
-
-function rebuildOn(fn) {
-  return Engine.on("change", w => { if (!w?.param) fn(w || {}); });
-}
+const rebuildOn = fn => Engine.on("change", w => { if (!w?.param) fn(w || {}); });
+const frac = x => { const w = Math.floor(x + 1e-9), r = x - w, f = { 0.25: "¼", 0.5: "½", 0.75: "¾" }[Math.round(r * 4) / 4];
+  return r < 1e-6 ? String(w) : f ? (w ? w + f : f) : x.toFixed(2); };
 
 /* ======================= транспорт (хаб) ======================= */
 const transport = {
   title: () => "DAWN — " + (Engine.project?.name || ""),
-  icon: "🌸",
-  size: () => [Math.min(1000, vw() - 20), 178, 12, 12],
+  icon: "🌸", color: "var(--dw-pink)",
+  size: () => [Math.min(1060, vw() - 20), 178, 12, 12],
   render(c, win, _a, Dawn) {
     const root = shell(c, "dw-transport", "var(--dw-pink)");
     const playB = el("button", { className: "dw-play", title: "Пуск / стоп (пробел)", onclick: () => Engine.toggle() });
     const stopB = el("button", { className: "dw-stop", title: "Стоп", onclick: () => Engine.stop() });
     const pos = el("div", { className: "dw-pos", textContent: "1:1:01" });
+    const seg = el("div", { className: "dw-seg" });
 
-    // темп: тянуть мышью вверх-вниз или колесо, двойной клик — ввести число
     const bpm = el("div", { className: "dw-bpm", title: "Темп: тяни вверх-вниз, колесо, двойной клик — ввести" });
-    const showBpm = () => { bpm.replaceChildren(el("b", { textContent: Engine.project.bpm.toFixed(0) }), el("span", { textContent: "BPM" })); };
+    const showBpm = () => bpm.replaceChildren(el("b", { textContent: (+Engine.project.bpm).toFixed(Engine.project.bpm % 1 ? 1 : 0) }), el("span", { textContent: "BPM" }));
     let bd = null;
     bpm.onpointerdown = e => { bpm.setPointerCapture(e.pointerId); bd = { y: e.clientY, v: Engine.project.bpm }; };
-    bpm.onpointermove = e => { if (!bd) return; Engine.project.bpm = Math.max(40, Math.min(300, Math.round(bd.v + (bd.y - e.clientY) * 0.4))); showBpm(); };
+    bpm.onpointermove = e => { if (!bd) return; Engine.setBpm(Math.round(bd.v + (bd.y - e.clientY) * 0.4)); showBpm(); };
     bpm.onpointerup = () => { if (bd) { bd = null; Engine.touch({ param: true }); } };
-    bpm.onwheel = e => { e.preventDefault(); Engine.project.bpm = Math.max(40, Math.min(300, Engine.project.bpm - Math.sign(e.deltaY))); showBpm(); Engine.touch({ param: true }); };
-    bpm.ondblclick = () => { const v = +prompt("Темп (BPM):", Engine.project.bpm); if (v >= 40 && v <= 300) { Engine.project.bpm = v; showBpm(); Engine.touch({ param: true }); } };
+    bpm.onwheel = e => { e.preventDefault(); Engine.setBpm(Engine.project.bpm - Math.sign(e.deltaY)); showBpm(); Engine.touch({ param: true }); };
+    bpm.ondblclick = () => { const v = +prompt("Темп (BPM):", Engine.project.bpm); if (v >= 40 && v <= 300) { Engine.setBpm(v); showBpm(); Engine.touch({ param: true }); } };
 
-    const patSel = el("select", { className: "dw-sel", title: "Паттерн", onchange: () => Engine.selectPattern(patSel.value) });
-    const fillPats = () => {
-      patSel.replaceChildren(...Engine.project.patterns.map(p => el("option", { value: p.id, textContent: p.name, selected: p.id === Engine.project.cur })));
-    };
-    const patBox = el("div", { className: "dw-patbox" }, patSel,
-      dwBtn("＋", () => Engine.addPattern(), { title: "Новый паттерн" }),
-      dwBtn("⧉", () => Engine.clonePattern(), { title: "Копия паттерна" }),
-      dwBtn("✎", () => { const p = Engine.pat(); const n = prompt("Имя паттерна:", p.name); if (n) { p.name = n.slice(0, 32); Engine.touch({ patterns: true }); } }, { title: "Переименовать" }));
-
+    const patBox = el("div", { className: "dw-patbox" });
     const master = knob({ spec: "vol", label: "Master", color: "var(--dw-pink)",
-      get: () => Engine.project.master, set: v => { Engine.project.master = v; Engine.master.gain.value = v; }, done: () => Engine.touch({ param: true }) });
+      get: () => Engine.project.mixer[0].vol, set: v => { Engine.project.mixer[0].vol = v; Engine.applyInsert(0); }, done: () => Engine.touch({ param: true }) });
     const swing = knob({ spec: { min: 0, max: 0.6, def: 0, label: "Swing" }, color: "var(--dw-peach)",
       get: () => Engine.project.swing || 0, set: v => { Engine.project.swing = v; }, done: () => Engine.touch({ param: true }) });
-
-    const scope = el("canvas", { className: "dw-scope", width: 180, height: 46 });
-    const mod = (txt, name, title, disabled) => dwBtn(txt, () => Dawn.open(name), { title, disabled, className: "dw-btn dw-mod" });
-    const mods = el("div", { className: "dw-mods" },
-      mod("🎛 Стойка", "rack", "Стойка каналов: паттерны по шагам"),
-      mod("🎹 Пиано ролл", "piano", "Ноты канала"),
-      mod("📂 Сэмплы", "browser", "Сэмплы из файловой системы"),
-      mod("🎞 Плейлист", "rack", "Общий таймлайн — в следующем этапе", true),
-      mod("🎚 Микшер", "rack", "Микшер и эффекты — в следующем этапе", true));
-    const file = el("div", { className: "dw-file" },
-      dwBtn("💾", () => Dawn.save(), { title: "Сохранить (Ctrl+S)" }),
-      dwBtn("💾…", () => Dawn.save(true), { title: "Сохранить как (Ctrl+Shift+S)" }),
-      dwBtn("✚", async () => {
-        if (Engine.dirty && !confirm("Начать новый проект? Несохранённые изменения останутся черновиком в браузере.")) return;
-        const { newProject } = await import("./engine.js");
-        for (const [k, w] of [...Dawn.wins]) if (k !== "transport") Dawn.close(...k.split(":"));
-        Engine.load(newProject(), null);
-        Dawn.pianoCh = Engine.project.channels.at(-1).id;
-        Dawn.open("rack"); Dawn.open("piano"); Dawn.retitle();
-      }, { title: "Новый проект" }));
+    const scope = el("canvas", { className: "dw-scope", width: 170, height: 46 });
+    const mod = (txt, name, title) => dwBtn(txt, () => Dawn.open(name), { title, className: "dw-btn dw-mod" });
+    const themeB = dwBtn("", () => { applyTheme(theme() === "dark" ? "light" : "dark"); themeB.textContent = theme() === "dark" ? "☀" : "🌙"; Engine.emit("theme"); },
+      { title: "Тема: тёмная / светлая пастельная" });
+    themeB.textContent = theme() === "dark" ? "☀" : "🌙";
+    const exportB = dwBtn("⬇ WAV", async () => {
+      exportB.disabled = true; exportB.textContent = "⏳ рендер…";
+      try {
+        const blob = await Engine.render();
+        const a = el("a", { href: URL.createObjectURL(blob), download: (Engine.project.name || "dawn") + ".wav" });
+        document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+        notify(Engine.project.playlist.length ? "Песня отрендерена в WAV" : "Паттерн отрендерен в WAV (плейлист пуст)");
+      } catch (e) { notify("⚠ Не отрендерилось: " + e.message); }
+      exportB.disabled = false; exportB.textContent = "⬇ WAV";
+    }, { title: "Экспорт в WAV: песня из плейлиста (или текущий паттерн)" });
 
     root.append(el("div", { className: "dw-logo" }, el("b", { textContent: "DAWN" }), el("span", { textContent: "pastel daw" })),
-      el("div", { className: "dw-tbtns" }, playB, stopB), pos, bpm, patBox, master.node, swing.node, scope, mods, file);
+      el("div", { className: "dw-tbtns" }, playB, stopB), seg, pos, bpm, patBox, master.node, swing.node, scope,
+      el("div", { className: "dw-mods" },
+        mod("🎛 Стойка", "rack", "Стойка каналов"), mod("🎹 Пиано ролл", "piano", "Ноты канала"),
+        mod("🎞 Плейлист", "playlist", "Общий таймлайн"), mod("🎚 Микшер", "mixer", "Микшер и эффекты"),
+        mod("📂 Сэмплы", "browser", "Сэмплы из файловой системы"), mod("🤖", "ai", "Проект как текст — для нейросети")),
+      el("div", { className: "dw-file" },
+        dwBtn("💾", () => Dawn.save(), { title: "Сохранить (Ctrl+S)" }),
+        dwBtn("💾…", () => Dawn.save(true), { title: "Сохранить как (Ctrl+Shift+S)" }),
+        dwBtn("✚", () => {
+          if (Engine.dirty && !confirm("Начать новый проект? Несохранённые изменения останутся черновиком в браузере.")) return;
+          for (const k of [...Dawn.wins.keys()]) if (k.startsWith("inst:")) Dawn.close(...k.split(":"));
+          Engine.load(newProject(), null);
+          Dawn.pianoCh = Engine.project.channels.at(-1).id;
+          Dawn.retitle();
+        }, { title: "Новый проект" }),
+        exportB, themeB));
 
-    const sync = () => { showBpm(); fillPats(); master.paint(); swing.paint(); root.classList.toggle("playing", Engine.playing); Dawn.retitle(); };
+    function sync() {
+      showBpm(); master.paint(); swing.paint();
+      seg.replaceChildren(
+        el("button", { className: "dw-btn" + (Engine.project.mode === "pat" ? " on" : ""), textContent: "PAT", title: "Текущий паттерн по кругу", onclick: () => Engine.setMode("pat") }),
+        el("button", { className: "dw-btn" + (Engine.project.mode === "song" ? " on" : ""), textContent: "SONG", title: "Песня из плейлиста", onclick: () => Engine.setMode("song") }));
+      const ps = select(Engine.project.patterns.map(p => [p.id, p.name]), Engine.project.cur, v => Engine.selectPattern(v), "Паттерн");
+      patBox.replaceChildren(ps,
+        dwBtn("＋", () => Engine.addPattern(), { title: "Новый паттерн" }),
+        dwBtn("⧉", () => Engine.clonePattern(), { title: "Копия паттерна" }),
+        dwBtn("✎", () => { const p = Engine.pat(); const n = prompt("Имя паттерна:", p.name); if (n) { p.name = n.slice(0, 32); Engine.touch({ patterns: true }); } }, { title: "Переименовать" }),
+        dwBtn("🗑", () => { const p = Engine.pat(); if (confirm(`Удалить паттерн «${p.name}» (и его клипы)?`) && !Engine.removePattern(p.id)) notify("Последний паттерн не удаляем"); }, { title: "Удалить паттерн" }));
+      root.classList.toggle("playing", Engine.playing);
+      Dawn.retitle();
+    }
     sync();
-    const offs = [rebuildOn(sync), Engine.on("play", sync), Engine.on("stop", sync), Engine.on("pattern", sync)];
+    const offs = [rebuildOn(sync), Engine.on("play", sync), Engine.on("stop", sync), Engine.on("pattern", sync), Engine.on("mode", sync)];
 
-    // позиция и осциллограф
-    const sctx = scope.getContext("2d"), buf = new Uint8Array(Engine.analyser.fftSize);
+    const sctx = scope.getContext("2d"), buf = new Uint8Array(1024);
     let raf = 0;
     const frame = () => {
-      const st = Engine.position();
+      const st = Engine.position(), P = Engine.project;
       if (st >= 0) {
-        const bar = Math.floor(st / 16) + 1, beat = Math.floor((st % 16) / 4) + 1, step = Math.floor(st % 4) + 1;
-        pos.textContent = `${bar}:${beat}:${String(step).padStart(2, "0")}`;
+        const bar = P.mode === "song" ? 4 : Engine.barLen(), beatU = P.mode === "song" ? 1 : 4 / Engine.pat().sig[1];
+        const b = Math.floor(st / bar) + 1, beat = Math.floor((st % bar) / beatU) + 1, sixt = Math.floor((st % beatU) * 4) + 1;
+        pos.textContent = `${b}:${beat}:${String(sixt).padStart(2, "0")}`;
       } else pos.textContent = "1:1:01";
-      Engine.analyser.getByteTimeDomainData(buf);
-      const W = scope.width, H = scope.height;
-      sctx.clearRect(0, 0, W, H);
-      const g = sctx.createLinearGradient(0, 0, W, 0);
-      g.addColorStop(0, "#ff9ecf"); g.addColorStop(0.5, "#c3a6ff"); g.addColorStop(1, "#8fe8cf");
-      sctx.strokeStyle = g; sctx.lineWidth = 2; sctx.beginPath();
-      for (let i = 0; i < W; i++) { const v = buf[Math.floor(i / W * buf.length)] / 128 - 1, y = H / 2 - v * H * 0.45; i ? sctx.lineTo(i, y) : sctx.moveTo(i, y); }
-      sctx.stroke();
+      if (Engine.analyser) {
+        Engine.analyser.getByteTimeDomainData(buf);
+        const W = scope.width, H = scope.height;
+        sctx.clearRect(0, 0, W, H);
+        const g = sctx.createLinearGradient(0, 0, W, 0);
+        g.addColorStop(0, "#ff9ecf"); g.addColorStop(0.5, "#c3a6ff"); g.addColorStop(1, "#8fe8cf");
+        sctx.strokeStyle = g; sctx.lineWidth = 2; sctx.beginPath();
+        for (let i = 0; i < W; i++) { const v = buf[Math.floor(i / W * buf.length)] / 128 - 1, y = H / 2 - v * H * 0.45; i ? sctx.lineTo(i, y) : sctx.moveTo(i, y); }
+        sctx.stroke();
+      }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -114,81 +134,91 @@ const transport = {
 };
 
 /* ======================= стойка каналов ======================= */
+const LEN_STEPS = { bar: "такт", half: "½ такта", quarter: "¼ такта", beat: "доля", step: "1/16" };
 const rack = {
   title: () => "Стойка каналов",
-  icon: "🎛",
-  size: () => [Math.min(760, vw() - 30), 380, 12, 202],
+  icon: "🎛", color: "var(--dw-lav)",
+  size: () => [Math.min(820, vw() - 30), 400, 12, 202],
   render(c, win, _a, Dawn) {
     const root = shell(c, "dw-rack", "var(--dw-lav)");
     const head = el("div", { className: "dw-rack-head" });
     const body = el("div", { className: "dw-rack-body" });
     const foot = el("div", { className: "dw-rack-foot" });
     root.append(head, body, foot);
-    let cols = [];       // кнопки шагов по колонкам — для подсветки плейхеда
+    let cols = [], inc = "bar";
+
+    function header() {
+      const pat = Engine.pat(), len = Engine.patLength(), bar = Engine.barLen(pat);
+      const num = el("input", { className: "dw-num", type: "number", min: 1, max: 32, value: pat.sig[0], title: "Долей в такте",
+        onchange: () => { pat.sig[0] = Math.max(1, Math.min(32, Math.round(+num.value) || 4)); Engine.touch({ notes: true }); } });
+      const den = select([1, 2, 4, 8, 16].map(d => [d, d]), pat.sig[1], v => { pat.sig[1] = +v; Engine.touch({ notes: true }); }, "Длительность доли");
+      const step = () => ({ bar, half: bar / 2, quarter: bar / 4, beat: 4 / pat.sig[1], step: 0.25 })[inc];
+      const setLen = d => { pat.len = Math.max(0.25, Math.round(((pat.len || len) + d) * 4) / 4); Engine.touch({ notes: true }); };
+      head.replaceChildren(
+        el("span", { className: "dw-pat-chip", textContent: pat.name, style: `--chip:${pat.color}` }),
+        el("span", { className: "dw-sig" }, num, el("span", { textContent: "/" }), den),
+        el("span", { className: "dw-dim", textContent: `${frac(len / bar)} ${len / bar === 1 ? "такт" : "такта"} · ${frac(len)} долей` }),
+        dwBtn("−", () => setLen(-step()), { title: "Короче" }),
+        select(Object.entries(LEN_STEPS), inc, v => { inc = v; }, "На сколько менять длину"),
+        dwBtn("＋", () => setLen(step()), { title: "Длиннее" }),
+        dwBtn("авто", () => { pat.len = null; Engine.touch({ notes: true }); }, { title: "Длина по нотам (целыми тактами)", className: "dw-btn" + (pat.len ? "" : " on") }));
+    }
 
     function build() {
       const P = Engine.project, pat = Engine.pat(), len = Engine.patLength();
-      head.replaceChildren(
-        el("span", { className: "dw-pat-chip", textContent: pat.name, style: `--chip:${pat.color}` }),
-        el("span", { className: "dw-dim", textContent: `${len / STEPS_PER_BAR} ${len / STEPS_PER_BAR === 1 ? "такт" : "такта"}` }),
-        dwBtn("−", () => { pat.bars = Math.max(1, (pat.bars || len / STEPS_PER_BAR) - 1); Engine.touch({ notes: true }); }, { title: "Меньше тактов" }),
-        dwBtn("＋", () => { pat.bars = Math.min(16, (pat.bars || len / STEPS_PER_BAR) + 1); Engine.touch({ notes: true }); }, { title: "Больше тактов" }));
-      cols = Array.from({ length: len }, () => []);
-      body.replaceChildren(...P.channels.map(ch => row(ch, len)));
+      header();
+      const steps = Math.round(len * 4), group = Math.max(1, 16 / pat.sig[1]), barSteps = Math.round(Engine.barLen(pat) * 4);
+      cols = Array.from({ length: steps }, () => []);
+      body.replaceChildren(...P.channels.map(ch => row(ch, steps, group, barSteps)));
       foot.replaceChildren(
         dwBtn("＋ 3XOSC", () => { const ch = Engine.addChannel("osc3"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }),
         dwBtn("＋ Sampler", () => { const ch = Engine.addChannel("sampler", "Sampler"); Dawn.open("inst", ch.id); }),
-        drumsMenu(),
+        select([["", "＋ Ударные…"], ...Object.entries(BUILTIN)], "", v => {
+          if (!v) return;
+          const ch = Engine.addChannel("sampler", BUILTIN[v], { path: "builtin:" + v });
+          Engine.setSample(ch, "builtin:" + v);
+        }),
         el("span", { className: "dw-dim dw-hint", textContent: "Перетащи сюда сэмпл из «Сэмплы» или из проводника" }));
     }
 
-    function drumsMenu() {
-      const s = el("select", { className: "dw-sel", onchange: () => {
-        if (!s.value) return;
-        const ch = Engine.addChannel("sampler", BUILTIN[s.value], { path: "builtin:" + s.value });
-        Engine.setSample(ch, "builtin:" + s.value); s.value = "";
-      } }, el("option", { value: "", textContent: "＋ Ударные…" }), ...Object.entries(BUILTIN).map(([k, v]) => el("option", { value: k, textContent: v })));
-      return s;
-    }
-
-    function row(ch, len) {
+    function row(ch, count, group, barSteps) {
       const notes = Engine.notesOf(ch.id);
-      const steps = el("div", { className: "dw-steps" });
-      for (let i = 0; i < len; i++) {
-        const at = notes.filter(n => n.s >= i && n.s < i + 1);
-        const b = el("button", { className: "dw-step" + (at.length ? " on" : "") + (Math.floor(i / 4) % 2 ? " alt" : "") + (i % 16 === 0 && i ? " bar" : "") });
-        if (at.length) { b.style.setProperty("--v", at[0].v); if (at.some(n => n.l !== 1 || n.n !== (ch.type === "sampler" ? 60 : n.n))) b.classList.add("long"); }
-        b.title = at.length ? at.map(n => noteName(n.n)).join(" ") : "";
+      const stepsBox = el("div", { className: "dw-steps" });
+      for (let i = 0; i < count; i++) {
+        const b0 = i / 4, at = notes.filter(n => n.s >= b0 - 1e-9 && n.s < b0 + 0.25 - 1e-9);
+        const b = el("button", { className: "dw-step" + (at.length ? " on" : "") + (Math.floor(i / group) % 2 ? " alt" : "") + (i % barSteps === 0 && i ? " bar" : "") });
+        if (at.length) { b.style.setProperty("--v", at[0].v); if (at.some(n => Math.abs(n.l - 0.25) > 1e-6 || n.n !== Engine.defaultPitch(ch))) b.classList.add("long"); }
+        b.title = at.length ? at.map(n => noteNameE(n.n, ch.edo || 12)).join(" ") : "";
         b.onpointerdown = e => {
           e.preventDefault();
-          if (at.length) {   // выключаем шаг — убираем все ноты, начинающиеся в нём
-            for (const n of at) notes.splice(notes.indexOf(n), 1);
-          } else {
-            const pitch = ch.type === "sampler" ? 60 : (notes.at(-1)?.n ?? 60);
-            notes.push({ s: i, l: 1, n: pitch, v: 0.85 });
+          if (e.button === 2 || at.length) { for (const n of at) notes.splice(notes.indexOf(n), 1); }
+          else {
+            const pitch = ch.type === "sampler" ? Engine.defaultPitch(ch) : (notes.at(-1)?.n ?? Engine.defaultPitch(ch));
+            notes.push({ s: b0, l: 0.25, n: pitch, v: 0.85 });
             Engine.preview(ch, pitch, 0.85, Engine.stepDur());
           }
           Engine.touch({ notes: true });
         };
         cols[i].push(b);
-        steps.append(b);
+        stepsBox.append(b);
       }
       const name = el("button", { className: "dw-ch-name", textContent: ch.name, title: "Открыть инструмент (двойной клик — пиано ролл)",
-        onclick: () => Dawn.open("inst", ch.id), ondblclick: () => { Dawn.pianoCh = ch.id; Dawn.open("piano"); Engine.emit("pattern"); } });
+        onclick: () => Dawn.open("inst", ch.id), ondblclick: () => { Dawn.pianoCh = ch.id; Dawn.open("piano"); Engine.emit("change", { param: true, piano: true }); } });
       name.style.setProperty("--chc", ch.color);
+      const mixB = el("button", { className: "dw-mixtag", textContent: ch.mix ? String(ch.mix) : "M", title: `Микшер: ${Engine.project.mixer[ch.mix]?.name || "Master"} — открыть`,
+        onclick: () => { Dawn.mixSel = ch.mix || 0; Dawn.open("mixer"); Engine.emit("change", { param: true, mixsel: true }); } });
       const r = el("div", { className: "dw-row" + (Dawn.pianoCh === ch.id ? " sel" : ""), style: `--dw-row-c:${ch.color}` },
         led(!ch.mute, () => { ch.mute = !ch.mute; Engine.refreshStrips(); Engine.touch({ channels: true }); }, "Вкл/выкл (правый клик — соло)", ch.color),
         knob({ spec: "vol", size: 26, label: "", color: ch.color, get: () => ch.vol, set: v => { ch.vol = v; Engine.refreshStrips(); }, done: () => Engine.touch({ param: true }) }).node,
         knob({ spec: "pan", size: 26, label: "", color: ch.color, get: () => ch.pan, set: v => { ch.pan = v; Engine.refreshStrips(); }, done: () => Engine.touch({ param: true }) }).node,
-        name,
-        el("span", { className: "dw-ch-type", textContent: TYPES[ch.type].icon, title: TYPES[ch.type].name }),
-        steps,
-        dwBtn("🎹", () => { Dawn.pianoCh = ch.id; Dawn.open("piano"); Engine.emit("pattern"); build(); }, { title: "Пиано ролл этого канала" }),
+        name, mixB, el("span", { className: "dw-ch-type", textContent: (ch.edo || 12) !== 12 ? ch.edo : TYPES[ch.type].icon, title: TYPES[ch.type].name + ((ch.edo || 12) !== 12 ? ` · ${ch.edo}-EDO` : "") }),
+        stepsBox,
+        dwBtn("🎹", () => { Dawn.pianoCh = ch.id; Dawn.open("piano"); Engine.emit("change", { param: true, piano: true }); build(); }, { title: "Пиано ролл этого канала" }),
         dwBtn("✕", () => { if (confirm(`Удалить канал «${ch.name}»?`)) { Dawn.close("inst", ch.id); Engine.removeChannel(ch.id); } }, { title: "Удалить канал", className: "dw-btn dw-x" }));
       r.querySelector(".dw-led").oncontextmenu = e => { e.preventDefault(); ch.solo = !ch.solo; Engine.refreshStrips(); Engine.touch({ channels: true }); };
       if (ch.solo) r.classList.add("solo");
       if (ch.mute) r.classList.add("muted");
-      if (ch.type === "sampler") {   // сэмпл бросили на строку — меняем сэмпл этого канала
+      if (ch.type === "sampler") {
         r.ondragover = e => { if (isSampleDrag(e)) { e.preventDefault(); e.stopPropagation(); r.classList.add("drop"); } };
         r.ondragleave = () => r.classList.remove("drop");
         r.ondrop = e => { e.preventDefault(); e.stopPropagation(); r.classList.remove("drop"); const p = droppedPaths(e)[0]; if (p) Engine.setSample(ch, p); };
@@ -196,7 +226,6 @@ const rack = {
       return r;
     }
 
-    // бросили сэмпл на пустое место — новый канал
     root.ondragover = e => { if (isSampleDrag(e)) { e.preventDefault(); root.classList.add("drop"); } };
     root.ondragleave = e => { if (!root.contains(e.relatedTarget)) root.classList.remove("drop"); };
     root.ondrop = e => {
@@ -209,12 +238,8 @@ const rack = {
     build();
     let lastCol = -1, raf = 0;
     const frame = () => {
-      const st = Engine.position(), col = st >= 0 ? Math.floor(st) : -1;
-      if (col !== lastCol) {
-        cols[lastCol]?.forEach(b => b.classList.remove("ph"));
-        cols[col]?.forEach(b => b.classList.add("ph"));
-        lastCol = col;
-      }
+      const st = Engine.positionPattern(), col = st >= 0 ? Math.floor(st * 4 + 1e-6) : -1;
+      if (col !== lastCol) { cols[lastCol]?.forEach(b => b.classList.remove("ph")); cols[col]?.forEach(b => b.classList.add("ph")); lastCol = col; }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -225,46 +250,51 @@ const rack = {
 
 /* ======================= окно инструмента ======================= */
 function miniKeys(ch) {
-  // белые — в ряд, чёрные — поверх, между соседними белыми
   const box = el("div", { className: "dw-keys" });
-  const base = 48, count = 25, whites = [];
-  for (let i = 0; i < count; i++) if (![1, 3, 6, 8, 10].includes((base + i) % 12)) whites.push(base + i);
-  const wPct = 100 / whites.length;
-  const key = (n, black, left) => {
-    const k = el("div", { className: "dw-key" + (black ? " black" : ""), title: noteName(n) });
-    if (black) Object.assign(k.style, { left: `calc(${left}% - ${wPct * 0.3}%)`, width: wPct * 0.6 + "%" });
-    k.onpointerdown = e => { e.preventDefault(); k.classList.add("on"); Engine.preview(ch, n, 0.85, 0.4); };
-    k.onpointerup = k.onpointerleave = () => k.classList.remove("on");
-    return k;
-  };
-  for (const n of whites) box.append(key(n, false));
-  for (let i = 0; i < count; i++) {
-    const n = base + i;
-    if ([1, 3, 6, 8, 10].includes(n % 12)) box.append(key(n, true, whites.indexOf(n - 1) * wPct + wPct));
+  const E = ch.edo || 12, base = (E === 12 ? 48 : 4 * E), count = E === 12 ? 25 : Math.min(2 * E + 1, 49);
+  if (E === 12) {   // пианино: белые в ряд, чёрные поверх
+    const whites = [];
+    for (let i = 0; i < count; i++) if (![1, 3, 6, 8, 10].includes((base + i) % 12)) whites.push(base + i);
+    const wPct = 100 / whites.length;
+    const key = (n, black, left) => {
+      const k = el("div", { className: "dw-key" + (black ? " black" : ""), title: noteNameE(n) });
+      if (black) Object.assign(k.style, { left: `calc(${left}% - ${wPct * 0.3}%)`, width: wPct * 0.6 + "%" });
+      k.onpointerdown = e => { e.preventDefault(); k.classList.add("on"); Engine.preview(ch, n, 0.85, 0.4); };
+      k.onpointerup = k.onpointerleave = () => k.classList.remove("on");
+      return k;
+    };
+    for (const n of whites) box.append(key(n, false));
+    for (let i = 0; i < count; i++) { const n = base + i; if ([1, 3, 6, 8, 10].includes(n % 12)) box.append(key(n, true, whites.indexOf(n - 1) * wPct + wPct)); }
+  } else {          // другие строи: ряд одинаковых клавиш, октавы подписаны
+    for (let i = 0; i < count; i++) {
+      const n = base + i, k = el("div", { className: "dw-key edo" + (n % E === 0 ? " oct" : ""), title: noteNameE(n, E) });
+      k.onpointerdown = e => { e.preventDefault(); k.classList.add("on"); Engine.preview(ch, n, 0.85, 0.4); };
+      k.onpointerup = k.onpointerleave = () => k.classList.remove("on");
+      box.append(k);
+    }
   }
   return el("div", { className: "dw-keys-wrap" }, box);
 }
 
 function paramKnob(ch, key, obj = ch.params, extra = {}) {
   return knob({ spec: key, color: extra.color || ch.color, label: extra.label, path: `ch.${ch.id}.${key}`,
-    get: () => obj[key], set: v => { obj[key] = v; }, done: () => Engine.touch({ param: true }) }).node;
+    get: () => obj[key], set: v => { obj[key] = v; extra.onSet?.(); }, done: () => Engine.touch({ param: true }) }).node;
 }
 
 function osc3Panel(ch) {
   const p = ch.params;
   const oscRow = (o, i) => {
+    const col = PASTEL[i];
     const waves = el("div", { className: "dw-waves" }, ...WAVES.map(wv => {
       const b = el("button", { className: "dw-wave" + (o.wave === wv ? " on" : ""), textContent: WAVE_GLYPH[wv], title: wv,
-        onclick: () => { o.wave = wv; waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); Engine.touch({ param: true }); Engine.preview(ch, 60); } });
+        onclick: () => { o.wave = wv; waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); Engine.touch({ param: true }); Engine.preview(ch); } });
       return b;
     }));
-    const col = PASTEL[[0, 1, 2][i]];
     return el("div", { className: "dw-osc", style: `--oc:${col}` }, el("div", { className: "dw-osc-n", textContent: "OSC " + (i + 1) }), waves,
       paramKnob(ch, "o_crs", o, { color: col }), paramKnob(ch, "o_fin", o, { color: col }),
       paramKnob(ch, "o_pan", o, { color: col }), paramKnob(ch, "o_vol", o, { color: col }));
   };
-  return el("div", { className: "dw-panel" },
-    ...p.oscs.map(oscRow),
+  return el("div", { className: "dw-panel" }, ...p.oscs.map(oscRow),
     el("div", { className: "dw-sect" },
       el("div", { className: "dw-sect-h", textContent: "Фильтр" }), paramKnob(ch, "cut", p, { color: "var(--dw-sky)" }), paramKnob(ch, "res", p, { color: "var(--dw-sky)" }),
       el("div", { className: "dw-sect-h", textContent: "Огибающая" }), paramKnob(ch, "att", p, { color: "var(--dw-peach)" }), paramKnob(ch, "dec", p, { color: "var(--dw-peach)" }),
@@ -288,7 +318,7 @@ function samplerPanel(ch, Dawn) {
       for (let j = 0; j < step; j++) mx = Math.max(mx, Math.abs(d[i0 + j] || 0));
       g.fillRect(x, H / 2 - mx * H / 2, 1, Math.max(1, mx * H));
     }
-    g.fillStyle = "rgba(255,158,207,0.9)"; g.fillRect(p.start * W, 0, 2, H);
+    g.fillStyle = "rgba(255,95,168,0.9)"; g.fillRect(p.start * W, 0, 2, H);
   };
   const toggle = (key, text) => {
     const b = el("button", { className: "dw-btn dw-tog" + (p[key] ? " on" : ""), textContent: text,
@@ -299,48 +329,132 @@ function samplerPanel(ch, Dawn) {
   drop.ondragover = e => { if (isSampleDrag(e)) { e.preventDefault(); drop.classList.add("drop"); } };
   drop.ondragleave = () => drop.classList.remove("drop");
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove("drop"); const x = droppedPaths(e)[0]; if (x) Engine.setSample(ch, x); };
-  const startK = knob({ spec: "start", color: ch.color, path: `ch.${ch.id}.start`, get: () => p.start, set: v => { p.start = v; draw(); }, done: () => Engine.touch({ param: true }) }).node;
   const panel = el("div", { className: "dw-panel" }, drop,
     el("div", { className: "dw-sect" },
-      paramKnob(ch, "root"), paramKnob(ch, "tune"), startK, paramKnob(ch, "att"), paramKnob(ch, "rel"),
+      paramKnob(ch, "root"), paramKnob(ch, "tune"), paramKnob(ch, "start", p, { onSet: draw }), paramKnob(ch, "att"), paramKnob(ch, "rel"),
       toggle("oneshot", "One-shot"), toggle("rev", "Reverse"), dwBtn("📂 Сэмплы", () => Dawn.open("browser"))));
-  const off = Engine.on("change", w => { if (w?.sample === ch.id || w?.channels) draw(); });
+  panel._off = Engine.on("change", w => { if (w?.sample === ch.id || w?.channels) draw(); });
   requestAnimationFrame(draw);
-  panel._off = off;
   return panel;
 }
 
 const inst = {
   title: id => { const ch = Engine.chan(id); return ch ? `${TYPES[ch.type].icon} ${ch.name}` : "Инструмент"; },
-  icon: "🎚",
-  size: id => Engine.chan(id)?.type === "sampler" ? [540, 380] : [580, 540],
+  icon: "🎚", color: id => Engine.chan(id)?.color || "var(--dw-lav)",
+  size: id => Engine.chan(id)?.type === "sampler" ? [560, 400] : [600, 560],
   render(c, win, id, Dawn) {
     const ch = Engine.chan(id);
     if (!ch) return;
     const root = shell(c, "dw-inst", ch.color);
-    const name = el("input", { className: "dw-name", value: ch.name, maxLength: 24,
-      onchange: () => { ch.name = name.value.trim() || ch.name; win.setTitle(inst.title(id)); Engine.touch({ channels: true }); } });
-    const head = el("div", { className: "dw-inst-head" },
-      el("span", { className: "dw-inst-type", textContent: TYPES[ch.type].name }), name,
-      paramKnob(ch, "vol", ch, { label: "Vol" }), paramKnob(ch, "pan", ch, { label: "Pan" }));
-    head.querySelectorAll(".dk").forEach(k => k.addEventListener("pointermove", () => Engine.refreshStrips()));
-    const panel = ch.type === "osc3" ? osc3Panel(ch) : samplerPanel(ch, Dawn);
-    root.append(head, panel, miniKeys(ch));
-    const off = Engine.on("change", w => { if (w?.channels && !Engine.chan(id)) Dawn.close("inst", id); });
-    return () => { off(); panel._off?.(); };
+    let panel = null;
+    function build() {
+      panel?._off?.();
+      const name = el("input", { className: "dw-name", value: ch.name, maxLength: 24,
+        onchange: () => { ch.name = name.value.trim() || ch.name; win.setTitle(inst.title(id)); Engine.touch({ channels: true }); } });
+      const route = select(Engine.project.mixer.map((m, i) => [i, i ? `→ ${i}: ${m.name}` : "→ Master"]), ch.mix || 0,
+        v => { ch.mix = +v; Engine.refreshStrips(); Engine.touch({ channels: true }); }, "Куда идёт звук в микшере");
+      const head = el("div", { className: "dw-inst-head" },
+        el("span", { className: "dw-inst-type", textContent: TYPES[ch.type].name }), name, route,
+        paramKnob(ch, "vol", ch, { label: "Vol", onSet: () => Engine.refreshStrips() }), paramKnob(ch, "pan", ch, { label: "Pan", onSet: () => Engine.refreshStrips() }));
+      panel = ch.type === "osc3" ? osc3Panel(ch) : samplerPanel(ch, Dawn);
+      root.replaceChildren(head, panel, miniKeys(ch));
+    }
+    build();
+    const off = Engine.on("change", w => {
+      if (w?.channels && !Engine.chan(id)) return Dawn.close("inst", id);
+      if (w?.channels || w?.mixer || w?.all) { if (!root.contains(document.activeElement)) build(); }
+    });
+    return () => { off(); panel?._off?.(); };
+  },
+};
+
+/* ======================= микшер ======================= */
+const mixer = {
+  title: () => "Микшер",
+  icon: "🎚", color: "var(--dw-peach)",
+  size: () => [Math.min(900, vw() - 40), 470, 40, 260],
+  render(c, win, _a, Dawn) {
+    const root = shell(c, "dw-mixer", "var(--dw-peach)");
+    const strips = el("div", { className: "dw-strips" });
+    const fxBox = el("div", { className: "dw-fxbox" });
+    root.append(strips, fxBox);
+    Dawn.mixSel ??= 0;
+    let meters = [];
+
+    function build() {
+      const P = Engine.project;
+      meters = [];
+      strips.replaceChildren(...P.mixer.map((m, i) => {
+        const cv = el("canvas", { className: "dw-meter", width: 10, height: 120 });
+        meters[i] = { cv, peak: 0 };
+        const routed = P.channels.filter(ch => (ch.mix || 0) === i);
+        const nm = el("div", { className: "dw-strip-name", textContent: i ? `${i} · ${m.name}` : "MASTER", title: "Двойной клик — переименовать",
+          ondblclick: () => { if (!i) return; const n = prompt("Имя инсерта:", m.name); if (n) { m.name = n.slice(0, 20); Engine.touch({ mixer: true }); } } });
+        const s = el("div", { className: "dw-strip" + (i === Dawn.mixSel ? " sel" : "") + (i ? "" : " master") },
+          nm,
+          el("div", { className: "dw-strip-mid" }, cv,
+            el("div", { className: "dw-strip-knobs" },
+              knob({ spec: "vol", label: "Vol", color: m.color || "var(--dw-pink)", get: () => m.vol, set: v => { m.vol = v; Engine.applyInsert(i); }, done: () => Engine.touch({ param: true }) }).node,
+              knob({ spec: "pan", label: "Pan", color: m.color || "var(--dw-pink)", get: () => m.pan, set: v => { m.pan = v; Engine.applyInsert(i); }, done: () => Engine.touch({ param: true }) }).node,
+              led(!m.mute, () => { m.mute = !m.mute; Engine.applyInsert(i); Engine.touch({ mixer: true }); }, "Вкл/выкл", m.color))),
+          el("div", { className: "dw-strip-fx" }, ...m.fx.map(f => el("span", { className: "dw-fxdot" + (f.on ? " on" : ""), textContent: FX[f.type].icon, title: FX[f.type].name, style: `--fc:${FX[f.type].color}` }))),
+          el("div", { className: "dw-dim dw-strip-ch", textContent: routed.length ? routed.map(x => x.name).join(", ") : "—", title: "Каналы, которые сюда идут" }));
+        s.style.setProperty("--sc", m.color || "#ff9ecf");
+        s.onclick = e => { if (e.target.closest(".dk, .dw-led")) return; Dawn.mixSel = i; build(); };
+        return s;
+      }), el("button", { className: "dw-btn dw-addins", textContent: "＋\nInsert", title: "Добавить инсерт", onclick: () => { const i = Engine.addInsert(); if (i == null) notify("Хватит инсертов (16)"); else Dawn.mixSel = i; } }));
+      fxPanel();
+    }
+
+    function fxPanel() {
+      const i = Math.min(Dawn.mixSel, Engine.project.mixer.length - 1), m = Engine.project.mixer[i];
+      const slots = m.fx.map((f, k) => {
+        const spec = FX[f.type];
+        return el("div", { className: "dw-fx", style: `--fc:${spec.color}` },
+          el("div", { className: "dw-fx-head" },
+            led(f.on, () => Engine.fxToggle(i, k), "Вкл/выкл эффект", spec.color),
+            el("b", { textContent: spec.icon + " " + spec.name }),
+            select([["delay", "Delay"], ["reverb", "Reverb"], ["eq", "EQ"]], f.type, v => Engine.setFx(i, k, v), "Тип эффекта"),
+            dwBtn("✕", () => Engine.setFx(i, k, null), { title: "Убрать", className: "dw-btn dw-x" })),
+          el("div", { className: "dw-fx-knobs" }, ...Object.entries(spec.params).map(([key, ps]) =>
+            knob({ spec: ps, color: spec.color, path: `mix.${i}.${k}.${key}`, get: () => f.p[key], set: v => { f.p[key] = v; Engine.fxParam(i, k); }, done: () => Engine.touch({ param: true }) }).node)));
+      });
+      fxBox.replaceChildren(
+        el("div", { className: "dw-fx-title" }, el("b", { textContent: i ? `${i} · ${m.name}` : "Master" }), el("span", { className: "dw-dim", textContent: " — эффекты по порядку сверху вниз" })),
+        ...slots,
+        m.fx.length < 4 ? el("div", { className: "dw-fx-add" }, el("span", { className: "dw-dim", textContent: "Добавить:" }),
+          ...Object.entries(FX).map(([t, s]) => dwBtn(s.icon + " " + s.name, () => Engine.setFx(i, m.fx.length, t)))) : el("div", { className: "dw-dim", textContent: "Максимум 4 эффекта" }));
+    }
+
+    build();
+    let raf = 0;
+    const frame = () => {
+      meters.forEach((mt, i) => {
+        const v = Engine.meter(i);
+        mt.peak = Math.max(v, mt.peak * 0.92);
+        const g = mt.cv.getContext("2d"), W = mt.cv.width, H = mt.cv.height, h = Math.min(1, mt.peak) * H;
+        g.clearRect(0, 0, W, H);
+        const gr = g.createLinearGradient(0, H, 0, 0); gr.addColorStop(0, "#8fe8cf"); gr.addColorStop(0.7, "#fff09e"); gr.addColorStop(1, "#ff7aa8");
+        g.fillStyle = "rgba(127,127,127,0.18)"; g.fillRect(0, 0, W, H);
+        g.fillStyle = gr; g.fillRect(0, H - h, W, h);
+      });
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    const offs = [Engine.on("change", w => { if (!w?.param || w?.mixsel) build(); })];
+    return () => { cancelAnimationFrame(raf); offs.forEach(f => f()); };
   },
 };
 
 /* ======================= браузер сэмплов ======================= */
 const browser = {
   title: () => "Сэмплы",
-  icon: "📂",
+  icon: "📂", color: "var(--dw-mint)",
   size: () => [300, 440, Math.max(12, vw() - 320), 202],
   render(c) {
     const root = shell(c, "dw-browser", "var(--dw-mint)");
     const tree = el("div", { className: "dw-tree" });
     root.append(el("div", { className: "dw-dim dw-hint", textContent: "Клик — послушать, двойной клик — новый канал, тащи в стойку" }), tree);
-
     const fileRow = (path, label, depth) => {
       const r = el("div", { className: "dw-file-row", draggable: true, textContent: "♪ " + label, title: path, style: `--d:${depth}` });
       r.onclick = async () => { if (!(await Engine.previewPath(path))) notify("Не получилось прочитать " + label); };
@@ -359,8 +473,7 @@ const browser = {
         loaded = true;
         kids.append(el("div", { className: "dw-dim", textContent: "…", style: `--d:${depth + 1}` }));
         try {
-          const res = await fetch("/api/ls?path=" + encodeURIComponent(path), { cache: "no-store" });
-          const d = await res.json();
+          const d = await (await fetch("/api/ls?path=" + encodeURIComponent(path), { cache: "no-store" })).json();
           kids.replaceChildren();
           for (const e of d.entries || []) {
             const p = (path === "/" ? "" : path) + "/" + e.name;
@@ -376,11 +489,46 @@ const browser = {
       return box;
     }
     (async () => {
-      const builtin = el("div", {}, el("div", { className: "dw-dir-row open", textContent: "▾ 🥁 Встроенные ударные", style: "--d:0" }),
-        ...Object.entries(BUILTIN).map(([k, v]) => fileRow("builtin:" + k, v, 1)));
-      tree.append(builtin, await dirRow("/home/nikita", "nikita", 0, true));
+      tree.append(el("div", {}, el("div", { className: "dw-dir-row open", textContent: "▾ 🥁 Встроенные ударные", style: "--d:0" }),
+        ...Object.entries(BUILTIN).map(([k, v]) => fileRow("builtin:" + k, v, 1))), await dirRow("/home/nikita", "nikita", 0, true));
     })();
   },
 };
 
-export const MODULES = { transport, rack, piano: PIANO, inst, browser };
+/* ======================= нейросеть: проект как текст ======================= */
+const ai = {
+  title: () => "Проект как текст",
+  icon: "🤖", color: "#b8f59e",
+  size: () => [620, 560],
+  render(c, win, _a, Dawn) {
+    const root = shell(c, "dw-ai", "#b8f59e");
+    const ta = el("textarea", { className: "dw-ai-ta", spellcheck: false });
+    const refresh = () => { ta.value = Engine.serialize(); };
+    const copy = async (text, msg) => { try { await navigator.clipboard.writeText(text); notify(msg); } catch { ta.select(); notify("Выдели и скопируй вручную (Ctrl+C)"); } };
+    root.append(
+      el("div", { className: "dw-ai-help dw-dim", textContent: "Формат dawn/2 — обычный JSON: время в долях, ноты именами (C4, F#3). Скопируй с описанием формата, отдай нейросети («допиши второй куплет», «сделай басс в ми-миноре»), вставь ответ сюда и нажми «Загрузить»." }),
+      el("div", { className: "dw-ai-btns" },
+        dwBtn("🤖 Копировать для нейросети", () => copy(AI_BRIEF + "\n\nProject:\n" + Engine.serialize(), "Скопировано: описание формата + проект")),
+        dwBtn("📋 Только проект", () => copy(Engine.serialize(), "Проект скопирован")),
+        dwBtn("📋 Только описание", () => copy(AI_BRIEF, "Описание формата скопировано")),
+        dwBtn("↻ Обновить", refresh),
+        dwBtn("⬆ Загрузить из текста", () => {
+          const txt = ta.value.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");   // нейросеть любит обернуть в ```json
+          const start = txt.indexOf("{"), end = txt.lastIndexOf("}");
+          try {
+            const P = fromFile(txt.slice(start, end + 1));
+            if (Engine.dirty && !confirm("Заменить текущий проект загруженным? (черновик останется в браузере)")) return;
+            const path = Engine.path;
+            for (const k of [...Dawn.wins.keys()]) if (k.startsWith("inst:")) Dawn.close(...k.split(":"));
+            Engine.load(P, path); Engine.dirty = true;
+            Dawn.pianoCh = P.channels.find(x => x.type === "osc3")?.id || P.channels[0]?.id;
+            Dawn.retitle();
+            notify(`Загружено: ${P.channels.length} каналов, ${P.patterns.length} паттернов, ${P.playlist.length} клипов`);
+          } catch (e) { notify("⚠ Не похоже на проект DAWN: " + e.message); }
+        }, { className: "dw-btn dw-primary" })),
+      ta);
+    refresh();
+  },
+};
+
+export const MODULES = { transport, rack, piano: PIANO, playlist: PLAYLIST, mixer, inst, browser, ai };

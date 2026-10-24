@@ -3,6 +3,8 @@ import { VFS } from "../../core/vfs.js";
 import { notify } from "../../ui/notify.js";
 import { WM } from "../../wm.js";
 import { Engine, newProject } from "./engine.js";
+import { fromFile } from "./format.js";
+import { applyTheme } from "./ui.js";
 import { MODULES } from "./windows.js";
 
 /* ================= DAWN — хаб =================
@@ -15,6 +17,7 @@ const AUTOSAVE = "dawn.autosave";
 export const Dawn = {
   wins: new Map(),          // ключ модуля -> окно WM
   pianoCh: null,            // какой канал показывает пиано ролл
+  mixSel: 0,                // какой инсерт выбран в микшере
   unsub: [],
 
   /* ключ окна: "rack", "piano", "browser", "inst:<id>" */
@@ -36,6 +39,10 @@ export const Dawn = {
         };
       } });
     this.wins.set(key, w);
+    // окно целиком в цвете модуля (в светлой теме — заливка, в тёмной — акцент)
+    const col = typeof m.color === "function" ? m.color(arg) : m.color;
+    w.node.classList.add("dw-win");
+    if (col) w.node.style.setProperty("--acc", col);
     const lay = Engine.project.layout?.[key];
     if (lay) Object.assign(w.node.style, { left: lay[0] + "px", top: lay[1] + "px", width: lay[2] + "px", height: lay[3] + "px" });
     else if (def[2] != null) Object.assign(w.node.style, { left: def[2] + "px", top: def[3] + "px" });
@@ -54,6 +61,7 @@ export const Dawn = {
 
   /* ---------- проект ---------- */
   start(project, path) {
+    applyTheme();
     Engine.init();
     Engine.load(project, path);
     this.pianoCh = Engine.project.channels.find(c => c.type === "osc3")?.id || Engine.project.channels[0]?.id || null;
@@ -61,7 +69,7 @@ export const Dawn = {
     const open = Object.keys(Engine.project.layout || {}).filter(k => Engine.project.layout[k][4]);
     this.open("transport");
     // по умолчанию — транспорт, стойка и пиано ролл; если в проекте сохранена раскладка — она
-    for (const k of open.length ? open : ["rack", "piano"]) {
+    for (const k of open.length ? open : ["rack", "piano", "playlist"]) {
       if (k === "transport") continue;
       const [n, a] = k.split(":");
       if (n === "inst" && !Engine.chan(a)) continue;
@@ -141,7 +149,7 @@ export async function openDawn(path) {
     try {
       const r = await fetch("/fs" + path.split("/").map(encodeURIComponent).join("/"), { cache: "no-store" });
       if (!r.ok) throw new Error("файл не найден");
-      return Dawn.start(await r.json(), path);
+      return Dawn.start(fromFile(await r.text()), path);
     } catch (e) { return notify("Не открыть проект: " + e.message); }
   }
   const draft = store.get(AUTOSAVE, null);

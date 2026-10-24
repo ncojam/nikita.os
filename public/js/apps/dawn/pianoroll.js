@@ -1,49 +1,67 @@
 import { el } from "../../core/util.js";
-import { Engine, STEPS_PER_BAR, TYPES } from "./engine.js";
-import { dwBtn, noteName, shell } from "./ui.js";
+import { Engine, TYPES } from "./engine.js";
+import { EDOS, EDO_NAME, degreeNames, inScale, isBlack, noteNameE, scaleSet, scalesOf, snapToScale } from "./tuning.js";
+import { dwBtn, pal, select, shell } from "./ui.js";
 
 /* ================= DAWN — пиано ролл =================
- * Ноты выбранного канала в текущем паттерне (те же, что шаги в стойке).
- * Левая кнопка: по пустому — поставить ноту (и тянуть длину), по ноте — двигать, за правый край — длина.
- * Правая кнопка: удалить (можно вести по нотам). Колесо — вверх/вниз, Shift+колесо — вбок,
- * Ctrl+колесо — масштаб. Снизу — громкость нот (тянуть столбики).
+ * Ноты выбранного канала в текущем паттерне (те же, что шаги в стойке). Строки — ступени строя канала
+ * (12-EDO, 24, 19, 31…). Лад и тоника подсвечивают строки; «🧲» — ноты прилипают к ладу.
+ * ЛКМ: по пустому — нота (и тянуть длину), по ноте — двигать, за правый край — длина.
+ * ПКМ: удалить (можно вести). Колесо — вверх/вниз, Shift — вбок, Ctrl — масштаб. Снизу — громкость нот.
  */
-const ROW = 14, KEYS_W = 54, VEL_H = 64, LO = 0, HI = 127;
-const BLACK = [1, 3, 6, 8, 10];
+const KEYS_W = 58, VEL_H = 64;
+const SNAPS = [["0.0625", "1/64"], ["0.125", "1/32"], ["0.1667", "1/16T"], ["0.25", "1/16"], ["0.3333", "1/8T"],
+  ["0.5", "1/8"], ["1", "1/4 (доля)"], ["bar", "такт"]];
 
 export const PIANO = {
   title: () => "Пиано ролл",
   icon: "🎹",
-  size: () => [Math.min(820, innerWidth - 40), 500, Math.max(12, Math.min(780, innerWidth - 840)), 202],
+  color: "var(--dw-sky)",
+  size: () => [Math.min(860, innerWidth - 40), 520, Math.max(12, Math.min(780, innerWidth - 880)), 202],
   render(c, win, _a, Dawn) {
     const root = shell(c, "dw-piano", "var(--dw-sky)");
-    const chSel = el("select", { className: "dw-sel", title: "Канал" });
-    const snapSel = el("select", { className: "dw-sel", title: "Привязка" },
-      ...[["0.25", "1/64"], ["0.5", "1/32"], ["1", "1/16 (шаг)"], ["2", "1/8"], ["4", "1/4 (доля)"], ["16", "такт"]]
-        .map(([v, t]) => el("option", { value: v, textContent: "⧉ " + t, selected: v === "1" })));
-    const info = el("span", { className: "dw-dim" });
-    const tb = el("div", { className: "dw-pr-tools" }, chSel, snapSel,
-      dwBtn("−", () => zoom(0.8), { title: "Мельче (Ctrl+колесо)" }), dwBtn("＋", () => zoom(1.25), { title: "Крупнее" }),
-      dwBtn("🎛", () => Dawn.open("inst", Dawn.pianoCh), { title: "Открыть инструмент" }), info);
+    const tb = el("div", { className: "dw-pr-tools" });
     const cv = el("canvas", { className: "dw-pr-cv" });
     const wrap = el("div", { className: "dw-pr-wrap" }, cv);
     root.append(tb, wrap);
     const g = cv.getContext("2d");
 
-    const view = { px: 22, x: 0, y: (HI - 76) * ROW };   // px на шаг, сдвиг по X (шаги), по Y (px от верхней ноты)
-    let lastLen = 1, W = 0, H = 0, dpr = 1;
+    let snapV = "0.25";
+    const view = { px: 88, x: 0, y: -1 };   // px на долю, сдвиг по X (доли), по Y (px от верхней строки)
+    let lastLen = 0.25, W = 0, H = 0, dpr = 1, lastKey = "";
     const ch = () => Engine.chan(Dawn.pianoCh) || Engine.project.channels[0];
+    const edo = () => ch()?.edo || 12;
+    const rowH = () => Math.max(6, Math.min(15, Math.round(14 * 12 / edo())));
+    const HI = () => edo() * 11 - 1;
     const notes = () => ch() ? Engine.notesOf(ch().id) : [];
-    const snap = () => +snapSel.value;
+    const snap = () => snapV === "bar" ? Engine.barLen() : +snapV;
     const gridH = () => H - VEL_H;
+    const scale = () => { const s = ch()?.scale || { root: 0, mode: "chromatic" }; return { ...s, set: scaleSet(edo(), s.mode, s.root) }; };
 
-    function fillCh() {
+    /* ---------- панель: канал, привязка, строй, лад, тоника, магнит ---------- */
+    function tools() {
+      const c2 = ch();
       if (!Engine.chan(Dawn.pianoCh)) Dawn.pianoCh = Engine.project.channels[0]?.id || null;
-      chSel.replaceChildren(...Engine.project.channels.map(c2 =>
-        el("option", { value: c2.id, textContent: TYPES[c2.type].icon + " " + c2.name, selected: c2.id === Dawn.pianoCh })));
-      win.setTitle("Пиано ролл — " + (ch()?.name || "") + " · " + Engine.pat().name);
+      const sc = c2?.scale || { root: 0, mode: "chromatic", snap: false };
+      const roots = degreeNames(edo());
+      const key = (c2?.id || "") + ":" + edo();
+      if (key !== lastKey) { lastKey = key; if (W) centerOnNotes(); }   // другой канал или строй — показать его ноты
+      tb.replaceChildren(...[
+        select(Engine.project.channels.map(x => [x.id, TYPES[x.type].icon + " " + x.name]), Dawn.pianoCh,
+          v => { Dawn.pianoCh = v; tools(); centerOnNotes(); draw(); Engine.emit("change", { param: true, piano: true }); }, "Канал"),
+        select(SNAPS.map(([v, t]) => [v, "⧉ " + t]), snapV, v => { snapV = v; }, "Привязка по времени"),
+        c2 && select(EDOS.map(e => [e, EDO_NAME[e]]), edo(), v => { Engine.setEdo(c2, +v); centerOnNotes(); tools(); draw(); }, "Строй: деление октавы"),
+        c2 && select(Object.entries(scalesOf(edo())).map(([k, [name]]) => [k, "🎼 " + name]), sc.mode,
+          v => { c2.scale = { ...sc, mode: v }; Engine.touch({ param: true }); tools(); draw(); }, "Лад"),
+        c2 && sc.mode !== "chromatic" && select(roots.map((r, i) => [i, "Тоника " + r]), sc.root,
+          v => { c2.scale = { ...sc, root: +v }; Engine.touch({ param: true }); draw(); }, "Тоника"),
+        c2 && sc.mode !== "chromatic" && dwBtn("🧲", () => { c2.scale = { ...sc, snap: !sc.snap }; Engine.touch({ param: true }); tools(); },
+          { title: "Ноты прилипают к ладу", className: "dw-btn dw-tog" + (sc.snap ? " on" : "") }),
+        dwBtn("−", () => zoom(0.8), { title: "Мельче (Ctrl+колесо)" }), dwBtn("＋", () => zoom(1.25), { title: "Крупнее" }),
+        dwBtn("🎛", () => Dawn.open("inst", Dawn.pianoCh), { title: "Открыть инструмент" }),
+        el("span", { className: "dw-dim", textContent: `${notes().length} нот` })].filter(Boolean));
+      win.setTitle("Пиано ролл — " + (c2?.name || "") + " · " + Engine.pat().name);
     }
-    chSel.onchange = () => { Dawn.pianoCh = chSel.value; fillCh(); Engine.emit("change", { param: true, piano: true }); draw(); };
 
     function fit() {
       const r = wrap.getBoundingClientRect();
@@ -54,59 +72,75 @@ export const PIANO = {
       clampView();
     }
     function clampView() {
-      view.y = Math.max(0, Math.min((HI - LO + 1) * ROW - gridH(), view.y));
+      view.y = Math.max(0, Math.min((HI() + 1) * rowH() - gridH(), view.y));
       view.x = Math.max(0, view.x);
+    }
+    function centerOnNotes() {
+      const L = notes();
+      const mid = L.length ? L.reduce((a, n) => a + n.n, 0) / L.length : Engine.defaultPitch(ch() || { edo: 12 });
+      view.y = (HI() - mid) * rowH() - gridH() / 2;
+      clampView();
     }
     function zoom(k, atX = KEYS_W + (W - KEYS_W) / 2) {
       const s = view.x + (atX - KEYS_W) / view.px;
-      view.px = Math.max(5, Math.min(90, view.px * k));
+      view.px = Math.max(20, Math.min(400, view.px * k));
       view.x = Math.max(0, s - (atX - KEYS_W) / view.px);
       draw();
     }
 
-    const sx = s => KEYS_W + (s - view.x) * view.px;          // шаг -> x
-    const ny = n => (HI - n) * ROW - view.y;                   // нота -> y (верх строки)
-    const xs = x => view.x + (x - KEYS_W) / view.px;           // x -> шаг
-    const yn = y => HI - Math.floor((y + view.y) / ROW);       // y -> нота
+    const sx = s => KEYS_W + (s - view.x) * view.px;
+    const ny = n => (HI() - n) * rowH() - view.y;
+    const xs = x => view.x + (x - KEYS_W) / view.px;
+    const yn = y => HI() - Math.floor((y + view.y) / rowH());
 
     function draw() {
       if (!W) return;
-      const len = Engine.patLength(), col = ch()?.color || "#c3a6ff", gh = gridH();
+      const C = pal(), E = edo(), R = rowH(), pat = Engine.pat(), len = Engine.patLength(), bar = Engine.barLen(pat);
+      const col = ch()?.color || "#c3a6ff", gh = gridH(), sc = scale(), useScale = sc.mode !== "chromatic";
+      const names = degreeNames(E);
       g.clearRect(0, 0, W, H);
-      // фон строк
-      for (let n = yn(gh); n <= yn(0); n++) {
-        const y = ny(n);
-        g.fillStyle = BLACK.includes(n % 12) ? "rgba(20,10,40,0.55)" : "rgba(255,255,255,0.025)";
-        g.fillRect(KEYS_W, y, W - KEYS_W, ROW);
-        if (n % 12 === 0) { g.fillStyle = "rgba(195,166,255,0.25)"; g.fillRect(KEYS_W, y + ROW - 1, W - KEYS_W, 1); }
+      // строки: в ладу / вне лада / тоника; без лада — «чёрные» и «белые»
+      for (let n = Math.max(0, yn(gh)); n <= Math.min(HI(), yn(0)); n++) {
+        const y = ny(n), d = ((n % E) + E) % E;
+        g.fillStyle = useScale ? (d === sc.root ? C.rowRoot : inScale(n, sc.set, E) ? C.rowIn : C.rowOut)
+                               : (isBlack(n, E) ? C.rowB : C.rowW);
+        g.fillRect(KEYS_W, y, W - KEYS_W, R);
+        if (d === 0) { g.fillStyle = C.oct; g.fillRect(KEYS_W, y + R - 1, W - KEYS_W, 1); }
       }
-      // вертикали: шаги, доли, такты; за концом паттерна — темнее
-      const s0 = Math.floor(view.x), s1 = Math.ceil(xs(W));
-      for (let s = s0; s <= s1; s++) {
-        const x = sx(s);
-        g.fillStyle = s % STEPS_PER_BAR === 0 ? "rgba(255,158,207,0.45)" : s % 4 === 0 ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.04)";
-        g.fillRect(Math.round(x), 0, 1, gh);
+      // вертикали: 1/16, доли размера (4/d), такты; за концом паттерна — темнее
+      const beatU = 4 / pat.sig[1];
+      for (let s = Math.floor(view.x * 4) / 4; s <= xs(W); s += 0.25) {
+        const x = Math.round(sx(s)), isBar = Math.abs(s / bar - Math.round(s / bar)) < 1e-6, isBeat = Math.abs(s / beatU - Math.round(s / beatU)) < 1e-6;
+        if (!isBar && !isBeat && view.px < 40) continue;
+        g.fillStyle = isBar ? C.g3 : isBeat ? C.g2 : C.g1;
+        g.fillRect(x, 0, 1, gh);
       }
-      if (sx(len) < W) { g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(Math.max(KEYS_W, sx(len)), 0, W, gh); }
-      // ноты
+      if (sx(len) < W) { g.fillStyle = C.shade; g.fillRect(Math.max(KEYS_W, sx(len)), 0, W, gh); }
+      // ноты (вне лада — с пунктирной рамкой)
       for (const nt of notes()) {
         const x = sx(nt.s), y = ny(nt.n), w = Math.max(3, nt.l * view.px - 1);
-        if (x + w < KEYS_W || x > W || y + ROW < 0 || y > gh) continue;
+        if (x + w < KEYS_W || x > W || y + R < 0 || y > gh) continue;
         g.globalAlpha = 0.55 + 0.45 * nt.v;
-        g.fillStyle = col; roundRect(x + 0.5, y + 1, w, ROW - 2, 4); g.fill();
+        g.fillStyle = col; roundRect(x + 0.5, y + 1, w, R - 2, Math.min(4, R / 3)); g.fill();
         g.globalAlpha = 1;
-        g.fillStyle = "rgba(255,255,255,0.55)"; g.fillRect(x + w - 3, y + 3, 1.5, ROW - 6);   // ручка длины
-        if (w > 26) { g.fillStyle = "rgba(30,15,50,0.85)"; g.font = "9px system-ui"; g.fillText(noteName(nt.n), x + 4, y + ROW - 4); }
+        if (useScale && !inScale(nt.n, sc.set, E)) { g.setLineDash([3, 2]); g.strokeStyle = C.text; g.lineWidth = 1; g.stroke(); g.setLineDash([]); }
+        g.fillStyle = "rgba(255,255,255,0.6)"; g.fillRect(x + w - 3, y + 3, 1.5, Math.max(1, R - 6));
+        if (w > 26 && R >= 11) { g.fillStyle = C.noteText; g.font = "9px system-ui"; g.fillText(noteNameE(nt.n, E), x + 4, y + R - 3.5); }
       }
       // клавиши
-      for (let n = yn(gh); n <= yn(0); n++) {
-        const y = ny(n), bl = BLACK.includes(n % 12);
-        g.fillStyle = bl ? "#2a1f3d" : "#f6eefc"; g.fillRect(0, y, bl ? KEYS_W * 0.62 : KEYS_W, ROW - (bl ? 0 : 1));
-        if (n % 12 === 0) { g.fillStyle = "#7a5fa8"; g.font = "9px system-ui"; g.fillText(noteName(n), 26, y + ROW - 3); }
+      for (let n = Math.max(0, yn(gh)); n <= Math.min(HI(), yn(0)); n++) {
+        const y = ny(n), d = ((n % E) + E) % E, bl = isBlack(n, E);
+        g.fillStyle = useScale && inScale(n, sc.set, E) ? (bl ? C.keyB : C.keyIn) : bl ? C.keyB : C.keyW;
+        g.fillRect(0, y, bl ? KEYS_W * 0.62 : KEYS_W, R - (bl ? 0 : 1));
+        if (useScale && d === sc.root) { g.fillStyle = C.g3; g.fillRect(KEYS_W - 4, y, 4, R - 1); }
+        if (d === 0 || (R >= 12 && E !== 12)) {
+          g.fillStyle = bl ? C.keyW : C.keyLbl; g.font = (d === 0 ? "600 " : "") + "9px system-ui";
+          g.fillText(d === 0 ? noteNameE(n, E) : names[d], 24, y + R - 3);
+        }
       }
-      // полоса громкости
-      g.fillStyle = "rgba(10,5,20,0.6)"; g.fillRect(0, gh, W, VEL_H);
-      g.fillStyle = "rgba(255,255,255,0.35)"; g.font = "9px system-ui"; g.fillText("VEL", 8, gh + 14);
+      // громкость
+      g.fillStyle = C.panel; g.fillRect(0, gh, W, VEL_H);
+      g.fillStyle = C.dim; g.font = "9px system-ui"; g.fillText("VEL", 8, gh + 14);
       for (const nt of notes()) {
         const x = sx(nt.s);
         if (x < KEYS_W - 2 || x > W) continue;
@@ -114,10 +148,8 @@ export const PIANO = {
         g.fillStyle = col; g.fillRect(x, H - 4 - hgt, 3, hgt);
         g.beginPath(); g.arc(x + 1.5, H - 4 - hgt, 3, 0, 7); g.fill();
       }
-      // плейхед
-      const st = Engine.position();
-      if (st >= 0) { const x = sx(st); if (x >= KEYS_W) { g.fillStyle = "#fff09e"; g.fillRect(x, 0, 2, H); } }
-      info.textContent = `${notes().length} нот · ${len / STEPS_PER_BAR} т.`;
+      const st = Engine.positionPattern();
+      if (st >= 0) { const x = sx(st); if (x >= KEYS_W) { g.fillStyle = C.head; g.fillRect(x, 0, 2, H); } }
     }
     function roundRect(x, y, w, h, r) {
       g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
@@ -130,27 +162,31 @@ export const PIANO = {
         return { nt, edge: x > sx(nt.s + nt.l) - 7 };
       return null;
     }
+    const fixPitch = n => {
+      const sc = scale(), c2 = ch();
+      n = Math.max(0, Math.min(HI(), n));
+      return c2?.scale?.snap && sc.mode !== "chromatic" ? snapToScale(n, sc.set, edo()) : n;
+    };
 
     let drag = null;
-    cv.addEventListener("contextmenu", e => e.preventDefault());
     cv.addEventListener("pointerdown", e => {
       if (!ch()) return;
       Engine.init();
       const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       cv.setPointerCapture(e.pointerId);
       if (y > gridH()) { drag = { vel: true }; velAt(x, y); return; }
-      if (x < KEYS_W) { const n = yn(y); Engine.preview(ch(), n, 0.85, 0.4); return; }
+      if (x < KEYS_W) { Engine.preview(ch(), yn(y), 0.85, 0.4); return; }
       const h = hit(x, y);
-      if (e.button === 2) { drag = { erase: true }; if (h) { del(h.nt); } return; }
+      if (e.button === 2) { drag = { erase: true }; if (h) del(h.nt); return; }
       if (h) {
-        drag = h.edge ? { nt: h.nt, resize: true, l0: h.nt.l, x0: x } : { nt: h.nt, move: true, ds: xs(x) - h.nt.s, n0: h.nt.n };
+        drag = h.edge ? { nt: h.nt, resize: true } : { nt: h.nt, move: true, ds: xs(x) - h.nt.s };
         if (!h.edge) Engine.preview(ch(), h.nt.n, h.nt.v, 0.2);
       } else {
-        const q = snap(), s = Math.max(0, Math.floor(xs(x) / q) * q), n = yn(y);
-        const nt = { s, l: lastLen, n, v: 0.85 };
+        const q = snap(), s = Math.max(0, Math.floor(xs(x) / q + 1e-6) * q), n = fixPitch(yn(y));
+        const nt = { s: +s.toFixed(4), l: lastLen, n, v: 0.85 };
         notes().push(nt);
-        Engine.preview(ch(), n, 0.85, lastLen * Engine.stepDur());
-        drag = { nt, resize: true, l0: lastLen, x0: sx(s + lastLen), created: true };
+        Engine.preview(ch(), n, 0.85, lastLen * Engine.beatDur());
+        drag = { nt, resize: true };
         Engine.touch({ notes: true });
       }
     });
@@ -165,13 +201,13 @@ export const PIANO = {
       if (drag.vel) return velAt(x, y);
       if (drag.erase) { const h = hit(x, y); if (h) del(h.nt); return; }
       if (drag.move) {
-        const s = Math.max(0, Math.round((xs(x) - drag.ds) / q) * q), n = Math.max(LO, Math.min(HI, yn(y)));
+        const s = Math.max(0, Math.round((xs(x) - drag.ds) / q) * q), n = fixPitch(yn(y));
         if (n !== drag.nt.n) Engine.preview(ch(), n, drag.nt.v, 0.15);
-        drag.nt.s = s; drag.nt.n = n;
+        drag.nt.s = +s.toFixed(4); drag.nt.n = n;
       } else if (drag.resize) {
-        drag.nt.l = Math.max(q, Math.round((xs(x) - drag.nt.s) / q) * q);
+        drag.nt.l = +Math.max(q, Math.round((xs(x) - drag.nt.s) / q) * q).toFixed(4);
       }
-      Engine.touch({ notes: true, param: true });   // param: стойка не перестраивается на каждом движении
+      Engine.touch({ notes: true, param: true });
       draw();
     });
     const up = () => {
@@ -185,7 +221,7 @@ export const PIANO = {
       const v = Math.max(0.05, Math.min(1, (H - 4 - y) / (VEL_H - 10)));
       let best = null, bd = 8;
       for (const nt of notes()) { const d = Math.abs(sx(nt.s) - x); if (d < bd) { bd = d; best = nt; } }
-      if (best) { best.v = v; Engine.touch({ param: true }); draw(); }
+      if (best) { best.v = +v.toFixed(3); Engine.touch({ param: true }); draw(); }
     }
     cv.addEventListener("wheel", e => {
       e.preventDefault();
@@ -195,14 +231,21 @@ export const PIANO = {
       clampView(); draw();
     }, { passive: false });
 
-    const ro = new ResizeObserver(() => { fit(); draw(); });
+    const ro = new ResizeObserver(() => {
+      const mid = W && view.y >= 0 ? yn(gridH() / 2) : null;   // при ресайзе держим в центре ту же ноту
+      fit();
+      if (mid == null) centerOnNotes(); else { view.y = (HI() - mid) * rowH() - gridH() / 2; clampView(); }
+      draw();
+    });
     ro.observe(wrap);
-    fillCh(); fit(); draw();
+    tools();
     let raf = 0, wasPlaying = false;
     const frame = () => { if (Engine.playing || wasPlaying) draw(); wasPlaying = Engine.playing; raf = requestAnimationFrame(frame); };
     raf = requestAnimationFrame(frame);
-    const offs = [Engine.on("change", w => { if (w?.channels || w?.all || w?.piano) fillCh(); if (!drag) draw(); }),
-      Engine.on("pattern", () => { fillCh(); draw(); })];
+    const offs = [
+      Engine.on("change", w => { if (w?.channels || w?.all || w?.piano || (w?.notes && !drag)) tools(); if (!drag) draw(); }),
+      Engine.on("pattern", () => { tools(); centerOnNotes(); draw(); }),
+      Engine.on("theme", draw)];
     return () => { cancelAnimationFrame(raf); ro.disconnect(); offs.forEach(f => f()); };
   },
 };
