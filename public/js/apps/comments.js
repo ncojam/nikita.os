@@ -9,8 +9,8 @@ import { notify } from "../ui/notify.js";
 const CMT_MAX = 500;
 const fmtStamp = ts => {
   const d = new Date(ts);
-  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) + " " +
-    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString(globalThis.NOS_LOCALE, { day: "2-digit", month: "2-digit" }) + " " +
+    d.toLocaleTimeString(globalThis.NOS_LOCALE, { hour: "2-digit", minute: "2-digit" });
 };
 
 /*

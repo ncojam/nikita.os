@@ -24,9 +24,9 @@ const jitter = base => base * (0.4 + Math.random() * 1.2);
 
 // строки фейкового торрент-лога — выглядят серьёзно, но при чтении абсурдны
 const LOG_LINES = [
-  () => `Подключение к пиру ${1 + (Math.random() * 9 | 0)} из ${(8000 + Math.random() * 4000 | 0).toLocaleString("ru-RU")}…`,
+  () => `Подключение к пиру ${1 + (Math.random() * 9 | 0)} из ${(8000 + Math.random() * 4000 | 0).toLocaleString(globalThis.NOS_LOCALE)}…`,
   () => `Рукопожатие с трекером (попытка ${1 + (Math.random() * 40 | 0)})…`,
-  () => `Проверка целостности блока #${(Math.random() * 271040 | 0).toLocaleString("ru-RU")}…`,
+  () => `Проверка целостности блока #${(Math.random() * 271040 | 0).toLocaleString(globalThis.NOS_LOCALE)}…`,
   () => `Ожидание сидов (в сети: ${Math.random() < 0.85 ? 0 : 1})…`,
   () => `Запрашиваю кусок ${1 + (Math.random() * 3 | 0)} из 271 040 у ${Math.random() < 0.7 ? 0 : 1} пиров…`,
   () => `Пир ${Math.random() * 254 + 1 | 0}.${Math.random() * 254 | 0}.${Math.random() * 254 | 0}.${Math.random() * 254 | 0} отключился`,
@@ -39,9 +39,9 @@ const LOG_LINES = [
 // ETA в человеческом виде: при такой скорости секунды бессмысленны
 const humanEta = s => {
   const years = s / (365.25 * 24 * 3600);
-  if (years >= 1) return years.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " лет";
+  if (years >= 1) return years.toLocaleString(globalThis.NOS_LOCALE, { maximumFractionDigits: 0 }) + " лет";
   const days = s / (24 * 3600);
-  if (days >= 1) return days.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " дн.";
+  if (days >= 1) return days.toLocaleString(globalThis.NOS_LOCALE, { maximumFractionDigits: 0 }) + " дн.";
   return fmtTime(s);
 };
 
@@ -76,7 +76,7 @@ function openFakeDL(link = {}) {
       const render = () => {
         const frac = Math.min(done / total, 1);
         fill.style.width = (frac * 100).toFixed(4) + "%";
-        pct.textContent = (frac * 100).toLocaleString("ru-RU",
+        pct.textContent = (frac * 100).toLocaleString(globalThis.NOS_LOCALE,
           { minimumFractionDigits: 1, maximumFractionDigits: 7 }) + " %";
         sizes.textContent = `${fmtSize(done)} из ${fmtSize(total)}`;
         speed.textContent = "Скорость: " + fmtSize(jitter(BYTES_PER_MIN / 60)) + "/с";

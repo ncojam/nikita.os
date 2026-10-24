@@ -37,8 +37,8 @@ function toggleStart(show) {
 function tick() {
   const d = new Date();
   $("#clock").innerHTML =
-    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) + "<br>" +
-    `<span style="color:var(--muted)">${d.toLocaleDateString("ru-RU")}</span>`;
+    d.toLocaleTimeString(globalThis.NOS_LOCALE, { hour: "2-digit", minute: "2-digit" }) + "<br>" +
+    `<span style="color:var(--muted)">${d.toLocaleDateString(globalThis.NOS_LOCALE)}</span>`;
 }
 
 /* ================= полный экран ================= */

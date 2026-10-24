@@ -49,9 +49,9 @@ function openProperties(meta) {
     const { m, rpath } = meta.remote;
     rows.push(["Источник", `GitHub: ${m.owner}/${m.repo}`], ["Ветка", m.branch || "основная"], ["В репозитории", rpath]);
   }
-  if (meta.type === "file" && meta.size !== undefined) rows.push(["Размер", `${fmtSize(meta.size)} (${meta.size.toLocaleString("ru-RU")} байт)`]);
-  if (meta.mtime) rows.push(["Изменён", new Date(meta.mtime * 1000).toLocaleString("ru-RU")]);
-  if (meta.plays !== undefined) rows.push(["Прослушивания", meta.plays.toLocaleString("ru-RU")]);
+  if (meta.type === "file" && meta.size !== undefined) rows.push(["Размер", `${fmtSize(meta.size)} (${meta.size.toLocaleString(globalThis.NOS_LOCALE)} байт)`]);
+  if (meta.mtime) rows.push(["Изменён", new Date(meta.mtime * 1000).toLocaleString(globalThis.NOS_LOCALE)]);
+  if (meta.plays !== undefined) rows.push(["Прослушивания", meta.plays.toLocaleString(globalThis.NOS_LOCALE)]);
   if (meta.remote) rows.push(["Ссылка", GitHub.html(meta.remote.m, meta.remote.rpath, meta.remote.isDir)]);
   WM.open({ title: "Свойства: " + (meta.link?.name || meta.name), icon: "ℹ️", width: 440, height: 320,
     key: "props:" + (meta.path || meta.name), render(c) {

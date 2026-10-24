@@ -1090,3 +1090,4 @@ html.dw-wiring, html.dw-wiring * { cursor: crosshair !important; }
 .set-tab:hover { opacity: 1; }
 .set-tab.on { background: rgba(255,255,255,0.16); opacity: 1; font-weight: 600; }
 .set-wrap > .settings { flex: 1; min-height: 0; overflow: auto; }
+.lang-row .btn.on { outline: 2px solid var(--accent, #9ecbff); }

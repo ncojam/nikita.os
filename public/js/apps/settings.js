@@ -4,6 +4,7 @@ import { VFS } from "../core/vfs.js";
 import { IMAGE_EXT, Wallpaper } from "../ui/wallpaper.js";
 import { WM } from "../wm.js";
 import { GLOW_SPEC, Glow } from "../ui/glow.js";
+import { LANGS, lang, setLang } from "../core/i18n.js";
 
 /* ================= настройки ================= */
 /* живой фон: светяшки поверх обоев, вспышки от музыки DAWN */
@@ -82,8 +83,12 @@ function openSettings() {
         el("div", { className: "row" }, vfsInfo, vfsReset),
         el("div", { className: "hint", textContent: "Загруженные вами файлы, созданные папки, перемещения, удаления и расположение значков " +
           "хранятся только в этом браузере, сервер не меняется. Сброс вернёт всё как на сервере." })),
+      el("section", {}, el("h3", { textContent: "Язык интерфейса" }),
+        el("div", { className: "row lang-row no-i18n" }, ...LANGS.map(([code, name]) =>
+          el("button", { className: "btn" + (code === lang ? " on" : ""), textContent: name, onclick: () => code !== lang && setLang(code) }))),
+        el("div", { className: "hint", textContent: "Выбор сохраняется в cookie. Без него язык определяется по местоположению (часовому поясу)." })),
     );
-    c.append(tabs(box, [["🖼 Обои", 0, 1], ["✨ Живой фон", 2], ["🪟 Окна", 3], ["💾 Файлы", 4]]));
+    c.append(tabs(box, [["🖼 Обои", 0, 1], ["✨ Живой фон", 2], ["🪟 Окна", 3], ["💾 Файлы", 4], ["🌐 Язык", 5]]));
     const showUsage = async () => {
       if (!VFS.ready) { vfsInfo.textContent = "Недоступно: нужен HTTPS и поддержка Service Worker"; return; }
       const u = await VFS.usage();

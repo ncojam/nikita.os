@@ -1,4 +1,6 @@
 // Точка входа nikita.os: подключает модули и запускает их в исходном порядке
+import { init_i18n } from "./core/i18n.js";   // язык — первым: остальные модули уже видят NOS_LOCALE
+import "./i18n/os.js";
 import { openExplorer } from "./apps/explorer.js";
 import "./apps/id3.js";
 import { init_apps_player } from "./apps/player.js";
@@ -21,6 +23,8 @@ import { init_wm } from "./wm.js";
 import { init_vfs } from "./core/vfs.js";
 import { init_params } from "./core/params.js";
 import "./core/uiparams.js";   // любые регуляторы и окна ОС — цели для проводков
+
+init_i18n();   // перевод интерфейса (DOM-наблюдатель) — до появления окон
 
 // пользовательский слой fs (Service Worker) — до первых запросов к /api/ls
 await init_vfs();

@@ -75,7 +75,7 @@ export function init_remote_github() {
         if (r.status === 403 || r.status === 429) {
           const reset = +r.headers.get("x-ratelimit-reset");
           throw new Error("лимит запросов к GitHub исчерпан (60 в час)" +
-            (reset ? `, сброс в ${new Date(reset * 1000).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : ""));
+            (reset ? `, сброс в ${new Date(reset * 1000).toLocaleTimeString(globalThis.NOS_LOCALE, { hour: "2-digit", minute: "2-digit" })}` : ""));
         }
         if (r.status === 404 || r.status === 409) throw new Error("репозиторий или ветка не найдены (или репозиторий приватный)");
         if (!r.ok) throw new Error("GitHub ответил " + r.status);

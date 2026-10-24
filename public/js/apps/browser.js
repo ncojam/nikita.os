@@ -12,7 +12,7 @@ const FORUM = "kursk.artists";
 const POST_IMG = { dim: 800, limit: 110 * 1024 };   // картинка в посте (сервер: ≤800px, ≤120 КБ)
 const AVA_IMG = { dim: 256, limit: 60 * 1024 };
 
-const fmtDate = ts => !ts ? "—" : new Date(ts * 1000).toLocaleString("ru-RU",
+const fmtDate = ts => !ts ? "—" : new Date(ts * 1000).toLocaleString(globalThis.NOS_LOCALE,
   { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 const api = async (url, opts = {}) => {
