@@ -27,6 +27,11 @@ export const OSC3_PRESETS = {
     fx: [fx("eq", { lf: 250, lg: -10, hf: 8000, hg: 2 }), fx("reverb", { decay: 6, pre: 0.05, mix: 0.45 })] },
   "Chip Lead": { params: { oscs: [o("square", 0.5), o("square", 0.25, 12, 3), o("triangle", 0.3, -12)], att: 0.002, dec: 0.1, sus: 0.6, rel: 0.08, cut: 9000, res: 0.7, uni: 1 },
     fx: [fx("delay", { sync: 1, fb: 0.3, mix: 0.2 })] },
+  // от cojam: синус на октаву вниз + немного квадрата, crush с закрытым тоном — верха открывают Tone/Cut
+  "Crush Bass Slow": { params: { oscs: [o("sawtooth", 0, 0, -6, -0.2), o("sine", 0.8944, -12, 6, 0.2), o("square", 0.0884, -12)], att: 0.3775, dec: 0.1273, sus: 0, rel: 0.01, cut: 1249, res: 1.2, uni: 1, udet: 20, uspr: 0.93 },
+    fx: [fx("dist", { drive: 0.7964, shape: 3, tone: 616, mix: 1, out: 0.95 })] },
+  "Crush Bass Snap": { params: { oscs: [o("sawtooth", 0, 0, -6, -0.2), o("sine", 0.8944, -12, 6, 0.2), o("square", 0.0884, -12)], att: 0.1876, dec: 0.1628, sus: 0, rel: 0.01, cut: 1249, res: 1.2, uni: 1, udet: 20, uspr: 0.93 },
+    fx: [fx("dist", { drive: 0.7964, shape: 3, tone: 616, mix: 1, out: 0.95 })] },
   "Noise Riser": { params: { oscs: [o("noise", 0.7), o("sawtooth", 0.15, 12, 7), o("sine", 0)], att: 4, dec: 0.5, sus: 1, rel: 0.4, cut: 600, res: 6, uni: 1 },
     fx: [fx("reverb", { decay: 4, mix: 0.4 })] },
 };

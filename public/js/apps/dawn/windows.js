@@ -5,7 +5,7 @@ import { fromFile } from "./format.js";
 import { aiPackage, aiDoc } from "./schema.js";
 import { GF_PRESETS, GF_SPECS, GF_WAVES, MOD_KEYS, gfDefaults } from "./grapefruit.js";
 import { MODS } from "./mod.js";
-import { DRUMS, LIB_MIME, MELODIC, instantiate } from "./library.js";
+import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
 import { applyPreset, presetsFor } from "./presets.js";
 import { SPECS } from "./instruments.js";
 import { FX } from "./fx.js";
@@ -649,6 +649,8 @@ const lib = {
       body.replaceChildren(
         el("div", { className: "dw-dir-row open", textContent: "🥁 Ударные грувы" }),
         ...DRUMS.map(d => card(d, `${d.sig} · ${d.tags}`)),
+        el("div", { className: "dw-dir-row open", textContent: "🔊 Звук + рифф" }),
+        ...KITS.map(k => card(k, k.tags + " · лад выбранного канала")),
         el("div", { className: "dw-dir-row open", textContent: "🎼 В ладу канала" }),
         el("div", { className: "dw-dim dw-lib-tgt" }, "Для: ",
           select(Engine.project.channels.filter(x => x.type !== "sampler").map(x => [x.id, x.name + ((x.edo || 12) !== 12 ? ` · ${x.edo}-EDO` : "")]), tgt?.id || "",

@@ -1,5 +1,6 @@
 import { BUILTIN, Engine, PASTEL } from "./engine.js";
 import { c4, scaleSet, scalesOf } from "./tuning.js";
+import { applyPreset } from "./presets.js";
 
 /* ================= DAWN — библиотека паттернов =================
  * Готовые паттерны «одной кнопкой»: ударные грувы (в том числе в нечётных размерах) и мелодические
@@ -51,7 +52,7 @@ export const DRUMS = [
 /* мелодические заготовки: degrees — ступени лада канала (0 = тоника), oct — октавный сдвиг */
 export const MELODIC = [
   { id: "bassroot", name: "Бас: тоника восьмыми с октавой", make: (deg, bar) => range(0, bar, 0.5).map((s, i) => [s, 0.4, deg(i % 4 === 3 ? 7 : 0, -1), i % 2 ? 0.7 : 0.95]) },
-  { id: "bassgroove", name: "Бас: грув I–IV–V", make: (deg, bar) => [[0, 1.5, deg(0, -1), 1], [1.75, 0.25, deg(0, -1), 0.7], [2, 1, deg(3, -1), 0.9], [3, 0.75, deg(4, -1), 0.9], [3.75, 0.25, deg(-1, -1), 0.7]].filter(n => n[0] < bar) },
+  { id: "bassgroove", name: "Бас: грув I–IV–V", make: (deg, bar) => [[0, 1.5, deg(0, -1), 1], [1.75, 0.25, deg(0, -1), 0.7], [2, 1, deg(3, -1), 0.9], [3, 0.75, deg(4, -1), 0.9], [3.75, 0.25, deg.semi(-1, -1), 0.7]].filter(n => n[0] < bar) },
   { id: "arp", name: "Арпеджио по ладу", make: (deg, bar) => range(0, bar, 0.25).map((s, i) => [s, 0.22, deg([0, 2, 4, 7, 4, 2][i % 6], 0), i % 4 ? 0.55 : 0.85]) },
   { id: "chords", name: "Аккорды I–VI–III–VII", make: (deg, bar) => {
     const per = bar / 4, out = [];
@@ -60,6 +61,18 @@ export const MELODIC = [
   } },
   { id: "melody", name: "Мелодия: вопрос-ответ", make: (deg, bar) => [[0, 0.75, deg(4)], [0.75, 0.25, deg(5)], [1, 1, deg(4)], [2, 0.5, deg(2)], [2.5, 0.5, deg(3)], [3, 1, deg(1)]]
     .filter(n => n[0] < bar).map(n => [n[0], n[1], n[2], 0.8]) },
+];
+
+/* готовые связки «звук + рифф»: создают свои каналы с пресетами (в ладу и строе выбранного канала) */
+export const KITS = [
+  { id: "crushriddim", name: "Crush-риддим (медленная + быстрая атака)", tags: "cojam · 2 баса",
+    parts: [
+      { name: "Crush Slow", preset: "Crush Bass Slow", make: deg => [[0, 1, deg(0, -1)], [1, 1, deg(0, -1)], [2, 1, deg(0, -1)]] },
+      { name: "Crush Snap", preset: "Crush Bass Snap", make: deg => [[3, 0.5, deg.semi(-1, -1)], [3.5, 0.5, deg.semi(-1, -1)]] }] },
+  { id: "crushriddim2", name: "Crush-риддим: вариация с октавой", tags: "cojam · 2 баса",
+    parts: [
+      { name: "Crush Slow", preset: "Crush Bass Slow", make: deg => [[0, 0.75, deg(0, -1)], [0.75, 0.25, deg(0, -1), 0.7], [1, 0.5, deg(0, -1)], [1.5, 0.5, deg(0, 0), 0.8], [2, 1, deg(0, -1)]] },
+      { name: "Crush Snap", preset: "Crush Bass Snap", make: deg => [[3, 0.25, deg.semi(-1, -1)], [3.25, 0.25, deg.semi(-1, -1), 0.7], [3.5, 0.5, deg.semi(-3, -1)]] }] },
 ];
 
 /* ступени лада канала → номер ноты: deg(k, octShift) с переходом через октаву */
@@ -93,6 +106,27 @@ export function instantiate(id, Dawn) {
     for (const [role, list] of Object.entries(d.notes)) {
       const ch = ensureDrum(role), pitch = Engine.defaultPitch(ch);
       pat.notes[ch.id] = list.map(([s, l, , v]) => ({ s, l, n: pitch, v }));
+    }
+    Engine.touch({ patterns: true, notes: true, channels: true });
+    return pat.id;
+  }
+  const kit = KITS.find(x => x.id === id);
+  if (kit) {
+    const ref = Engine.chan(Dawn?.pianoCh);
+    const pat = Engine.addPattern(kit.name.split(" (")[0].split(":")[0]);
+    pat.sig = [8, 8]; pat.color = PASTEL[(P.patterns.length + 4) % PASTEL.length];
+    for (const part of kit.parts) {
+      // канал с этим пресетом уже есть — переиспользуем, иначе новый (лад и строй — как у выбранного канала)
+      let ch = P.channels.find(c => c.preset === part.preset);
+      if (!ch) {
+        ch = Engine.addChannel("osc3", part.name);
+        if (ref && ref.type !== "sampler") { ch.edo = ref.edo; ch.scale = { ...ref.scale }; }
+        ch.poly = 1;
+        applyPreset(Engine, ch, part.preset);
+      }
+      const deg = degreeFn(ch), E = ch.edo || 12;
+      deg.semi = (s, oct = 0) => deg(0, oct) + Math.round(s * E / 12);   // рифф держится на полутоне под тоникой (F → E), как в оригинале
+      pat.notes[ch.id] = part.make(deg).map(([s, l, n, v = 0.85]) => ({ s, l, n, v }));
     }
     Engine.touch({ patterns: true, notes: true, channels: true });
     return pat.id;
