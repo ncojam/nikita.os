@@ -3,7 +3,7 @@ import { notify } from "../../ui/notify.js";
 import { BUILTIN, Engine, FLASH_COLORS, PASTEL, TYPES, WAVES, WAVE_GLYPH, flashOf, newProject, sampleNow } from "./engine.js";
 import { fromFile } from "./format.js";
 import { aiPackage, aiDoc } from "./schema.js";
-import { GF_PRESETS, GF_SPECS, GF_WAVES, MOD_KEYS, gfDefaults } from "./grapefruit.js";
+import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults } from "./grapefruit.js";
 import { MODS } from "./mod.js";
 import { MAGIC } from "./magic.js";
 import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
@@ -14,7 +14,7 @@ import { SPECS } from "./instruments.js";
 import { FX, fxDefaults } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
 import { PLAYLIST } from "./playlist.js";
-import { applyTheme, dwBtn, knob, led, select, shell, theme } from "./ui.js";
+import { applyTheme, dwBtn, knob, led, pal, select, shell, theme } from "./ui.js";
 import { noteNameE } from "./tuning.js";
 
 /* ================= DAWN — окна модулей =================
@@ -371,30 +371,120 @@ function osc3Panel(ch) {
 }
 
 /* Grapefruit: 4 оператора (волна, ratio, fine, level, out, ADSR + картинка), матрица модуляции, фильтр, пресеты */
+/* Grapefruit в духе Sytrus: слева операторы (волна, ratio, fine, level, pan, ADSR) и редактор огибающих
+ * (громкость / панорама / высота — рисуются точками, Shift-клик — точка удержания), справа — матрица «кто кого»:
+ * столбец — источник, строка — кого модулирует; нижняя строка OUT — сколько оператора слышно. */
+const GF_GLYPH = { ...WAVE_GLYPH, organ: "▥", pulse: "⊓̲", hollow: "◌", custom: "✎" };
+const gfSel = new Map();   // канал → { op, kind } — что открыто в редакторе огибающих
 function gfPanel(ch, rebuild) {
-  const p = ch.params;
+  const p = ch.params, sel = gfSel.get(ch.id) || { op: 0, kind: "vol" };
+  p.mod ||= {};
+  for (let f = 1; f <= 4; f++) for (let t2 = 1; t2 <= 4; t2++) if (f !== t2) p.mod["m" + f + t2] ??= 0;   // новые клетки матрицы (обратная связь)
+  for (const o of p.ops) o.pan ??= 0;
+  gfSel.set(ch.id, sel);
+  const colOf = i => PASTEL[[0, 1, 2, 4][i]];
+  const editor = el("div", { className: "dw-gf-env" });
   const opRow = (o, i) => {
-    const col = PASTEL[[0, 1, 2, 4][i]], sub = "op" + (i + 1), view = adsrView(o, col);
-    const waves = el("div", { className: "dw-waves" }, ...GF_WAVES.map(wv => {
-      const b = el("button", { className: "dw-wave" + (o.wave === wv ? " on" : ""), textContent: WAVE_GLYPH[wv], title: wv,
-        onclick: () => { o.wave = wv; waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); Engine.touch({ param: true }); Engine.preview(ch); } });
+    const col = colOf(i), sub = "op" + (i + 1), view = adsrView(o, col);
+    const waves = el("div", { className: "dw-waves" }, ...GF_WAVES_ALL.map(wv => {
+      const b = el("button", { className: "dw-wave" + (o.wave === wv ? " on" : ""), textContent: GF_GLYPH[wv], title: wv,
+        onclick: () => { o.wave = wv; if (wv === "custom" && !o.harm) o.harm = [1, 0.5, 0.33, 0.25, 0.2, 0.16, 0.14, 0.12];
+          waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); Engine.touch({ param: true }); Engine.preview(ch); sel.op = i; drawEditor(); } });
       return b;
     }));
-    const k = (key, spec) => paramKnob(ch, key, o, { color: col, sub, spec, size: 30, onSet: () => view._draw() });
+    const k = (key, spec) => paramKnob(ch, key, o, { color: col, sub, spec, size: 28, onSet: () => view._draw() });
     view.classList.add("dw-adsr-mini");
+    const pick = el("button", { className: "dw-btn" + (sel.op === i ? " on" : ""), textContent: "OP " + (i + 1), title: "Огибающие этого оператора", onclick: () => { sel.op = i; rebuild(); } });
+    const envOn = Object.entries(o.env || {}).filter(([, e]) => e?.on).map(([kd]) => ({ vol: "V", pan: "P", pitch: "♪" })[kd]).join("");
     return el("div", { className: "dw-osc dw-op", style: `--oc:${col}` },
-      el("div", { className: "dw-osc-n", textContent: "OP " + (i + 1) }), waves,
-      k("ratio", GF_SPECS.ratio), k("fine", GF_SPECS.fine), k("level", GF_SPECS.level), k("out", GF_SPECS.out),
-      k("att", SPECS.att), k("dec", SPECS.dec), k("sus", SPECS.sus), k("rel", SPECS.rel), view);
+      pick, waves,
+      k("ratio", GF_SPECS.ratio), k("fine", GF_SPECS.fine), k("level", GF_SPECS.level), k("pan", GF_SPECS.pan),
+      ...(o.env?.vol?.on ? [el("span", { className: "dw-dim", textContent: "громкость — по огибающей" })] : [k("att", SPECS.att), k("dec", SPECS.dec), k("sus", SPECS.sus), k("rel", SPECS.rel), view]),
+      envOn ? el("span", { className: "dw-gf-badge", textContent: envOn, title: "Включённые огибающие" }) : "");
   };
-  const matrix = el("div", { className: "dw-matrix" },
-    ...MOD_KEYS.map(([key, from, to]) => paramKnob(ch, key, p.mod, { color: "var(--dw-pink)", spec: { ...GF_SPECS.mod, label: `${from}→${to}` }, size: 30 })));
-  return el("div", { className: "dw-panel" },
-    el("div", { className: "dw-sect" }, el("div", { className: "dw-sect-h", textContent: "Пресет" }),
-      select(Object.keys(GF_PRESETS).map(n => [n, n]), p.preset, v => { Object.assign(ch.params, gfDefaults(v)); Engine.touch({ channels: true }); Engine.preview(ch); rebuild(); }),
-      el("div", { className: "dw-sect-h", textContent: "Фильтр" }), paramKnob(ch, "cut", p, { color: "var(--dw-sky)" }), paramKnob(ch, "res", p, { color: "var(--dw-sky)" })),
-    ...p.ops.map(opRow),
-    el("div", { className: "dw-sect" }, el("div", { className: "dw-sect-h", textContent: "Модуляция (кто → кого)" }), matrix));
+  // матрица: строки — кому (OP1..4) и OUT, столбцы — от кого
+  const cell = (key, from, to) => paramKnob(ch, key, p.mod, { color: colOf(from - 1), spec: { ...GF_SPECS.mod, label: `${from}→${to}` }, size: 30 });
+  const matrix = el("div", { className: "dw-gf-matrix" },
+    el("div", {}), ...[1, 2, 3, 4].map(f => el("div", { className: "dw-gf-mh", style: `color:${colOf(f - 1)}`, textContent: "OP" + f })),
+    ...[1, 2, 3, 4].flatMap(to => [el("div", { className: "dw-gf-mh", style: `color:${colOf(to - 1)}`, textContent: "→" + to }),
+      ...[1, 2, 3, 4].map(from => from === to ? el("div", { className: "dw-gf-diag" }) : cell("m" + from + to, from, to))]),
+    el("div", { className: "dw-gf-mh", textContent: "OUT" }),
+    ...p.ops.map((o, i) => paramKnob(ch, "out", o, { color: colOf(i), sub: "op" + (i + 1), spec: GF_SPECS.out, size: 30 })));
+  // редактор огибающих / гармоник выбранного оператора
+  function drawEditor() {
+    const o = p.ops[sel.op], col = colOf(sel.op);
+    o.env ||= {};
+    const E = (o.env[sel.kind] ||= envDefault(sel.kind));
+    const tabs = el("div", { className: "dw-seg" }, ...Object.entries(ENV_KINDS).map(([kd, name]) =>
+      el("button", { className: "dw-btn" + (sel.kind === kd ? " on" : ""), textContent: name + (o.env[kd]?.on ? " ●" : ""), onclick: () => { sel.kind = kd; drawEditor(); } })));
+    const onBtn = dwBtn(E.on ? "вкл" : "выкл", () => { E.on = !E.on; Engine.touch({ param: true }); Engine.preview(ch); rebuild(); }, { className: "dw-btn" + (E.on ? " on" : ""), title: "Использовать эту огибающую" });
+    const len = el("input", { className: "dw-num", type: "number", min: 0.05, max: 8, step: 0.05, value: Math.max(...E.pts.map(x => x[0]), 0.1).toFixed(2), title: "Длина, секунд",
+      onchange: () => { const old = Math.max(...E.pts.map(x => x[0]), 0.01), nw = Math.max(0.05, +len.value || 1); E.pts.forEach(x => { x[0] = +(x[0] * nw / old).toFixed(3); }); Engine.touch({ param: true }); draw(); } });
+    const range = sel.kind === "pitch" ? el("label", { className: "dw-dim" }, "±", el("input", { className: "dw-num", type: "number", min: 1, max: 48, value: E.range ?? 12,
+      onchange: e => { E.range = Math.max(1, Math.min(48, +e.target.value || 12)); Engine.touch({ param: true }); } }), " полутонов") : "";
+    const cv = el("canvas", { className: "dw-envcv dw-gf-cv" }), gctx = cv.getContext("2d");
+    let W = 0, H = 0, drag = null;
+    const maxT = () => Math.max(0.1, ...E.pts.map(x => x[0])) * 1.1;
+    const X = t => t / maxT() * W, Y = v => H - 6 - v * (H - 12), tv = x => Math.max(0, x / W * maxT()), vv = y => Math.max(0, Math.min(1, (H - 6 - y) / (H - 12)));
+    function draw() {
+      const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+      if (r.width && (W !== r.width || H !== r.height)) { W = r.width; H = r.height; cv.width = W * dpr; cv.height = H * dpr; gctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+      if (!W) return;
+      const C = pal(); gctx.clearRect(0, 0, W, H); gctx.fillStyle = C.rowB; gctx.fillRect(0, 0, W, H);
+      if (sel.kind !== "vol") { gctx.fillStyle = C.g2; gctx.fillRect(0, Y(0.5), W, 1); }
+      const pts = [...E.pts].sort((a, b) => a[0] - b[0]);
+      gctx.globalAlpha = E.on ? 1 : 0.45;
+      gctx.strokeStyle = col; gctx.lineWidth = 2; gctx.beginPath();
+      pts.forEach(([t2, v2], i) => i ? gctx.lineTo(X(t2), Y(v2)) : gctx.moveTo(X(t2), Y(v2))); gctx.stroke();
+      pts.forEach(([t2, v2], i) => { gctx.fillStyle = i === E.sus ? col : "#fff"; gctx.beginPath(); gctx.arc(X(t2), Y(v2), i === E.sus ? 5 : 4, 0, 7); gctx.fill(); gctx.strokeStyle = col; gctx.stroke(); });
+      if (E.sus >= 0 && pts[E.sus]) { gctx.fillStyle = col; gctx.font = "10px system-ui"; gctx.fillText("sustain", X(pts[E.sus][0]) + 6, 12); }
+      gctx.globalAlpha = 1;
+    }
+    const sorted = () => E.pts.sort((a, b) => a[0] - b[0]);
+    const hit = (x, y) => E.pts.findIndex(q => Math.hypot(X(q[0]) - x, Y(q[1]) - y) < 8);
+    cv.onpointerdown = ev => {
+      const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+      cv.setPointerCapture(ev.pointerId);
+      let i = hit(x, y);
+      if (ev.button === 2) { if (i >= 0 && E.pts.length > 2) { const pt = E.pts[i]; E.pts.splice(i, 1); if (E.sus >= E.pts.length) E.sus = E.pts.length - 1; void pt; } Engine.touch({ param: true }); draw(); return; }
+      if (ev.shiftKey && i >= 0) { sorted(); i = hit(x, y); E.sus = E.sus === i ? -1 : i; Engine.touch({ param: true }); draw(); return; }
+      if (i < 0) { E.pts.push([+tv(x).toFixed(3), +vv(y).toFixed(3)]); sorted(); i = hit(x, y); }
+      drag = E.pts[i]; if (!E.on) { E.on = true; }
+      draw();
+    };
+    cv.onpointermove = ev => { if (!drag) return; const r = cv.getBoundingClientRect(); drag[0] = +tv(ev.clientX - r.left).toFixed(3); drag[1] = +vv(ev.clientY - r.top).toFixed(3); draw(); };
+    cv.onpointerup = () => { if (!drag) return; const susPt = E.pts[E.sus]; sorted(); if (susPt) E.sus = E.pts.indexOf(susPt); drag = null; Engine.touch({ param: true }); Engine.preview(ch); rebuild(); };
+    cv.oncontextmenu = ev => ev.preventDefault();
+    // гармоники своей волны
+    let harm = "";
+    if (o.wave === "custom") {
+      const hc = el("canvas", { className: "dw-gf-harm", title: "Гармоники своей волны: тяни столбики" }), hg = hc.getContext("2d");
+      const hd = () => { const r = hc.getBoundingClientRect(); if (!r.width) return; hc.width = r.width; hc.height = r.height; const bw = r.width / 8;
+        hg.clearRect(0, 0, r.width, r.height); o.harm.forEach((a, i) => { hg.fillStyle = col; hg.globalAlpha = 0.85; hg.fillRect(i * bw + 3, r.height * (1 - a), bw - 6, r.height * a); hg.globalAlpha = 1; hg.fillStyle = "#fff"; hg.font = "9px system-ui"; hg.fillText(i + 1, i * bw + bw / 2 - 3, r.height - 3); }); };
+      const set = ev => { const r = hc.getBoundingClientRect(), i = Math.floor((ev.clientX - r.left) / r.width * 8); if (i < 0 || i > 7) return; o.harm[i] = +Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height)).toFixed(2); hd(); };
+      let down = false;
+      hc.onpointerdown = ev => { down = true; hc.setPointerCapture(ev.pointerId); set(ev); };
+      hc.onpointermove = ev => down && set(ev);
+      hc.onpointerup = () => { down = false; Engine.touch({ param: true }); Engine.preview(ch); };
+      requestAnimationFrame(hd);
+      harm = el("div", { className: "dw-gf-harmbox" }, el("span", { className: "dw-dim", textContent: "✎ Своя волна — гармоники" }), hc);
+    }
+    editor.replaceChildren(
+      el("div", { className: "dw-pr-tools" }, el("b", { style: `color:${col}`, textContent: "OP " + (sel.op + 1) }), tabs, onBtn, len, el("span", { className: "dw-dim", textContent: "с" }), range,
+        el("span", { className: "dw-dim", textContent: "клик — точка · тянуть · ПКМ — удалить · Shift-клик — точка удержания" })),
+      cv, harm);
+    requestAnimationFrame(draw);
+  }
+  drawEditor();
+  return el("div", { className: "dw-panel dw-gf" },
+    el("div", { className: "dw-gf-left" },
+      el("div", { className: "dw-sect" }, el("div", { className: "dw-sect-h", textContent: "Пресет" }),
+        select(Object.keys(GF_PRESETS).map(n => [n, n]), p.preset, v => { Object.assign(ch.params, gfDefaults(v)); Engine.touch({ channels: true }); Engine.preview(ch); rebuild(); }),
+        el("div", { className: "dw-sect-h", textContent: "Фильтр" }), paramKnob(ch, "cut", p, { color: "var(--dw-sky)" }), paramKnob(ch, "res", p, { color: "var(--dw-sky)" })),
+      ...p.ops.map(opRow),
+      editor),
+    el("div", { className: "dw-gf-right" }, el("div", { className: "dw-sect-h", textContent: "Модуляция (кто → кого)" }), matrix,
+      el("div", { className: "dw-dim dw-gf-note", textContent: "Столбец — источник, строка — кого он модулирует. Снизу вверх (1→2, 1→3…) — обратная связь через короткую задержку: грязнее и злее. OUT — сколько оператора слышно." })));
 }
 
 function samplerPanel(ch, Dawn) {

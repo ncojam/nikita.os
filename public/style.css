@@ -1127,3 +1127,16 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .dw-magic-sec { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
 .dw-magic-chk { display: flex; gap: 6px; align-items: center; font-size: 12px; cursor: pointer; }
 .dw-magic-report ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.5; }
+.dw-gf { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.dw-gf-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dw-gf-right { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; background: rgba(0,0,0,.18); position: sticky; top: 0; }
+.dw-gf-matrix { display: grid; grid-template-columns: 34px repeat(4, 44px); gap: 4px; align-items: center; justify-items: center; }
+.dw-gf-mh { font: 700 10px/1 system-ui, sans-serif; opacity: .85; }
+.dw-gf-diag { width: 30px; height: 30px; border-radius: 50%; background: repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 4px, transparent 4px 8px); }
+.dw-gf-note { max-width: 210px; font-size: 11px; line-height: 1.35; }
+.dw-gf-env { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; background: rgba(0,0,0,.18); }
+.dw-gf-cv { height: 120px; }
+.dw-gf-harmbox { display: flex; flex-direction: column; gap: 4px; }
+.dw-gf-harm { width: 100%; height: 70px; border-radius: 8px; background: rgba(0,0,0,.25); cursor: ns-resize; }
+.dw-gf-badge { font: 700 10px/1 system-ui; padding: 3px 6px; border-radius: 999px; background: var(--oc); color: #111; }
+.dw-op .dw-btn.on { background: var(--oc); color: #111; }

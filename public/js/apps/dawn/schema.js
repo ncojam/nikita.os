@@ -1,6 +1,6 @@
 import { BUILTIN, DEFAULT_PARAMS, SPECS, TYPES, WAVES } from "./instruments.js";
 import { FX, SYNC } from "./fx.js";
-import { GF_PRESETS, GF_SPECS, GF_WAVES, MOD_KEYS } from "./grapefruit.js";
+import { GF_PRESETS, GF_SPECS, GF_WAVES_ALL as GF_WAVES, MOD_KEYS } from "./grapefruit.js";
 import { LFO_SHAPES, LFO_SYNC } from "./modcore.js";
 import { EDOS, EDO_NAME, SCALES, degreeNames } from "./tuning.js";
 

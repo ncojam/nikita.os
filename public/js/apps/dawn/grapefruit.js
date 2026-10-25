@@ -12,6 +12,7 @@ export const GF_SPECS = {
   fine:  { min: -50, max: 50, def: 0, label: "Fine", bipolar: true },
   level: { min: 0, max: 1, def: 1, label: "Level" },
   out:   { min: 0, max: 1, def: 0, label: "Out" },
+  pan:   { min: -1, max: 1, def: 0, label: "Pan", bipolar: true },
   mod:   { min: 0, max: 1, def: 0, label: "Mod", curve: 2 },
 };
 export const GF_WAVES = ["sine", "triangle", "sawtooth", "square"];
@@ -51,8 +52,54 @@ export const GF_PRESETS = {
     op({ ratio: 1, out: 0, level: 0 }), op({ ratio: 1, out: 0, level: 0 })],
     mod: { m21: 0.15, m31: 0, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 900, res: 0.7 },
 };
-export const MOD_KEYS = [["m21", 2, 1], ["m31", 3, 1], ["m41", 4, 1], ["m32", 3, 2], ["m42", 4, 2], ["m43", 4, 3]];
+/* матрица модуляции: m<от><кому> для любой пары. Старший → младшему — напрямую; младший → старшему (обратная связь)
+ * идёт через задержку в один блок (~3 мс) — иначе Web Audio глушит петлю. */
+export const MOD_KEYS = [];
+for (let to = 1; to <= 4; to++) for (let from = 1; from <= 4; from++) if (from !== to) MOD_KEYS.push(["m" + from + to, from, to]);
 export const gfDefaults = (name = "E-Piano") => ({ preset: name, ...JSON.parse(JSON.stringify(GF_PRESETS[name])) });
+
+/* формы волны: базовые + PeriodicWave; custom — 8 гармоник, нарисованных в редакторе */
+export const GF_WAVES_ALL = ["sine", "triangle", "sawtooth", "square", "organ", "pulse", "hollow", "custom"];
+const HARM = { organ: [1, 0.6, 0, 0.35, 0, 0, 0, 0.2], pulse: [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3], hollow: [1, 0, 0.5, 0, 0.3, 0, 0.2, 0] };
+const waveCache = new WeakMap();
+function periodic(ctx, harm) {
+  const key = harm.map(x => (+x).toFixed(2)).join(","), m = waveCache.get(ctx) || new Map();
+  waveCache.set(ctx, m);
+  if (!m.has(key)) {
+    const re = new Float32Array(harm.length + 1), im = new Float32Array(harm.length + 1);
+    harm.forEach((a, i) => { im[i + 1] = +a || 0; });
+    m.set(key, ctx.createPeriodicWave(re, im));
+  }
+  return m.get(key);
+}
+function setWave(ctx, osc, o) {
+  const h = o.wave === "custom" ? (o.harm || [1, 0, 0, 0, 0, 0, 0, 0]) : HARM[o.wave];
+  if (h) osc.setPeriodicWave(periodic(ctx, h)); else osc.type = o.wave || "sine";
+}
+
+/* нарисованная огибающая: pts [[секунды, 0..1]], sus — индекс точки, на которой держим, пока нажата нота (-1 — без удержания).
+ * map(v) → значение параметра. Возвращает момент конца огибающей. */
+export const ENV_KINDS = { vol: "Громкость", pan: "Панорама", pitch: "Высота" };
+export function envDefault(kind) {
+  return kind === "vol" ? { on: false, sus: 2, pts: [[0, 0], [0.01, 1], [0.3, 0.6], [0.6, 0]] }
+    : kind === "pan" ? { on: false, sus: -1, pts: [[0, 0.5], [0.5, 0.5]] }
+    : { on: false, sus: -1, range: 12, pts: [[0, 0.5], [0.5, 0.5]] };
+}
+function drawEnv(param, t0, dur, env, map) {
+  const pts = [...env.pts].sort((a, b) => a[0] - b[0]);
+  if (!pts.length) return t0 + dur;
+  const sus = env.sus >= 0 && env.sus < pts.length ? env.sus : -1;
+  param.cancelScheduledValues(t0);
+  param.setValueAtTime(map(pts[0][1]), t0);
+  const upto = sus >= 0 ? sus : pts.length - 1;
+  for (let i = 1; i <= upto; i++) param.linearRampToValueAtTime(map(pts[i][1]), t0 + pts[i][0]);
+  if (sus < 0) return t0 + Math.max(dur, pts.at(-1)[0]);
+  // отпустили ноту: держим значение и доигрываем хвост после точки удержания
+  const off = t0 + Math.max(dur, pts[sus][0]), st = pts[sus][0];
+  if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(off); else { param.cancelScheduledValues(off); param.setValueAtTime(map(pts[sus][1]), off); }
+  for (let i = sus + 1; i < pts.length; i++) param.linearRampToValueAtTime(map(pts[i][1]), off + (pts[i][0] - st));
+  return off + (pts.at(-1)[0] - st);
+}
 
 export function playGrapefruit(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
   const f = hz(n, edo);
@@ -64,12 +111,23 @@ export function playGrapefruit(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
   let end = t + dur;
   p.ops.forEach((o, i) => {
     const osc = ctx.createOscillator(), g = ctx.createGain();
-    osc.type = o.wave;
+    setWave(ctx, osc, o);
     osc.frequency.value = f * o.ratio;
     bendDetune(osc.detune, t, dur, o.fine, bend, edo);
-    end = Math.max(end, adsr(g, t, dur, o, o.level));
+    const E = o.env || {};
+    end = Math.max(end, E.vol?.on ? drawEnv(g.gain, t, dur, E.vol, x => x * o.level) : adsr(g, t, dur, o, o.level));
+    if (E.pitch?.on) {   // высота: добавка к detune через постоянный источник
+      const cs = ctx.createConstantSource(), range = (E.pitch.range ?? 12) * 100;
+      drawEnv(cs.offset, t, dur, E.pitch, x => (x - 0.5) * 2 * range);
+      cs.connect(osc.detune); srcs.push(cs);
+    }
     osc.connect(g);
-    if (o.out > 0.001) { const og = ctx.createGain(); og.gain.value = o.out; g.connect(og); og.connect(flt); }
+    if (o.out > 0.001) {
+      const og = ctx.createGain(), pn = ctx.createStereoPanner();
+      og.gain.value = o.out; pn.pan.value = o.pan || 0;
+      if (E.pan?.on) drawEnv(pn.pan, t, dur, E.pan, x => Math.max(-1, Math.min(1, (o.pan || 0) + x * 2 - 1)));
+      g.connect(og); og.connect(pn); pn.connect(flt);
+    }
     oscs.push(osc); gains.push(g); srcs.push(osc);
   });
   for (const [key, from, to] of MOD_KEYS) {
@@ -77,8 +135,10 @@ export function playGrapefruit(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
     if (m < 0.001) continue;
     const mg = ctx.createGain();
     mg.gain.value = m * INDEX * f * p.ops[from - 1].ratio;
-    gains[from - 1].connect(mg); mg.connect(oscs[to - 1].frequency);
+    gains[from - 1].connect(mg);
+    if (from > to) mg.connect(oscs[to - 1].frequency);
+    else { const d = ctx.createDelay(0.01); d.delayTime.value = 128 / ctx.sampleRate; mg.connect(d); d.connect(oscs[to - 1].frequency); }
   }
-  for (const o of oscs) { o.start(t); o.stop(end); }
-  return handle(ctx, env, srcs, end, { flt });
+  for (const s of srcs) { s.start(t); s.stop(end + 0.05); }
+  return handle(ctx, env, srcs, end + 0.05, { flt });
 }
