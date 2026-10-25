@@ -28,7 +28,9 @@ export const PLAYLIST = {
     const side = el("div", { className: "dw-pl-side" });
     const cv = el("canvas", { className: "dw-pr-cv" });
     const wrap = el("div", { className: "dw-pr-wrap" }, cv);
-    root.append(tb, el("div", { className: "dw-pl-body" }, side, wrap));
+    // горизонтальная прокрутка: полоса под таймлайном (тянуть бегунок, клик по полосе — перейти); колесо с Shift — тоже
+    const thumb = el("div", { className: "dw-hs-thumb" }), hbar = el("div", { className: "dw-hscroll", title: "Прокрутка по времени (Shift+колесо)" }, thumb);
+    root.append(tb, el("div", { className: "dw-pl-body" }, side, el("div", { className: "dw-pl-main" }, wrap, hbar)));
     const g = cv.getContext("2d");
     const P = () => Engine.project;
     const view = { px: 22, x: 0, y: 0 };      // px на долю
@@ -79,8 +81,25 @@ export const PLAYLIST = {
     // огибающая на таймлайне песни: x доли → значение; с повтором — по кругу
     const envX = (e, b) => e.loop === false ? b : ((b % e.len) + e.len) % e.len;
 
+    const total = () => Math.max(Engine.songLength() + 32, view.x + (W - HEAD_W) / view.px);   // долей: песня + запас
+    function scrollbar() {
+      const vis = (W - HEAD_W) / view.px, T = total(), w = hbar.clientWidth;
+      thumb.style.width = Math.max(24, w * Math.min(1, vis / T)) + "px";
+      thumb.style.left = (w - thumb.offsetWidth) * Math.min(1, view.x / Math.max(1e-6, T - vis)) + "px";
+    }
+    hbar.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      const r = hbar.getBoundingClientRect(), vis = (W - HEAD_W) / view.px, T = total();
+      const toX = cx => { const k = (cx - r.left - thumb.offsetWidth / 2) / Math.max(1, r.width - thumb.offsetWidth); view.x = Math.max(0, Math.min(T - vis, k * (T - vis))); draw(); };
+      if (e.target !== thumb) toX(e.clientX);
+      const off = e.target === thumb ? e.clientX - thumb.getBoundingClientRect().left - thumb.offsetWidth / 2 : 0;
+      hbar.setPointerCapture(e.pointerId);
+      const mv = ev => toX(ev.clientX - off), up = () => { hbar.removeEventListener("pointermove", mv); hbar.removeEventListener("pointerup", up); };
+      hbar.addEventListener("pointermove", mv); hbar.addEventListener("pointerup", up);
+    });
     function draw() {
       if (!W) return;
+      scrollbar();
       const C = pal(), tracks = P().tracks;
       g.clearRect(0, 0, W, H);
       for (let t = 0; t < tracks; t++) {

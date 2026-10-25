@@ -144,6 +144,7 @@ addPack(en({
   "это не проект DAWN": "this is not a DAWN project",
   "нет channels/patterns — это не проект DAWN": "no channels/patterns — this is not a DAWN project",
   "Трек": "Track",
+  "Прокрутка по времени (Shift+колесо)": "Scroll in time (Shift+wheel)",
   "Каждый запуск — новый вариант: структура, синты дропов и брейки зависят от ползунков и случая.": "Every run is a new variant: structure, drop synths and breaks depend on the sliders and chance.",
   "Основа: текущий паттерн": "Basis: current pattern", "Основа: весь трек (самый частый паттерн)": "Basis: whole track (most used pattern)", "Основа: участок от маркера ▼": "Basis: region from the ▼ marker",
   "Что взять за основу": "What to build from", "тактов": "bars",

@@ -1150,3 +1150,8 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .dw-magic-lvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 12px; }
 .dw-magic-lv { display: grid; grid-template-columns: 110px 1fr 38px; align-items: center; gap: 6px; font-size: 12px; }
 .dw-magic-lv input { width: 100%; }
+.dw-pl-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.dw-pl-main > .dw-pr-wrap { flex: 1; min-height: 0; }
+.dw-hscroll { position: relative; height: 12px; margin: 3px 4px 2px 74px; border-radius: 6px; background: rgba(0,0,0,.25); cursor: pointer; flex: none; }
+.dw-hs-thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; background: var(--dw-lemon, #fff09e); opacity: .7; cursor: grab; }
+.dw-hs-thumb:hover { opacity: 1; }
