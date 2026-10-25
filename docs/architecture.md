@@ -11,7 +11,8 @@
   │                    ├─ posts.py     Posts     записи («твиты») + картинки
   │                    ├─ userfs.py    Folders   общие пользовательские папки
   │                    ├─ forum.py     Forum     форум Kursk Artists
-  │                    └─ airhockey.py AirHockey арена «Джус» (WS, авторитетная физика)
+  │                    ├─ airhockey.py AirHockey арена «Джус» (WS, авторитетная физика)
+  │                    └─ dawnstore.py Projects, Visits  общие проекты DAWN, счётчик посещений
   │
   └─ Service Worker (sw.js) — перехватывает /api/ls, /api/entry, /api/find, /api/listen, /fs/...
      и накладывает личный слой пользователя из IndexedDB (overlay-core.js)
@@ -27,8 +28,9 @@
 2. `Chat` — аккаунты; его `user_by_token(request)` — **единственный источник «кто это»** для всех модулей.
 3. `Posts(user_of=chat.user_by_token)`, `Folders(..., purge_dir=posts.purge_dir)`.
 4. Перекрёстные колбэки: `posts.dir_ok`, `chat.posts`, `posts.on_gone = chat.drop_comments`.
-5. `AirHockey`, `Forum` — регистрируют свои маршруты через `.routes(app)`.
-6. Общие маршруты; `/{tail:.*}` (статика) — **последним**.
+5. `Projects` (общие проекты DAWN: пишет в `/ufs` через `folders.real`), `Visits` (счётчик).
+6. `AirHockey`, `Forum` — регистрируют свои маршруты через `.routes(app)`.
+7. Общие маршруты; `/{tail:.*}` (статика) — **последним**.
 
 ## Запуск страницы — `public/js/main.js`
 
@@ -36,16 +38,21 @@
 index.html
  ├─ <script> overlay-core.js      (общий с SW код слоя)
  └─ <script type=module> main.js
+     ├─ import core/i18n.js + i18n/os.js   язык (cookie → часовой пояс → en), до остальных модулей
+     ├─ init_i18n()                 перевод DOM (MutationObserver)
      ├─ await init_vfs()           регистрация sw.js, ждём контроль над страницей
      ├─ init_wm()                  оконный менеджер
      ├─ init_remote_github()       зеркала GitHub в проводнике
      ├─ init_apps_player()
      ├─ init_desktop()             иконки = /home/nikita/Desktop
-     ├─ init_ui_taskbar(), init_ui_wallpaper(), init_ui_context_menu()
+     ├─ init_ui_taskbar(), init_ui_wallpaper(), init_ui_glow(), init_ui_context_menu()
+     ├─ init_params() + core/uiparams.js    параметры ОС и любые регуляторы — цели проводков DAWN
      └─ стартовое окно: /browser/<адрес> → openBrowser(адрес), иначе openExplorer(Projects)
 ```
 
 `init_vfs()` идёт **до** первых запросов к `/api/ls` — иначе первые ответы придут без личного слоя.
+
+**Ленивая загрузка.** При старте грузится только оболочка (окна, рабочий стол, панель, плеер, проводник). Код приложений — DAWN, браузер, чат, Джус, настройки, записи, «загрузчик» — подгружается при первом открытии через `apps/lazy.js` (обёртки `openDawn`, `openBrowser`… с тем же API; «Загрузка…», если дольше 300 мс). Новое приложение подключай туда же, а не прямым импортом.
 
 ## Кто кого вызывает (клиент)
 

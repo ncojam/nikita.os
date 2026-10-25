@@ -11,11 +11,11 @@
 | [philosophy.md](philosophy.md) | Принципы проекта и сквозные механизмы |
 | [server.md](server.md) | Серверные модули и все HTTP/WS-эндпоинты |
 | [filesystem.md](filesystem.md) | Файловая система: `/fs`, `/ufs`, записи, локальный слой (VFS + Service Worker), зеркала GitHub |
-| [frontend.md](frontend.md) | Ядро клиента: оконный менеджер, рабочий стол, открытие файлов, ярлыки `.lnk` |
+| [frontend.md](frontend.md) | Ядро клиента: оконный менеджер, рабочий стол, открытие файлов, ярлыки `.lnk`, живой фон, параметры для проводков, настройки, языки |
 | [social.md](social.md) | Аккаунты, чат, комментарии, записи, модерация |
 | [browser.md](browser.md) | Браузер и псевдо-сайты, форум Kursk Artists |
 | [apps.md](apps.md) | Остальные приложения: плеер, GBA, Flash, Джус, «загрузчик», настройки |
-| [dawn.md](dawn.md) | DAWN — пастельная DAW: окна-модули, движок, формат `.dawn` |
+| [dawn.md](dawn.md) | DAWN — пастельная DAW: окна-модули, движок, модуляция и проводки, педали, Магия, свои пресеты, общие проекты |
 | [dawn-format.md](dawn-format.md) | Формат проекта `.dawn` (`dawn/2`) — для людей и нейросетей |
 | [deploy.md](deploy.md) | Запуск локально, Docker, nginx/Caddy, переменные окружения |
 | [code-rules.md](code-rules.md) | Правила и соглашения по коду |

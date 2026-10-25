@@ -12,6 +12,7 @@
 | `userfs.py` | `Folders` | `ufs/folders.json` + реальные каталоги в `ufs/` | Общие пользовательские папки |
 | `forum.py` | `Forum` | `ufs/.meta/forum.json`, `.meta/forum_media/` | Форум Kursk Artists |
 | `airhockey.py` | `AirHockey` | `NOS_DATA` (таблица рекордов) | Арена «Джус» |
+| `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
 
 ## Эндпоинты
 
@@ -23,7 +24,11 @@
 | POST | `/api/listen?path=` | server | +1 прослушивание (1 раз с IP за 30 мин) |
 | GET | `/fs/{path}` | server | Файл: канон → ufs → JSON виртуальной записи. `.br/.gz` отдаются с `Content-Encoding` (Unity) |
 | GET | `/grab/{name}` | server | «Бесконечная загрузка» для fakedl |
-| GET | `/browser/...` | server | `index.html` — прямые ссылки в браузер ОС |
+| GET | `/browser/...`, `/dawn/...` | server | `index.html` — прямые ссылки в браузер ОС и в DAWN (`/dawn/<путь к .dawn>`) |
+| POST | `/api/dawn/save` `{dir, name, data}` | dawnstore | Сохранить проект в папку (нужен вход; своё — перезаписывается) |
+| POST | `/api/dawn/delete` `{path}` | dawnstore | Удалить свой проект |
+| GET | `/api/dawn/mine` | dawnstore | Кто я, мои проекты, лимиты |
+| POST | `/api/visit` `{app, id, hit}` | dawnstore | Счётчик: `hit` — засчитать открытие; ответ `{total, unique}` (id хранится хэшем) |
 | POST | `/api/chat/auth`, `/api/chat/logout` | chat | Вход/регистрация, выход |
 | GET | `/api/chat/me`, `/api/chat/history`, `/api/chat/comments` | chat | Кто я, история, комменты комнаты |
 | WS | `/api/chat/ws` | chat | Общий чат, онлайн, P2P-сигналы, комнаты комментов |
@@ -41,4 +46,5 @@
 - `resolve_inside(root, rel)` — **единственный** способ превратить путь из запроса в путь на диске: запрещает выход за корень (с учётом симлинков) и любые части, начинающиеся с точки.
 - Поэтому всё служебное лежит в `.meta/` — его невозможно скачать через `/fs`.
 - `client_ip()` берёт `X-Forwarded-For` только при `TRUST_PROXY=1`.
-- `client_max_size = 256 КБ` — тела запросов маленькие; потолок рассчитан на сжатые картинки.
+- `client_max_size = 2,5 МБ` — под проект DAWN (≤ 2 МБ) и сжатые картинки записей; лимиты модулей строже.
+- Аккаунт один на всё: чат, форум, Джус, общие папки, записи, проекты DAWN — `chat.user_by_token`.

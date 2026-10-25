@@ -26,8 +26,10 @@
 | `NOS_UFS_MAX_*` | см. `userfs.py` | Лимиты папок |
 | `NOS_FORUM_*` | см. `forum.py` | Лимиты форума |
 | `NOS_AIR_MAX`, `NOS_AIR_GRACE` | см. `airhockey.py` | Игроков на арене; сколько держится платформа ушедшего |
+| `NOS_DAWN_MAX_PROJECTS`, `NOS_DAWN_MAX_BYTES` | `10`, 2 МБ | Общие проекты DAWN на аккаунт и размер одного |
 
 ## Что важно при деплое
 
+- `deploy.sh` после `git pull` докладывает недостающие файлы из `seed/` в `fs/` (`cp -rn`: твои правки не перезаписываются) — так в репозитории живут общедоступные файлы вроде `seed/home/nikita/Projects/Bayati in 7-8.dawn`.
 - Ярлыки рабочего стола из `DEFAULT_DESKTOP` создаются **только на пустой** `fs/home/nikita/Desktop` — новые ярлыки на живом сайте кладутся руками.
 - Прокси не должен резать WebSocket (`/api/chat/ws`, арена) и заголовки COOP/COEP.
