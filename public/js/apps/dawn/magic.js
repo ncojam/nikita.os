@@ -6,6 +6,7 @@ import { DRUMS, ensureDrum } from "./library.js";
 import { applyPreset } from "./presets.js";
 import { c4, scaleSet } from "./tuning.js";
 import { dwBtn, select, shell } from "./ui.js";
+import { UserLib } from "./userlib.js";
 
 /* ================= DAWN — «Магия»: умные функции поверх проекта =================
  * Достроить композицию: смотрит на паттерн (размер, лад, бас, ударные, темп → стиль) и собирает вокруг него трек:
@@ -25,7 +26,7 @@ const N = (s, l, n, v) => ({ s: +s.toFixed(4), l: +l.toFixed(4), n, v: +Math.min
 
 /* ---------- разбор паттерна ---------- */
 const DRUM_RE = [["kick", /kick|бочк/i], ["snare", /snare|малый/i], ["clap", /clap|хлоп/i], ["ohat", /open/i], ["hat", /hat|хэт/i], ["tom", /tom/i]];
-function roleOf(ch) {
+export function roleOf(ch) {
   if (ch.type !== "sampler") return null;
   const s = (ch.params.path || "") + " " + ch.id + " " + ch.name;
   for (const [r, re] of DRUM_RE) if (re.test(s)) return r;
@@ -332,6 +333,16 @@ export function fillsInPlaylist(patId = Engine.project.cur) {
   return { made: F.length, placed: n };
 }
 
+/* готовые наборы настроек «Достроить»; свои — в UserLib (magic) */
+const ALL = { intro: true, build: true, drop: true, break: true, build2: true, drop2: true, outro: true };
+export const MAGIC_PRESETS = {
+  "Стандарт": { sections: ALL, size: 8, pad: true, riser: true, impact: true, fills: true },
+  "Короткий (интро → дроп → аутро)": { sections: { intro: true, build: true, drop: true, outro: true }, size: 4, pad: true, riser: true, impact: true, fills: true },
+  "Длинный клубный": { sections: ALL, size: 16, pad: true, riser: true, impact: true, fills: true },
+  "Без пэдов и райзеров": { sections: ALL, size: 8, pad: false, riser: false, impact: true, fills: true },
+};
+const MAGIC_KEYS = ["sections", "size", "mode", "pad", "riser", "impact", "fills", "style"];
+
 /* ======================= окно «Магия» ======================= */
 export const MAGIC = {
   title: () => "Магия",
@@ -342,7 +353,7 @@ export const MAGIC = {
     const body = el("div", { className: "dw-magic-body" });
     root.append(body);
     const opt = { sections: { intro: true, build: true, drop: true, break: true, build2: true, drop2: true, outro: true }, size: 8, mode: "append", pad: true, riser: true, impact: true, fills: true, style: "auto" };
-    let report = null;
+    let report = null, preset = null;
     function build() {
       const A = analyze(), P = Engine.project;
       const keyName = `${["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][A.key.E === 12 ? A.key.root : 0] || ""}${A.key.E !== 12 ? A.key.root + "/" + A.key.E + "-EDO" : ""} ${A.key.mode}`;
@@ -356,6 +367,15 @@ export const MAGIC = {
         el("div", { className: "dw-magic-card" },
           el("h4", { textContent: "🎼 Достроить композицию" }),
           el("div", { className: "dw-dim", textContent: "Из этого паттерна — трек: части по порядку. Сними галочку, если часть уже готова." }),
+          el("div", { className: "dw-pr-tools" },
+            select([["", "Пресет…"], ...UserLib.names("magic").map(n => ["★ " + n, "★ " + n]), ...Object.keys(MAGIC_PRESETS).map(n => [n, n])], "", v => {
+              if (!v) return;
+              const src = v.startsWith("★ ") ? UserLib.get("magic", v.slice(2)) : MAGIC_PRESETS[v];
+              if (src) { Object.assign(opt, JSON.parse(JSON.stringify(src))); preset = v; build(); }
+            }, "Набор настроек"),
+            preset ? el("span", { className: "dw-dim no-i18n", textContent: preset }) : "",
+            dwBtn("⭐", () => { const n = prompt("Имя своего набора настроек:", preset?.replace(/^★ /, "") || ""); const s = n && UserLib.put("magic", n, Object.fromEntries(MAGIC_KEYS.map(k => [k, opt[k]]))); if (s) { preset = "★ " + s; build(); } }, { title: "Сохранить эти настройки как свой пресет" }),
+            preset?.startsWith("★ ") ? dwBtn("🗑", () => { if (UserLib.del("magic", preset.slice(2))) { preset = null; build(); } }, { title: "Удалить свой пресет", className: "dw-btn dw-x" }) : ""),
           el("div", { className: "dw-magic-grid" }, ...Object.entries(SECTIONS).map(([k, l]) => el("div", { className: "dw-magic-sec" }, chk(opt.sections, k, l),
             dwBtn("＋", () => run({ ...opt, sections: { [k]: true }, mode: "append" }), { title: "Добавить только эту часть в конец плейлиста" })))),
           el("div", { className: "dw-dim", textContent: "Добавки:" }),

@@ -1,6 +1,7 @@
 import { BUILTIN, Engine, PASTEL } from "./engine.js";
 import { c4, scaleSet, scalesOf } from "./tuning.js";
 import { applyPreset } from "./presets.js";
+import { UserLib } from "./userlib.js";
 
 /* ================= DAWN — библиотека паттернов =================
  * Готовые паттерны «одной кнопкой»: ударные грувы (в том числе в нечётных размерах) и мелодические
@@ -100,6 +101,7 @@ export function ensureDrum(role) {
 /* что даёт элемент библиотеки: { name, kind: "drums" | "synth", sig?, len?, notes: { channelId: [нота] } } (каналы создаются здесь) */
 function build(id, Dawn) {
   const P = Engine.project;
+  if (id.startsWith("u:")) return buildOwn(id.slice(2));
   const d = DRUMS.find(x => x.id === id);
   if (d) {
     const notes = {};
@@ -138,6 +140,32 @@ function build(id, Dawn) {
   return null;
 }
 
+/* свой паттерн: ударные — по ролям, синты — каналы с тем же именем и типом (нет — создаются со своим звуком) */
+function buildOwn(name) {
+  const u = UserLib.get("patterns", name), P = Engine.project;
+  if (!u) return null;
+  const notes = {};
+  for (const [role, list] of Object.entries(u.drums || {})) {
+    if (!ROLES[role]) continue;
+    const ch = ensureDrum(role), pitch = Engine.defaultPitch(ch);
+    notes[ch.id] = list.map(([s, l, v]) => ({ s, l, n: pitch, v }));
+  }
+  for (const sy of u.synths || []) {
+    let ch = P.channels.find(c => c.type === sy.type && c.name === sy.name);
+    if (!ch) {
+      ch = Engine.addChannel(sy.type, sy.name);
+      ch.params = JSON.parse(JSON.stringify(sy.params)); ch.edo = sy.edo || 12; ch.scale = { ...(sy.scale || ch.scale) };
+      const i = ch.mix || 0;
+      if (i > 0 && sy.fx?.length) { P.mixer[i].fx = JSON.parse(JSON.stringify(sy.fx)); Engine.G.rebuildFx(i); }
+      for (const [k, m] of (sy.mods || []).entries()) P.mods.push({ id: `u${ch.id}${k}`.slice(0, 24), presetOf: ch.id, type: m.type, name: m.name, color: ch.color, value: m.value ?? 0.5,
+        trig: { ch: ch.id, att: 5, hold: 40, rel: 250, vel: true, ...m.trig }, meter: { mix: i, gain: 1.5 }, env: m.env || { len: 16, loop: true, pts: [[0, 0], [16, 1]] },
+        lfo: m.lfo || { sync: 3, shape: "sine", phase: 0 }, wires: m.wires.map(w => ({ to: w.to.replace(/^fx\./, `mix.${i}.`).replace(/^ch\./, `ch.${ch.id}.`), amt: w.amt })) });
+    }
+    notes[ch.id] = sy.notes.map(([s, l, n, v]) => ({ s, l, n, v }));
+  }
+  return { name: "⭐ " + name, kind: u.kind, sig: u.sig, len: u.len, notes };
+}
+
 /* добавить элемент библиотеки → id паттерна.
  * into — id паттерна, в который вписать: ноты той же категории (ударные или синты) заменяются, остальное остаётся.
  * Без into — новый паттерн (так работает перетаскивание на плейлист). */
@@ -153,7 +181,7 @@ export function instantiate(id, Dawn, into = null) {
     Object.assign(pat.notes, b.notes);
   } else {
     const isDrum = chId => Engine.chan(chId)?.type === "sampler";
-    const same = chId => (b.kind === "drums") === isDrum(chId);
+    const same = chId => b.kind === "all" || (b.kind === "drums") === isDrum(chId);
     const others = Object.entries(pat.notes).some(([c, L]) => L.length && !same(c));
     for (const c of Object.keys(pat.notes)) if (same(c)) pat.notes[c] = [];
     if (!others && b.sig) { pat.sig = [...b.sig]; pat.len = b.len || null; }

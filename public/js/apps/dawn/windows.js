@@ -7,7 +7,9 @@ import { GF_PRESETS, GF_SPECS, GF_WAVES, MOD_KEYS, gfDefaults } from "./grapefru
 import { MODS } from "./mod.js";
 import { MAGIC } from "./magic.js";
 import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
-import { applyPreset, presetsFor } from "./presets.js";
+import { USER, applyPreset, presetsFor } from "./presets.js";
+import { UserLib, captureSound, capturePattern } from "./userlib.js";
+import { roleOf } from "./magic.js";
 import { SPECS } from "./instruments.js";
 import { FX, fxDefaults } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
@@ -454,7 +456,13 @@ const inst = {
         presetsFor(ch.type).length ? select([["", "✨ Пресет…"], ...presetsFor(ch.type).map(n => [n, n])], "", v => {
           if (!v) return;
           applyPreset(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
-        }, "Готовый звук (вместе с эффектами на инсерте)") : "");
+        }, "Готовый звук (вместе с эффектами на инсерте)") : "",
+        ch.type !== "sampler" ? dwBtn("⭐", () => {
+          const n = prompt("Имя своего пресета (звук + эффекты инсерта + его модуляция):", ch.preset?.startsWith(USER) ? ch.preset.slice(USER.length) : ch.name);
+          const saved = n && UserLib.put("synth", n, captureSound(Engine, ch));
+          if (saved) { ch.preset = USER + saved; build(); }
+        }, { title: "Сохранить этот звук как свой пресет" }) : "",
+        ch.preset?.startsWith(USER) ? dwBtn("🗑", () => { if (UserLib.del("synth", ch.preset.slice(USER.length))) { delete ch.preset; build(); } }, { title: "Удалить свой пресет «" + ch.preset.slice(USER.length) + "»", className: "dw-btn dw-x" }) : "");
       panel = ch.type === "osc3" ? osc3Panel(ch) : ch.type === "grapefruit" ? gfPanel(ch, build) : samplerPanel(ch, Dawn);
       root.replaceChildren(head, panel, miniKeys(ch));
     }
@@ -721,11 +729,11 @@ const lib = {
     const root = shell(c, "dw-lib", "#ffb3b3");
     const body = el("div", { className: "dw-tree dw-lib-list" });
     root.append(el("div", { className: "dw-dim dw-hint", textContent: "＋ — вписать в текущий паттерн: ударные заменяют ударные, синты — синты, остальное остаётся. Тащи карточку на плейлист — отдельный паттерн-клип. Мелодии строятся в ладу и строе выбранного канала." }), body);
-    const card = (item, sub) => {
+    const card = (item, sub, del) => {
       const add = () => { const id = instantiate(item.id, Dawn, Engine.project.cur); if (id) notify(`«${item.name}» → паттерн «${Engine.pat(id).name}»`); };
       const r = el("div", { className: "dw-libcard", draggable: true },
         el("div", {}, el("b", { textContent: item.name }), el("div", { className: "dw-dim", textContent: sub })),
-        dwBtn("＋", add, { title: "Вписать в текущий паттерн" }));
+        dwBtn("＋", add, { title: "Вписать в текущий паттерн" }), del ? dwBtn("🗑", del, { title: "Удалить свой паттерн", className: "dw-btn dw-x" }) : "");
       r.ondragstart = e => { e.dataTransfer.setData(LIB_MIME, item.id); e.dataTransfer.effectAllowed = "copy"; };
       r.ondblclick = add;
       return r;
@@ -733,6 +741,18 @@ const lib = {
     function build() {
       const ch = Engine.chan(Dawn.pianoCh), tgt = ch && ch.type !== "sampler" ? ch : Engine.project.channels.find(x => x.type !== "sampler");
       body.replaceChildren(
+        el("div", { className: "dw-dir-row open", textContent: "⭐ Мои" }),
+        el("div", { className: "dw-pr-tools" },
+          el("span", { className: "dw-dim", textContent: "Сохранить текущий паттерн:" }),
+          ...[["drums", "🥁 ударные"], ["synth", "🎹 синты"], ["all", "весь"]].map(([what, label]) => dwBtn(label, () => {
+            const snap = capturePattern(Engine, what, roleOf);
+            if (!Object.keys(snap.drums).length && !snap.synths.length) return notify("В паттерне нет таких нот");
+            UserLib.put("patterns", prompt("Имя своего паттерна:", Engine.pat().name), snap);
+          })),
+          dwBtn("⬇", () => UserLib.export(), { title: "Экспорт моих пресетов (звуки, паттерны, магия) в файл" }),
+          dwBtn("⬆", () => UserLib.import(), { title: "Импорт пресетов из файла" })),
+        ...UserLib.names("patterns").map(n => { const u = UserLib.get("patterns", n);
+          return card({ id: "u:" + n, name: n }, `${{ drums: "🥁", synth: "🎹", all: "🥁🎹" }[u.kind]} ${u.sig.join("/")} · ${u.len}`, () => { if (UserLib.del("patterns", n)) build(); }); }),
         el("div", { className: "dw-dir-row open", textContent: "🔥 Риддим" }),
         ...DRUMS.filter(d => d.riddim).map(d => card(d, `🥁 ${d.sig} · ${d.tags}`)),
         ...KITS.filter(k => k.riddim).map(k => card(k, "🎹 " + k.tags + " · лад выбранного канала")),
@@ -748,7 +768,8 @@ const lib = {
     }
     build();
     const off = Engine.on("change", w => { if (w?.channels || w?.all || w?.piano) build(); });
-    return off;
+    addEventListener("dawn-userlib", build);
+    return () => { off(); removeEventListener("dawn-userlib", build); };
   },
 };
 

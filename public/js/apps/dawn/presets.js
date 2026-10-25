@@ -1,5 +1,6 @@
 import { fxDefaults } from "./fx.js";
 import { GF_PRESETS, gfDefaults } from "./grapefruit.js";
+import { UserLib } from "./userlib.js";
 
 /* ================= DAWN — пресеты звуков =================
  * Пресет = параметры инструмента + (необязательно) цепочка эффектов, которую он ставит на свой инсерт:
@@ -51,15 +52,23 @@ const GF_FX = {
   "Metal Pluck": [fx("delay", { sync: 2, fb: 0.35, mix: 0.25 }), fx("reverb", { decay: 2.5, mix: 0.25 })],
 };
 
+/* свои пресеты (UserLib) — с префиксом «★ » */
+export const USER = "★ ";
 export function presetsFor(type) {
-  if (type === "osc3") return Object.keys(OSC3_PRESETS);
-  if (type === "grapefruit") return Object.keys(GF_PRESETS);
-  return [];
+  const own = UserLib.names("synth").filter(n => UserLib.get("synth", n).type === type).map(n => USER + n);
+  if (type === "osc3") return [...own, ...Object.keys(OSC3_PRESETS)];
+  if (type === "grapefruit") return [...own, ...Object.keys(GF_PRESETS)];
+  return own;
 }
 /* применить пресет к каналу: параметры + эффекты на его инсерт (если инсерт только его) */
 export function applyPreset(Engine, ch, name) {
-  let fxChain = null;
-  if (ch.type === "osc3" && OSC3_PRESETS[name]) {
+  let fxChain = null, mods = null;
+  const own = name.startsWith(USER) ? UserLib.get("synth", name.slice(USER.length)) : null;
+  if (own) {
+    if (own.type !== ch.type) return;
+    ch.params = JSON.parse(JSON.stringify(own.params));
+    fxChain = own.fx?.length ? own.fx : null; mods = own.mods || [];
+  } else if (ch.type === "osc3" && OSC3_PRESETS[name]) {
     Object.assign(ch.params, JSON.parse(JSON.stringify(OSC3_PRESETS[name].params)));
     fxChain = OSC3_PRESETS[name].fx;
   } else if (ch.type === "grapefruit" && GF_PRESETS[name]) {
@@ -77,10 +86,11 @@ export function applyPreset(Engine, ch, name) {
   }
   // модуляция пресета: старая (от прошлого пресета этого канала) уходит; «fx.N.x» — эффект на инсерте канала, «ch.x» — сам канал
   P.mods = (P.mods || []).filter(m => m.presetOf !== ch.id);
-  const mods = ch.type === "osc3" ? OSC3_PRESETS[name].mods : null;
+  if (!own) mods = ch.type === "osc3" ? OSC3_PRESETS[name].mods : null;
   if (mods && alone) for (const [k, m] of mods.entries()) {
-    P.mods.push({ id: `p${ch.id}${k}`.slice(0, 24), presetOf: ch.id, type: m.type, name: m.name, color: ch.color, value: 0.5,
-      trig: { ch: ch.id, ...m.trig }, meter: { mix: i, gain: 1.5 }, env: { len: 16, loop: true, pts: [[0, 0], [16, 1]] }, lfo: { sync: 3, shape: "sine", phase: 0 },
+    P.mods.push({ id: `p${ch.id}${k}`.slice(0, 24), presetOf: ch.id, type: m.type, name: m.name, color: ch.color, value: m.value ?? 0.5,
+      trig: { ch: ch.id, att: 5, hold: 40, rel: 250, vel: true, ...m.trig }, meter: { mix: i, gain: 1.5 },
+      env: m.env ? JSON.parse(JSON.stringify(m.env)) : { len: 16, loop: true, pts: [[0, 0], [16, 1]] }, lfo: m.lfo ? { ...m.lfo } : { sync: 3, shape: "sine", phase: 0 },
       wires: m.wires.map(w => ({ to: w.to.replace(/^fx\./, `mix.${i}.`).replace(/^ch\./, `ch.${ch.id}.`), amt: w.amt })) });
   }
   Engine.touch({ channels: true, mixer: true, mods: true });
