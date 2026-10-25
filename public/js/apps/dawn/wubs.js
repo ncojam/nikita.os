@@ -35,6 +35,17 @@ export function fitParams(p, type, dur) {
   return fit(p);
 }
 
+/* растяжение огибающей у отдельной ноты (поле x): атака и спад × k — «вууууб» из двух вубов */
+export function stretchParams(p, type, k) {
+  const st = o => ({ ...o, att: (o.att ?? 0) * k, dec: (o.dec ?? 0) * k });
+  if (type === "grapefruit") return { ...p, ops: p.ops.map(o => {
+    const q = st(o);
+    if (o.env) { q.env = {}; for (const [kd, e] of Object.entries(o.env)) q.env[kd] = e?.pts ? { ...e, pts: e.pts.map(([t, v]) => [t * k, v]) } : e; }
+    return q;
+  }) };
+  return st(p);
+}
+
 /* ---------- улучшайзер (3XOSC) ---------- */
 function insertOf(Engine, ch) {
   const P = Engine.project;

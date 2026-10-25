@@ -1,5 +1,5 @@
 import { FX, fxDefaults, loadCodeWorklet } from "./fx.js";
-import { fitParams } from "./wubs.js";
+import { fitParams, stretchParams } from "./wubs.js";
 import { PASTEL, barLen, fromFile, newInsert, patLen, slug, toFile } from "./format.js";
 import { BUILTIN, DEFAULT_PARAMS, TYPES, ensureSample, playOsc3, playSampler, sampleNow } from "./instruments.js";
 import { playGrapefruit } from "./grapefruit.js";
@@ -158,10 +158,11 @@ function buildGraph(ctx, P) {
       for (const [id, s] of G.strips) if (!P.channels.some(c => c.id === id)) { s.gain.disconnect(); s.pan.disconnect(); s.out.disconnect(); G.strips.delete(id); }
     },
     /* нота: параметры с учётом модуляции, изгиб, полифония (лишний старый голос крадём) */
-    voice(ch, t, durSec, n, v, bend = 0) {
+    voice(ch, t, durSec, n, v, bend = 0, stretch = 1) {
       if (!G.audible(ch)) return;
       const out = G.strip(ch).gain, edo = ch.edo || 12;
       let p = effParams(ch, G.over);
+      if (stretch !== 1 && ch.type !== "sampler") p = stretchParams(p, ch.type, stretch);   // удлинённая нота: атака растянута так же
       if (p.fit && ch.type !== "sampler") p = fitParams(p, ch.type, durSec);   // ⇔ огибающая под длину ноты
       const h = ch.type === "osc3" ? playOsc3(ctx, out, p, t, durSec, n, v, edo, bend)
         : ch.type === "grapefruit" ? playGrapefruit(ctx, out, p, t, durSec, n, v, edo, bend)
@@ -569,7 +570,7 @@ export const Engine = {
 function playTick(G, P, mode, beat, t) {
   const bd = 60 / P.bpm, td = bd / 4;
   const swing = (Math.round(beat * 4) % 2 === 1) ? (P.swing || 0) * td * 0.5 : 0;
-  collect(P, mode, beat, (ch, n, off) => G.voice(ch, Math.max(t + off * bd + swing, G.ctx.currentTime), n.l * bd, n.n, n.v, n.b || 0));
+  collect(P, mode, beat, (ch, n, off) => G.voice(ch, Math.max(t + off * bd + swing, G.ctx.currentTime), n.l * bd, n.n, n.v, n.b || 0, n.x || 1));
 }
 
 /* JSON, где короткие массивы (ноты) — в одну строку: и человеку, и нейросети читать удобнее */

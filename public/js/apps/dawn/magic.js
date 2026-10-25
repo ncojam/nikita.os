@@ -217,20 +217,26 @@ function variationNotes(A) {
 /* ---------- вубы в вариациях ----------
  * медленный: в части тактов вместо частых вубов — один на такт или два на полтакта, на клоне с длинной атакой и своей модуляцией;
  * металлический: те же ноты на клоне с металлом; саб: корень такта октавой-двумя ниже (глубже во втором дропе) */
-function slowNotes(A, notes, slowCh) {
+function slowNotes(A, notes) {
+  // удлинённые вубы на том же синте: соседние ноты такта сливаются в одну, атака растягивается во столько же раз (поле x)
   const out = clone(notes), id = A.wub.ch.id, src = (out[id] || []).sort((a, b) => a.s - b.s), nb = Math.max(1, Math.round(A.L / A.bar));
-  const slowBars = new Set(nb === 1 ? [0] : [...Array(nb).keys()].filter(b => b % 2 === 1));
-  out[slowCh.id] = [];
-  out[id] = src.filter(n => !slowBars.has(Math.floor(n.s / A.bar + 1e-6)));
-  for (const b of slowBars) {
+  const bars = nb === 1 ? [0] : [...Array(nb).keys()].filter(b => b % 2 === 1 || rnd() < 0.3);
+  const merged = new Set(), add = [];
+  for (const b of bars) {
     const inBar = src.filter(n => Math.floor(n.s / A.bar + 1e-6) === b);
-    if (!inBar.length) continue;
-    const parts = rnd() < 0.5 ? 1 : 2, seg = A.bar / parts;
-    for (let k = 0; k < parts; k++) {
-      const first = inBar.find(n => n.s >= b * A.bar + k * seg - 1e-6) || inBar[0];
-      out[slowCh.id].push(N(b * A.bar + k * seg, seg * 0.98, first.n, Math.min(1, first.v + 0.1)));
+    if (inBar.length < 2) continue;
+    // варианты: «1-2 вместе», «весь такт», «пары», «3-4 вместе»
+    const mode = pick(inBar.length >= 4 ? ["first2", "whole", "pairs", "last2", "first3"] : ["first2", "whole"]);
+    const groups = mode === "whole" ? [inBar] : mode === "pairs" ? [inBar.slice(0, 2), inBar.slice(2, 4)] : mode === "last2" ? [inBar.slice(-2)]
+      : mode === "first3" ? [inBar.slice(0, 3)] : [inBar.slice(0, 2)];
+    for (const g of groups) {
+      if (g.length < 2) continue;
+      const first = g[0], end = Math.max(...g.map(n => n.s + n.l)), l = end - first.s;
+      g.forEach(n => merged.add(n));
+      add.push({ s: first.s, l: +l.toFixed(4), n: first.n, v: Math.min(1, first.v + 0.05), x: +Math.min(8, l / Math.max(0.05, first.l)).toFixed(3), ...(first.b ? { b: first.b } : {}) });
     }
   }
+  out[id] = [...src.filter(n => !merged.has(n)), ...add].sort((a, b) => a.s - b.s);
   return out;
 }
 function moveNotes(A, notes, toCh) {
@@ -413,11 +419,8 @@ export function compose(opt) {
     if (A.bass && vn[A.bass.ch.id]?.length > 2 && rnd() < 0.5 + lv.remake / 2) { const n = pick(vn[A.bass.ch.id].slice(1, -1)); n.n += A.bass.ch.edo || 12; }
     out.var = mkPat(`✨ Drop${tag} var`, A, U, vn, "#8fe8cf");
     if (A.wub && opt.slow !== false && rnd() < 0.3 + lv.drama * 0.7) {
-      const sc = once("slowch" + d, () => { const c = cloneWub(Engine, syn || A.wub.ch, `Wub slow${tag} ✨`), barSec = A.bar * 60 / A.bpm;
-        Object.assign(c.params, { fit: false, att: Math.min(2, barSec * (0.2 + 0.25 * lv.drama)), sus: Math.max(c.params.sus ?? 0, 0.8), rel: Math.max(c.params.rel ?? 0, 0.08) });
-        enhance(Engine, c, "mod"); return c; });
-      out.slow = mkPat(`✨ Drop${tag} slow`, A, U, slowNotes(Ad, baseN, sc), "#c3a6ff");
-      said.push("медленные вубы: один на такт или два на полтакта, длинная атака и своё LFO");
+      out.slow = mkPat(`✨ Drop${tag} slow`, A, U, slowNotes(Ad, baseN), "#c3a6ff");
+      said.push("удлинённые вубы: соседние ноты сливаются («1-2» вместе, весь такт, пары) прямо на том же синте, атака растягивается во столько же раз");
     }
     out.holes = mkPat(`✨ Drop${tag} holes`, A, U, holesNotes(A, baseN, Math.max(0.3, lv.holes), syn?.id || A.wub?.ch.id), "#ffb3b3");
     out.fills = Object.keys(FILLS).map(k => mkPat(`✨ Drop${tag} · ${FILLS[k]}`, A, U, fillNotes(Ad, k, baseN), "#fff09e"));

@@ -51,7 +51,8 @@ export function toFile(P) {
       notes: Object.fromEntries(Object.entries(p.notes || {}).filter(([, L]) => L.length).map(([ch, L]) =>
         [ch, [...L].sort((a, b) => a.s - b.s || a.n - b.n).map(n => {
           const a = [q(n.s), q(n.l), pitchToFile(n.n, edoOf[ch] || 12), q(n.v)];
-          if (n.b) a.push(q(n.b));     // изгиб к концу ноты, в ступенях строя
+          if (n.b || n.x) a.push(q(n.b || 0));     // изгиб к концу ноты, в ступенях строя
+          if (n.x) a.push(q(n.x));               // растяжение огибающей: атака и спад × x (удлинённый вуб)
           return a;
         })])),
     })),
@@ -178,6 +179,8 @@ function parseNote(n, edo) {
   const b = Array.isArray(n) ? n[4] : (n.bend ?? n.b);
   const out = { s, l: clamp(l, 1 / 64, 1024, 0.25), n: parsePitch(p, edo), v: clamp(v, 0, 1, 0.8) };
   if (b && isFinite(+b)) out.b = clamp(b, -4 * edo, 4 * edo, 0);
+  const x = Array.isArray(n) ? n[5] : n.x;
+  if (x && isFinite(+x) && +x !== 1) out.x = clamp(x, 0.1, 16, 1);
   return out;
 }
 export const barLen = p => p.sig[0] * 4 / p.sig[1];        // в долях (четвертях)

@@ -64,12 +64,13 @@ export function buildSchema() {
           sig: { type: "string", pattern: "^\\d+/(1|2|4|8|16)$", default: "4/4" },
           length: { type: "number", minimum: 0.25, description: "beats; omit = auto (by notes, whole bars)" },
           notes: { type: "object", description: "channel id → notes",
-            additionalProperties: { type: "array", items: { type: "array", minItems: 3, maxItems: 5, prefixItems: [
+            additionalProperties: { type: "array", items: { type: "array", minItems: 3, maxItems: 6, prefixItems: [
               { type: "number", minimum: 0, description: "start, beats" },
               { type: "number", exclusiveMinimum: 0, description: "length, beats" },
               { type: ["string", "integer"], description: "pitch (see doc)" },
               { type: "number", minimum: 0, maximum: 1, default: 0.8, description: "velocity" },
-              { type: "number", description: "bend: glide by this many EDO steps by the end of the note" }] } } },
+              { type: "number", description: "bend: glide by this many EDO steps by the end of the note" },
+              { type: "number", description: "x: envelope stretch — attack and decay × x (a long wub merged from x short ones)" }] } } },
         } } },
       playlist: { type: "array", items: { type: "object", required: ["pattern", "start"], properties: {
         pattern: { type: "string" }, track: { type: "integer", minimum: 1 }, start: { type: "number", minimum: 0 }, length: { type: "number" } } } },
