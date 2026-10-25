@@ -10,6 +10,7 @@ import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
 import { USER, applyPreset, presetsFor } from "./presets.js";
 import { UserLib, captureSound, capturePattern } from "./userlib.js";
 import { roleOf } from "./magic.js";
+import { ENHANCE, enhance } from "./wubs.js";
 import { SPECS } from "./instruments.js";
 import { FX, fxDefaults } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
@@ -556,6 +557,13 @@ const inst = {
           if (!v) return;
           applyPreset(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
         }, "Готовый звук (вместе с эффектами на инсерте)") : "",
+        ch.type !== "sampler" ? dwBtn("⇔", e => { ch.params.fit = !ch.params.fit; e.target.classList.toggle("on", ch.params.fit); Engine.touch({ param: true }); },
+          { className: "dw-btn" + (ch.params.fit ? " on" : ""), title: "Огибающая под длину ноты: атака, спад и релиз ужимаются на коротких нотах — частые вубы слышны" }) : "",
+        ch.type === "osc3" ? select([["", "🪄 Улучшить…"], ...Object.entries(ENHANCE).filter(([k]) => k !== "fit").map(([k, l]) => [k, l])], "", v => {
+          if (!v) return;
+          const said = enhance(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
+          if (said.length) notify("🪄 " + said.join(" · "), 4500);
+        }, "Улучшайзер: металл, бас, модуляция, реверс атаки, случайный риддим-вуб") : "",
         ch.type !== "sampler" ? dwBtn("⭐", () => {
           const n = prompt("Имя своего пресета (звук + эффекты инсерта + его модуляция):", ch.preset?.startsWith(USER) ? ch.preset.slice(USER.length) : ch.name);
           const saved = n && UserLib.put("synth", n, captureSound(Engine, ch));

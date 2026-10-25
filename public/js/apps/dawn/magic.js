@@ -7,6 +7,7 @@ import { applyPreset } from "./presets.js";
 import { c4, scaleSet } from "./tuning.js";
 import { dwBtn, select, shell } from "./ui.js";
 import { UserLib } from "./userlib.js";
+import { cloneWub, enhance } from "./wubs.js";
 
 /* ================= DAWN — «Магия»: умные функции поверх проекта =================
  * Достроить композицию: смотрит на паттерн (размер, лад, бас, ударные, темп → стиль) и собирает вокруг него трек:
@@ -47,6 +48,8 @@ export function analyze(patId = Engine.project.cur) {
   // бас — среди низких синтов тот, что звучит дольше всех
   const lows = synths.filter(s => s.rel < -0.4), dur = s => s.notes.reduce((a, n) => a + n.l, 0);
   const bass = lows.sort((a, b) => dur(b) - dur(a))[0] || null;
+  // главный вуб: синт с наибольшим числом нот (не пэд)
+  const wub = synths.filter(s => !/pad|пэд/i.test(s.ch.name) && s.notes.length >= 2).sort((a, b) => b.notes.length * (b.rel < 0 ? 2 : 1) - a.notes.length * (a.rel < 0 ? 2 : 1) || (a === bass ? -1 : 1))[0] || null;   // низкие — в приоритете
   // лад: у канала задан — берём; иначе — по нотам (какая тоника и мажор/минор лучше покрывают ноты)
   const ref = synths.find(s => s.ch.scale?.mode && s.ch.scale.mode !== "chromatic")?.ch;
   let key;
@@ -71,7 +74,7 @@ export function analyze(patId = Engine.project.cur) {
   const four = kick.length >= Math.round(L * 0.8) && kick.every(n => Math.abs(n.s - Math.round(n.s)) < 0.05);
   const bpm = P.bpm;
   const style = bpm >= 160 ? "dnb" : half && bpm >= 120 ? "riddim" : four ? "house" : bpm >= 130 && half ? "trap" : "break";
-  return { P, pat, L, bar, sig: pat.sig, drums, synths, bass, key, style, bpm };
+  return { P, pat, L, bar, sig: pat.sig, drums, synths, bass, wub, key, style, bpm };
 }
 export const STYLES = { auto: "Авто (по паттерну)", riddim: "Riddim / дабстеп halftime", dnb: "Drum'n'bass", jungle: "Jungle", house: "House", trap: "Trap", break: "Breakbeat", afro: "Afro 12/8" };
 const GROOVE = { riddim: "riddim44", dnb: "dnb44", jungle: "jungle", house: "house", trap: "trap", break: "break54", afro: "afro128" };
@@ -211,6 +214,42 @@ function variationNotes(A) {
   return notes;
 }
 
+/* ---------- вубы в вариациях ----------
+ * медленный: в части тактов вместо частых вубов — один на такт или два на полтакта, на клоне с длинной атакой и своей модуляцией;
+ * металлический: те же ноты на клоне с металлом; саб: корень такта октавой-двумя ниже (глубже во втором дропе) */
+function slowNotes(A, notes, slowCh) {
+  const out = clone(notes), id = A.wub.ch.id, src = (out[id] || []).sort((a, b) => a.s - b.s), nb = Math.max(1, Math.round(A.L / A.bar));
+  const slowBars = new Set(nb === 1 ? [0] : [...Array(nb).keys()].filter(b => b % 2 === 1));
+  out[slowCh.id] = [];
+  out[id] = src.filter(n => !slowBars.has(Math.floor(n.s / A.bar + 1e-6)));
+  for (const b of slowBars) {
+    const inBar = src.filter(n => Math.floor(n.s / A.bar + 1e-6) === b);
+    if (!inBar.length) continue;
+    const parts = rnd() < 0.5 ? 1 : 2, seg = A.bar / parts;
+    for (let k = 0; k < parts; k++) {
+      const first = inBar.find(n => n.s >= b * A.bar + k * seg - 1e-6) || inBar[0];
+      out[slowCh.id].push(N(b * A.bar + k * seg, seg * 0.98, first.n, Math.min(1, first.v + 0.1)));
+    }
+  }
+  return out;
+}
+function moveNotes(A, notes, toCh) {
+  const out = clone(notes), id = A.wub.ch.id;
+  out[toCh.id] = (out[id] || []).map(n => ({ ...n })); out[id] = [];
+  return out;
+}
+function withSub(A, notes, subCh) {
+  const out = clone(notes), src = (A.bass || A.wub)?.notes || [], E = subCh.edo || 12, low = c4(E) - 2 * E;
+  out[subCh.id] = [];
+  for (let s = 0; s < A.L - 1e-9; s += A.bar) {
+    const first = src.filter(n => n.s >= s - 1e-6 && n.s < s + A.bar - 1e-6).sort((a, b) => a.s - b.s)[0];
+    if (!first) continue;
+    let n = first.n; while (n >= low) n -= E;
+    out[subCh.id].push(N(s, A.bar * 0.95, n, 0.9));
+  }
+  return out;
+}
+
 /* ---------- драм-партия по стилю — в текущий паттерн (ударные заменяются, остальное остаётся) ---------- */
 export function drumsForStyle(style) {
   const A = analyze(), P = Engine.project, pat = A.pat, L = A.L;
@@ -284,12 +323,41 @@ export function compose(opt) {
     if (A.bass) notes[A.bass.ch.id] = A.bass.notes.filter((n, i, L) => i === 0 || Math.floor(n.s / A.bar) !== Math.floor(L[i - 1].s / A.bar)).map(n => ({ ...n, l: Math.max(n.l, A.bar * 0.75) }));
     return mkPat("✨ Break", A, U, notes, "#ffd59e");
   });
+  // клоны вуба и саб — создаются, только если понадобились
+  const slowCh = () => once("slowch", () => {
+    const c = cloneWub(Engine, A.wub.ch, "Wub slow ✨"), barSec = A.bar * 60 / A.bpm;
+    Object.assign(c.params, { fit: false, att: Math.min(2, barSec * 0.3), sus: Math.max(c.params.sus ?? 0, 0.8), rel: Math.max(c.params.rel ?? 0, 0.08) });
+    enhance(Engine, c, "mod");
+    said.push("медленные вубы: в части тактов один вуб на такт или два на полтакта, атака длиннее, на них — своё LFO на фильтр и Tone");
+    return c;
+  });
+  const metalCh = () => once("metalch", () => { const c = cloneWub(Engine, A.wub.ch, "Wub metal ✨"); enhance(Engine, c, "metal"); said.push("металлические вариации: вуб на клоне с металлом (crush с низким Tone, раскрывается по нотам)"); return c; });
+  const subCh = () => once("subch", () => { const r = findOrPreset(/sub|саб/i, "Sub Bass", "Sub ✨", A, 0.75); said.push("второй дроп глубже: саб-бас на 1–2 октавы ниже по корню каждого такта"); return r.ch; });
+  const slowPat = () => once("slow", () => mkPat("✨ Slow wub", A, U, slowNotes(A, A.pat.notes, slowCh()), "#c3a6ff"));
+  const metalPat = () => once("metal", () => mkPat("✨ Metal", A, U, moveNotes(A, A.pat.notes, metalCh()), "#9fd3ff"));
+  const B = () => once("B", () => {   // второй дроп: всё то же, но с сабом, металлом, медленными вубами и брейками чаще
+    const sub = opt.drama ? subCh() : null, add = n => sub ? withSub(A, n, sub) : n;
+    const base = add(A.pat.notes), metal = A.wub && opt.metal ? add(moveNotes(A, A.pat.notes, metalCh())) : base;
+    const slow = A.wub && opt.slow ? add(slowNotes(A, A.pat.notes, slowCh())) : base;
+    if (opt.drama) said.push("во втором дропе брейки чаще: каждые 2 паттерна, в том числе «заикание» по металлическому вубу");
+    return { base: mkPat("✨ Drop B", A, U, base, "#ff9e7a"), metal: mkPat("✨ Drop B metal", A, U, metal, "#9fd3ff"), slow: mkPat("✨ Drop B slow", A, U, slow, "#c3a6ff"),
+      var: mkPat("✨ Drop B var", A, U, add(variationNotes(A)), "#8fe8cf"), stut: mkPat("✨ Drop B stutter", A, U, fillNotes(A, "stutter", metal), "#fff09e"),
+      roll: mkPat("✨ Drop B roll", A, U, fillNotes(A, "roll", base), "#fff09e"), drop: mkPat("✨ Drop B drop-out", A, U, fillNotes(A, "dropout", slow), "#fff09e") };
+  });
   const S = opt.sections;
   const units = n => n * U;
-  const dropRun = (n, varFirst) => {
+  const dropRun = (n, second) => {
     const F = opt.fills ? fills() : null;
     for (let k = 0; k < n; k++) {
-      const last = k % 4 === 3, p = last && F ? F[Math.floor(k / 4) % F.length] : (varFirst ? (k % 2 ? A.pat : varPat()) : (k % 4 === 1 ? varPat() : A.pat));
+      let p;
+      if (second) {
+        const b = B(), seq = opt.drama ? [b.base, b.metal, b.slow, F ? b.roll : b.var, b.var, F ? b.stut : b.metal, b.slow, F ? b.drop : b.base]
+          : [b.var, b.base, b.var, F ? F[1] : b.base];
+        p = seq[k % seq.length];
+      } else if (k % 4 === 3 && F) p = F[Math.floor(k / 4) % F.length];
+      else if (k % 8 === 5 && A.wub && opt.slow) p = slowPat();
+      else if (k % 8 === 6 && A.wub && opt.metal) p = metalPat();
+      else p = k % 4 === 1 ? varPat() : A.pat;
       clip(p, T.main, at + units(k));
     }
     if (opt.impact) clip(impact(), T.fx, at);
@@ -336,12 +404,12 @@ export function fillsInPlaylist(patId = Engine.project.cur) {
 /* готовые наборы настроек «Достроить»; свои — в UserLib (magic) */
 const ALL = { intro: true, build: true, drop: true, break: true, build2: true, drop2: true, outro: true };
 export const MAGIC_PRESETS = {
-  "Стандарт": { sections: ALL, size: 8, pad: true, riser: true, impact: true, fills: true },
-  "Короткий (интро → дроп → аутро)": { sections: { intro: true, build: true, drop: true, outro: true }, size: 4, pad: true, riser: true, impact: true, fills: true },
-  "Длинный клубный": { sections: ALL, size: 16, pad: true, riser: true, impact: true, fills: true },
-  "Без пэдов и райзеров": { sections: ALL, size: 8, pad: false, riser: false, impact: true, fills: true },
+  "Стандарт": { sections: ALL, size: 8, pad: true, riser: true, impact: true, fills: true, slow: true, metal: true, drama: true },
+  "Короткий (интро → дроп → аутро)": { sections: { intro: true, build: true, drop: true, outro: true }, size: 4, pad: true, riser: true, impact: true, fills: true, slow: true, metal: true, drama: true },
+  "Длинный клубный": { sections: ALL, size: 16, pad: true, riser: true, impact: true, fills: true, slow: true, metal: true, drama: true },
+  "Без пэдов и райзеров": { sections: ALL, size: 8, pad: false, riser: false, impact: true, fills: true, slow: true, metal: true, drama: true },
 };
-const MAGIC_KEYS = ["sections", "size", "mode", "pad", "riser", "impact", "fills", "style"];
+const MAGIC_KEYS = ["sections", "size", "mode", "pad", "riser", "impact", "fills", "slow", "metal", "drama", "style"];
 
 /* ======================= окно «Магия» ======================= */
 export const MAGIC = {
@@ -352,7 +420,7 @@ export const MAGIC = {
     const root = shell(c, "dw-magic", "#ffd59e");
     const body = el("div", { className: "dw-magic-body" });
     root.append(body);
-    const opt = { sections: { intro: true, build: true, drop: true, break: true, build2: true, drop2: true, outro: true }, size: 8, mode: "append", pad: true, riser: true, impact: true, fills: true, style: "auto" };
+    const opt = { sections: { intro: true, build: true, drop: true, break: true, build2: true, drop2: true, outro: true }, size: 8, mode: "append", pad: true, riser: true, impact: true, fills: true, slow: true, metal: true, drama: true, style: "auto" };
     let report = null, preset = null;
     function build() {
       const A = analyze(), P = Engine.project;
@@ -380,7 +448,9 @@ export const MAGIC = {
             dwBtn("＋", () => run({ ...opt, sections: { [k]: true }, mode: "append" }), { title: "Добавить только эту часть в конец плейлиста" })))),
           el("div", { className: "dw-dim", textContent: "Добавки:" }),
           el("div", { className: "dw-magic-grid" }, chk(opt, "pad", "Пэд по басу (+ сайдчейн от бочки)"), chk(opt, "riser", "Райзер перед дропом"),
-            chk(opt, "impact", "«Удар» в начале дропа"), chk(opt, "fills", "Брейки в конце каждой фразы")),
+            chk(opt, "impact", "«Удар» в начале дропа"), chk(opt, "fills", "Брейки в конце каждой фразы"),
+            chk(opt, "slow", "Медленные вубы (в 2–4 раза длиннее, долгая атака)"), chk(opt, "metal", "Металлические вариации вуба"),
+            chk(opt, "drama", "Дроп B драматичнее: саб, металл, брейки чаще")),
           el("div", { className: "dw-pr-tools" },
             select([[4, "Дропы: 4 паттерна"], [8, "Дропы: 8 паттернов"], [16, "Дропы: 16 паттернов"]], opt.size, v => { opt.size = +v; }, "Длина дропов"),
             select([["append", "В конец плейлиста"], ["replace", "Заменить плейлист"]], opt.mode, v => { opt.mode = v; }, "Куда"),

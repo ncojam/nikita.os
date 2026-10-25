@@ -1,4 +1,5 @@
 import { FX, fxDefaults, loadCodeWorklet } from "./fx.js";
+import { fitParams } from "./wubs.js";
 import { PASTEL, barLen, fromFile, newInsert, patLen, slug, toFile } from "./format.js";
 import { BUILTIN, DEFAULT_PARAMS, TYPES, ensureSample, playOsc3, playSampler, sampleNow } from "./instruments.js";
 import { playGrapefruit } from "./grapefruit.js";
@@ -159,7 +160,9 @@ function buildGraph(ctx, P) {
     /* нота: параметры с учётом модуляции, изгиб, полифония (лишний старый голос крадём) */
     voice(ch, t, durSec, n, v, bend = 0) {
       if (!G.audible(ch)) return;
-      const out = G.strip(ch).gain, edo = ch.edo || 12, p = effParams(ch, G.over);
+      const out = G.strip(ch).gain, edo = ch.edo || 12;
+      let p = effParams(ch, G.over);
+      if (p.fit && ch.type !== "sampler") p = fitParams(p, ch.type, durSec);   // ⇔ огибающая под длину ноты
       const h = ch.type === "osc3" ? playOsc3(ctx, out, p, t, durSec, n, v, edo, bend)
         : ch.type === "grapefruit" ? playGrapefruit(ctx, out, p, t, durSec, n, v, edo, bend)
         : playSampler(ctx, out, p, t, durSec, n, v, sampleNow(p.path), edo, bend);
