@@ -15,7 +15,9 @@ const hats8 = (len, acc = 0.65, off = 0.4) => range(0, len, 0.5).map((s, i) => h
 const hats16 = (len) => range(0, len, 0.25).map((s, i) => h(s, i % 4 === 0 ? 0.6 : i % 2 ? 0.28 : 0.42));
 
 /* роли ударных → встроенные сэмплы */
-const ROLES = { kick: "kick", snare: "snare", clap: "clap", hat: "hat", ohat: "openhat", tom: "tom" };
+const ROLES = { kick: "kick", snare: "snare", clap: "clap", hat: "hat", ohat: "openhat", tom: "tom",
+  punch: "kickhard", k808: "kick808", fat: "snarefat", rim: "rim", snap: "snap", shaker: "shaker", crash: "crash", ride: "ride",
+  cowbell: "cowbell", conga: "conga", metal: "metal", impact: "impact", revcrash: "revcrash" };
 
 export const DRUMS = [
   { id: "dnb44", name: "DnB two-step", sig: "4/4", len: 4, tags: "174 BPM", notes: {
@@ -107,6 +109,28 @@ DRUMS.push(
     kick: [h(0, 1), h(0.67, 0.7), h(1.33, 0.8), h(2.5, 0.9), h(3.17, 0.7)], clap: [h(1, 0.8), h(3, 0.8)], hat: tri(0, 4, 0.35) } },
   { id: "el-dembow", genre: "electro", name: "Дембоу / реггетон", sig: "4/4", len: 4, tags: "95", notes: {
     kick: at([0, 1, 2, 3], 0.95), snare: [h(0.75, 0.8), h(1.5, 0.8), h(2.75, 0.8), h(3.5, 0.8)], hat: hats8(4, 0.4, 0.3) } },
+);
+// грувы на новых встроенных звуках (808, жирный малый, рим, шейкер, каубелл, конги, металл, тарелки)
+DRUMS.push(
+  { id: "rd-punch", genre: "riddim", name: "Riddim · панч + жирный малый", sig: "4/4", len: 8, tags: "140 · новые звуки", notes: {
+    punch: [h(0, 1), h(0.75, 0.6), h(3.5, 0.7), h(4, 1), h(6.75, 0.7)], fat: [h(2, 1), h(6, 1)], clap: [h(2, 0.5), h(6, 0.55)],
+    hat: at([1, 1.5, 3, 5, 5.5, 7], 0.4), metal: [h(3.75, 0.45), h(7.5, 0.55)], crash: [h(0, 0.6)] } },
+  { id: "rd-metal", genre: "riddim", name: "Riddim · металлический", sig: "4/4", len: 4, tags: "140 · лязг", notes: {
+    punch: [h(0, 1), h(1.75, 0.6)], fat: [h(2, 1)], metal: [h(1, 0.5), h(2.75, 0.4), h(3.5, 0.55)], rim: at([0.5, 3.25], 0.4), hat: at([1.5, 3], 0.35) } },
+  { id: "rd-impact", genre: "riddim", name: "Riddim · удар на «раз»", sig: "4/4", len: 8, tags: "140 · начало дропа", notes: {
+    punch: [h(0, 1), h(4, 1), h(5.5, 0.7)], impact: [h(0, 0.9)], crash: [h(0, 0.7)], fat: [h(2, 1), h(6, 1)], hat: at([1, 3, 5, 7], 0.4), ohat: [h(7.5, 0.4)] } },
+  { id: "tr-808", genre: "trap", name: "Trap · 808 + рим", sig: "4/4", len: 8, tags: "140 · 808", notes: {
+    k808: [h(0, 1), h(1.5, 0.85), h(4, 1), h(6.5, 0.85)], snap: [h(2, 0.9), h(6, 0.9)], rim: [h(3.75, 0.4), h(7.25, 0.4)],
+    hat: [...range(0, 3, 0.5).map(s => h(s, 0.45)), ...range(3, 4, 0.125).map(s => h(s, 0.3)), ...range(4, 8, 0.5).map(s => h(s, 0.45))], ohat: [h(5.5, 0.35)] } },
+  { id: "tr-cowbell", genre: "trap", name: "Phonk · каубелл", sig: "4/4", len: 4, tags: "130 · Memphis", notes: {
+    k808: [h(0, 1), h(1.5, 0.8), h(2.75, 0.7)], clap: [h(1, 0.9), h(3, 0.9)], cowbell: [0, 0.5, 0.75, 1.5, 2, 2.5, 2.75, 3.5].map((s, i) => h(s, i % 3 ? 0.5 : 0.8)), hat: hats8(4, 0.45, 0.3) } },
+  { id: "dn-ride", genre: "dnb", name: "DnB · райд и шейкер", sig: "4/4", len: 4, tags: "174 · катит", notes: {
+    punch: [h(0, 1), h(2.5, 0.85)], fat: [h(1, 1), h(3, 1)], ride: at([0, 1, 2, 3], 0.4), shaker: range(0, 4, 0.25).map((s, i) => h(s, i % 2 ? 0.3 : 0.45)) } },
+  { id: "el-perc", genre: "electro", name: "Tech house · перкуссия", sig: "4/4", len: 4, tags: "126 · конги", notes: {
+    kick: at([0, 1, 2, 3], 1), clap: [h(1, 0.8), h(3, 0.8)], ohat: at([0.5, 1.5, 2.5, 3.5], 0.5), shaker: range(0, 4, 0.25).map((s, i) => h(s, i % 2 ? 0.4 : 0.25)),
+    conga: [h(0.75, 0.5), h(1.25, 0.4), h(2.75, 0.55), h(3.25, 0.4), h(3.5, 0.5)], rim: [h(2.25, 0.35)] } },
+  { id: "el-rim", genre: "electro", name: "Minimal · рим и шейкер", sig: "4/4", len: 4, tags: "124", notes: {
+    kick: at([0, 1, 2, 3], 0.95), rim: [h(0.75, 0.5), h(2.5, 0.45), h(3.75, 0.4)], shaker: range(0, 4, 0.25).map((s, i) => h(s + (i % 2 ? 0.05 : 0), i % 2 ? 0.45 : 0.25)), snap: [h(1, 0.7), h(3, 0.7)] } },
 );
 for (const d of DRUMS) d.genre ||= d.riddim ? "riddim" : /dnb|jungle/.test(d.id) ? "dnb" : d.id === "trap" ? "trap" : ["house", "afro128"].includes(d.id) ? "electro" : "odd";
 export const GENRES = { riddim: "🔥 Риддим / дабстеп", trap: "🪤 Трэп / дрилл / фонк", dnb: "⚡ Drum'n'bass / jungle", electro: "🎛 Электроника: house, techno, garage, breaks…", odd: "🌀 Нечётные размеры" };

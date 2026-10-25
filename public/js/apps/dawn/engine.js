@@ -1,5 +1,5 @@
 import { FX, fxDefaults, loadCodeWorklet } from "./fx.js";
-import { fitParams, stretchParams } from "./wubs.js";
+import { fitOps, fitParams, stretchParams } from "./wubs.js";
 import { PASTEL, barLen, fromFile, newInsert, patLen, slug, toFile } from "./format.js";
 import { BUILTIN, DEFAULT_PARAMS, TYPES, ensureSample, playOsc3, playSampler, sampleNow } from "./instruments.js";
 import { playGrapefruit } from "./grapefruit.js";
@@ -163,6 +163,7 @@ function buildGraph(ctx, P) {
       const out = G.strip(ch).gain, edo = ch.edo || 12;
       let p = effParams(ch, G.over);
       if (stretch !== 1 && ch.type !== "sampler") p = stretchParams(p, ch.type, stretch);   // удлинённая нота: атака растянута так же
+      if (ch.type === "grapefruit") p = fitOps(p, durSec, 60 / (P.bpm || 120));   // ⇔ у отдельных операторов — пропорционально ноте
       if (p.fit && ch.type !== "sampler") p = fitParams(p, ch.type, durSec);   // ⇔ огибающая под длину ноты
       const h = ch.type === "osc3" ? playOsc3(ctx, out, p, t, durSec, n, v, edo, bend)
         : ch.type === "grapefruit" ? playGrapefruit(ctx, out, p, t, durSec, n, v, edo, bend)
@@ -201,7 +202,7 @@ function collect(P, mode, beat, cb) {
     if (beat < c.s || beat >= c.s + c.l) continue;
     const pat = P.patterns.find(p => p.id === c.p);
     if (!pat) continue;
-    const len = patLen(P, pat.id), local = (beat - c.s) % len;
+    const len = patLen(P, pat.id), local = (beat - c.s + (c.o || 0)) % len;   // o — сдвиг внутри паттерна (после разреза)
     const until = Math.min(local + TICK, local + (c.s + c.l - beat));   // нота должна начаться внутри клипа
     emitPattern(P, pat, local, until, cb);
   }
@@ -536,7 +537,7 @@ export const Engine = {
     const P = this.project;
     if (P.mode === "pat") return b;
     const c = P.playlist.find(c => c.p === P.cur && b >= c.s && b < c.s + c.l);
-    return c ? (b - c.s) % this.patLength(c.p) : -1;
+    return c ? (b - c.s + (c.o || 0)) % this.patLength(c.p) : -1;
   },
 
   /* ---------- рендер в WAV ---------- */

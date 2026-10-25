@@ -110,7 +110,7 @@ export function dawnTargets(P) {
     add(`ch.${ch.id}.vol`, g); add(`ch.${ch.id}.pan`, g);
     for (const k of Object.keys(ch.params)) if (typeof ch.params[k] === "number" && SPECS[k]) add(`ch.${ch.id}.${k}`, g);
     (ch.params.oscs || []).forEach((o, i) => ["o_vol", "o_crs", "o_fin", "o_pan"].forEach(k => add(`ch.${ch.id}.osc${i + 1}.${k}`, g)));
-    (ch.params.ops || []).forEach((o, i) => ["ratio", "fine", "level", "out", "pan"].forEach(k => add(`ch.${ch.id}.op${i + 1}.${k}`, g)));
+    (ch.params.ops || []).forEach((o, i) => ["ratio", "fine", "level", "out", "pan", "wsk", "wfold", "wcrush"].forEach(k => add(`ch.${ch.id}.op${i + 1}.${k}`, g)));
     if (ch.params.mod) for (let f = 1; f <= 4; f++) for (let t = 1; t <= 4; t++) if (f !== t) add(`ch.${ch.id}.m${f}${t}`, g);
   }
   P.mixer.forEach((m, i) => {

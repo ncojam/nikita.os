@@ -46,10 +46,33 @@ const GF_FX = {
   "Neuro Bass": [fx("dist", { drive: 0.6, shape: 2, tone: 8000, out: 0.6 }), fx("ott", { depth: 0.8, low: -4, high: 4 }), fx("eq", { lf: 60, lg: 2, mf: 500, mg: -3, hf: 7000, hg: 1 })],
   "Riddim FM": [fx("dist", { drive: 0.75, shape: 3, tone: 6000, out: 0.5 }), fx("ott", { depth: 0.9, time: 0.5 }), fx("eq", { lf: 120, lg: -8, mf: 800, mg: 3, hf: 5000, hg: -2 })],
   "FM Bass": [fx("dist", { drive: 0.35, mix: 0.7 }), fx("ott", { depth: 0.5 })],
+  // риддим: низ режем (его держит отдельный саб), дисторшн + жёсткий OTT — как у продюсеров жанра
+  "Riddim Yoi": [fx("dist", { drive: 0.6, shape: 0, tone: 9000, out: 0.6 }), fx("ott", { depth: 0.85, time: 0.5, high: 3 }), fx("eq", { lf: 110, lg: -10, mf: 1200, mg: 3, mq: 1.2, hf: 7000, hg: -1 })],
+  "Riddim Fold": [fx("dist", { drive: 0.5, shape: 2, tone: 8000, out: 0.55 }), fx("ott", { depth: 0.9, time: 0.5 }), fx("eq", { lf: 120, lg: -10, mf: 700, mg: 2, hf: 6000, hg: -2 })],
+  "Riddim Skew": [fx("dist", { drive: 0.65, shape: 1, tone: 7000, out: 0.55 }), fx("ott", { depth: 0.8, high: 3 }), fx("eq", { lf: 120, lg: -9, mf: 900, mg: 3, hf: 6000, hg: -2 })],
+  "Riddim Crush": [fx("dist", { drive: 0.7, shape: 3, tone: 5000, out: 0.5 }), fx("ott", { depth: 0.9, time: 0.4 }), fx("eq", { lf: 120, lg: -10, mf: 1000, mg: 2, hf: 5000, hg: -3 })],
+  "Riddim Laser": [fx("dist", { drive: 0.55, shape: 1, tone: 10000, out: 0.55 }), fx("ott", { depth: 0.8, high: 4 }), fx("eq", { lf: 130, lg: -10, mf: 1500, mg: 2, hf: 8000, hg: 0 })],
+  "Tearout Screech": [fx("dist", { drive: 0.85, shape: 2, tone: 9000, out: 0.45 }), fx("ott", { depth: 1, time: 0.4, high: 4 }), fx("eq", { lf: 140, lg: -12, mf: 2000, mg: 3, hf: 9000, hg: -2 })],
+  "Riddim Hollow": [fx("dist", { drive: 0.55, shape: 0, tone: 7000, out: 0.6 }), fx("ott", { depth: 0.85 }), fx("eq", { lf: 110, lg: -9, mf: 600, mg: 3, hf: 6000, hg: -2 })],
+  "Riddim Heavy Slow": [fx("dist", { drive: 0.7, shape: 3, tone: 3500, out: 0.55 }), fx("ott", { depth: 0.9, time: 0.6 }), fx("eq", { lf: 110, lg: -9, mf: 800, mg: 2, hf: 6000, hg: -2 })],
   "Sub FM": [fx("eq", { lf: 45, lg: 4, mf: 300, mg: -6, hf: 2000, hg: -12 })],
   "Glass Pad": [fx("reverb", { decay: 5, mix: 0.4 })],
   "Bell": [fx("delay", { sync: 4, fb: 0.4, mix: 0.25 }), fx("reverb", { decay: 4, mix: 0.35 })],
   "Metal Pluck": [fx("delay", { sync: 2, fb: 0.35, mix: 0.25 }), fx("reverb", { decay: 2.5, mix: 0.25 })],
+};
+
+/* модуляция Grapefruit-пресетов: «ch.x» — сам канал. Синт читает параметры в начале ноты, так что LFO в такт
+ * делает каждую ноту чуть другой — форма волны (Skew/Fold/Crush), ratio и глубина FM меняются от вуба к вубу */
+const lfo = (name, sync, shape, wires) => ({ type: "lfo", name, lfo: { sync, shape, phase: 0 }, wires });
+const GF_MODS = {
+  "Riddim Yoi": [lfo("Yoi filter", 3, "sine", [{ to: "ch.cut", amt: 0.12 }])],
+  "Riddim Fold": [lfo("Fold 1/8", 1, "random", [{ to: "ch.op1.wfold", amt: 0.5 }])],
+  "Riddim Skew": [lfo("Skew 1/8", 1, "square", [{ to: "ch.op1.wsk", amt: 0.35 }, { to: "ch.m21", amt: 0.3 }])],
+  "Riddim Crush": [lfo("Crush 1/16", 0, "random", [{ to: "ch.op1.wcrush", amt: 0.5 }, { to: "ch.m21", amt: 0.3 }])],
+  "Riddim Laser": [lfo("Ratio 1/4", 3, "saw", [{ to: "ch.op2.ratio", amt: 0.06 }])],
+  "Tearout Screech": [lfo("Feedback 1/16", 0, "square", [{ to: "ch.m12", amt: 0.3 }])],
+  "Riddim Hollow": [lfo("Fold 1/8", 1, "triangle", [{ to: "ch.op1.wfold", amt: 0.4 }])],
+  "Riddim Heavy Slow": [lfo("FM 1 bar", 6, "saw", [{ to: "ch.m21", amt: 0.4 }])],
 };
 
 /* свои пресеты (UserLib) — с префиксом «★ » */
@@ -86,7 +109,7 @@ export function applyPreset(Engine, ch, name) {
   }
   // модуляция пресета: старая (от прошлого пресета этого канала) уходит; «fx.N.x» — эффект на инсерте канала, «ch.x» — сам канал
   P.mods = (P.mods || []).filter(m => m.presetOf !== ch.id);
-  if (!own) mods = ch.type === "osc3" ? OSC3_PRESETS[name].mods : null;
+  if (!own) mods = ch.type === "osc3" ? OSC3_PRESETS[name].mods : GF_MODS[name];
   if (mods && alone) for (const [k, m] of mods.entries()) {
     P.mods.push({ id: `p${ch.id}${k}`.slice(0, 24), presetOf: ch.id, type: m.type, name: m.name, color: ch.color, value: m.value ?? 0.5,
       trig: { ch: ch.id, att: 5, hold: 40, rel: 250, vel: true, ...m.trig }, meter: { mix: i, gain: 1.5 },

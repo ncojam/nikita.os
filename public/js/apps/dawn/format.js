@@ -56,7 +56,7 @@ export function toFile(P) {
           return a;
         })])),
     })),
-    playlist: P.playlist.map(c => ({ pattern: c.p, track: c.t + 1, start: q(c.s), length: q(c.l) })),
+    playlist: P.playlist.map(c => ({ pattern: c.p, track: c.t + 1, start: q(c.s), length: q(c.l), ...(c.o ? { offset: q(c.o) } : {}) })),
     mixer: P.mixer.map((m, i) => ({ name: m.name, ...(i ? { color: m.color } : {}), vol: q(m.vol), pan: q(m.pan),
       ...(m.mute ? { mute: true } : {}), fx: m.fx.map(f => ({ type: f.type, on: f.on, ...roundDeep(f.p) })) })),
     mods: (P.mods || []).map(m => roundDeep({ id: m.id, type: m.type, name: m.name, color: m.color,
@@ -130,12 +130,12 @@ export function fromFile(raw) {
     const p = patMap[c.pattern] || patterns.find(x => x.name === c.pattern)?.id;
     if (!p) return null;
     return { id: "c" + i, p, t: Math.max(0, Math.round((+c.track || 1) - 1)), s: clamp(c.start, 0, 1e6, 0),
-      l: clamp(c.length, 0.25, 1e5, null) };
+      l: clamp(c.length, 0.25, 1e5, null), ...(+c.offset > 0 ? { o: clamp(c.offset, 0, 1e5, 0) } : {}) };
   }).filter(Boolean);
 
   for (const ch of channels) if (ch.mix >= mixer.length) ch.mix = 0;
   const fixAddr = a => String(a || "").replace(/^ch\.([^.]+)\./, (m, id) => `ch.${chMap[id] || id}.`);
-  const mods = (Array.isArray(raw.mods) ? raw.mods : []).filter(m => ["knob", "env", "lfo", "meter", "trig", "wind"].includes(m?.type)).slice(0, 32).map((m, i) => ({
+  const mods = (Array.isArray(raw.mods) ? raw.mods : []).filter(m => ["knob", "env", "lfo", "meter", "trig", "wind"].includes(m?.type)).slice(0, 96).map((m, i) => ({
     id: String(m.id || "mod" + (i + 1)).slice(0, 24), type: m.type, name: String(m.name || m.type).slice(0, 24),
     color: m.color || PASTEL[(i + 5) % PASTEL.length],
     value: clamp(m.value, 0, 1, 0.5),

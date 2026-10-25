@@ -3,7 +3,7 @@ import { notify } from "../../ui/notify.js";
 import { BUILTIN, Engine, FLASH_COLORS, PASTEL, TYPES, WAVES, WAVE_GLYPH, flashOf, newProject, sampleNow } from "./engine.js";
 import { fromFile } from "./format.js";
 import { aiPackage, aiDoc } from "./schema.js";
-import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults, snapRatio } from "./grapefruit.js";
+import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults, shapeAt, snapRatio } from "./grapefruit.js";
 import { MODS } from "./mod.js";
 import { MAGIC } from "./magic.js";
 import { DRUMS, GENRES, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
@@ -12,11 +12,44 @@ import { USER, applyPreset, presetsFor } from "./presets.js";
 import { UserLib, captureSound, capturePattern } from "./userlib.js";
 import { roleOf } from "./magic.js";
 import { ENHANCE, enhance } from "./wubs.js";
-import { SPECS } from "./instruments.js";
+import { SPECS, ease } from "./instruments.js";
+import { AUTO_SHAPES, PRODUCE, automateAddr, produce } from "./produce.js";
+import { dawnParam } from "./modcore.js";
+
+/* ПКМ по любой ручке: автоматизация на выделенном участке плейлиста (без выделения — на весь трек) */
+let ctxMenu = null;
+const closeCtx = () => { ctxMenu?.remove(); ctxMenu = null; };
+KnobHooks.menu = (addr, e) => {
+  closeCtx();
+  const P = Engine.project, t = dawnParam(P, addr), z = Engine.plSel?.e > Engine.plSel?.s ? Engine.plSel : null;
+  if (!t) return;
+  const bars = v => (v / 4 + 1).toFixed(2).replace(/\.00$/, "");
+  const mine = (P.mods || []).filter(m => m.type === "env" && m.wires?.some(w => w.to === addr));
+  const item = (text, fn, title = "") => el("button", { className: "dw-ctx-i", textContent: text, title, onclick: () => { closeCtx(); fn(); } });
+  ctxMenu = el("div", { className: "dw dw-ctx" },
+    el("div", { className: "dw-ctx-h", textContent: "📈 Сделать автоматизацию" }),
+    el("div", { className: "dw-dim no-i18n", textContent: t.label }),
+    el("div", { className: "dw-dim", textContent: z ? `на участке плейлиста: такты ${bars(z.s)}–${bars(z.e)}` : "выдели участок на плейлисте (Ctrl + тянуть) — иначе на весь трек" }),
+    ...Object.entries(AUTO_SHAPES).map(([k, l]) => item(l, () => {
+      const r = automateAddr(addr, k);
+      if (r) { notify(`📈 ${l.slice(2)} · ${r.label}: такты ${bars(r.s)}–${bars(r.e)} — полоса огибающей внизу плейлиста`, 4500); DawnRef?.open?.("playlist"); }
+    })),
+    mine.length ? item(`✕ Убрать автоматизацию этой ручки (${mine.length})`, () => {
+      P.mods = P.mods.filter(m => !mine.includes(m) || m.wires.length > 1);
+      for (const m of P.mods) m.wires = m.wires.filter(w => !(w.to === addr && mine.includes(m)));
+      Engine.touch({ mods: true, param: true });
+    }) : "");
+  document.body.append(ctxMenu);
+  const r = ctxMenu.getBoundingClientRect();
+  ctxMenu.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + "px";
+  ctxMenu.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + "px";
+  setTimeout(() => addEventListener("pointerdown", function off(ev) { if (!ctxMenu?.contains(ev.target)) { closeCtx(); removeEventListener("pointerdown", off, true); } }, true));
+};
+let DawnRef = null;   // ссылка на DAWN для «открыть плейлист» из меню ручки
 import { FX, fxDefaults } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
 import { PLAYLIST } from "./playlist.js";
-import { applyTheme, digits, dwBtn, knob, led, pal, select, shell, theme } from "./ui.js";
+import { KnobHooks, applyTheme, digits, dwBtn, knob, led, pal, select, shell, theme } from "./ui.js";
 import { noteNameE } from "./tuning.js";
 
 /* ================= DAWN — окна модулей =================
@@ -46,6 +79,7 @@ const transport = {
   icon: "🌸", color: "var(--dw-pink)",
   size: () => [Math.min(1060, vw() - 20), 178, 12, 12],
   render(c, win, _a, Dawn) {
+    DawnRef = Dawn;
     const root = shell(c, "dw-transport", "var(--dw-pink)");
     const playB = el("button", { className: "dw-play", title: "Пуск / стоп (пробел)", onclick: () => Engine.toggle() });
     const stopB = el("button", { className: "dw-stop", title: "Стоп", onclick: () => Engine.stop() });
@@ -336,7 +370,9 @@ function adsrView(p, color) {
     const xa = pad + p.att * sx, xd = xa + p.dec * sx, xs = xd + hold * sx, xr = xs + p.rel * sx;
     g.clearRect(0, 0, W, H);
     g.fillStyle = "rgba(127,127,127,0.12)"; g.fillRect(0, 0, W, H);
-    g.beginPath(); g.moveTo(pad, bot); g.lineTo(xa, y(1)); g.lineTo(xd, y(p.sus)); g.lineTo(xs, y(p.sus)); g.lineTo(xr, bot);
+    // участки с закруглением (A~ D~ R~) — той же кривой, что и в звуке
+    const seg = (x0, x1, v0, v1, c) => { for (let i = 1; i <= 24; i++) g.lineTo(x0 + (x1 - x0) * i / 24, y(v0 + (v1 - v0) * ease(i / 24, c))); };
+    g.beginPath(); g.moveTo(pad, bot); seg(pad, xa, 0, 1, p.ac || 0); seg(xa, xd, 1, p.sus, p.dc || 0); g.lineTo(xs, y(p.sus)); seg(xs, xr, p.sus, 0, p.rc || 0);
     g.strokeStyle = color; g.lineWidth = 2.5; g.stroke();
     g.lineTo(pad, bot); g.globalAlpha = 0.2; g.fillStyle = color; g.fill(); g.globalAlpha = 1;
     g.fillStyle = "rgba(127,127,127,0.8)"; g.font = "9px system-ui";
@@ -382,7 +418,7 @@ function gfPanel(ch, rebuild) {
   const p = ch.params, sel = gfSel.get(ch.id) || { op: 0, kind: "vol" };
   p.mod ||= {};
   for (let f = 1; f <= 4; f++) for (let t2 = 1; t2 <= 4; t2++) if (f !== t2) p.mod["m" + f + t2] ??= 0;   // новые клетки матрицы (обратная связь)
-  for (const o of p.ops) o.pan ??= 0;
+  for (const o of p.ops) for (const k of ["pan", "wsk", "wfold", "wcrush", "ac", "dc", "rc"]) o[k] ??= 0;
   gfSel.set(ch.id, sel);
   const colOf = i => PASTEL[[0, 1, 2, 4][i]];
   const editor = el("div", { className: "dw-gf-env" });
@@ -395,22 +431,36 @@ function gfPanel(ch, rebuild) {
       onclick: () => { o.harmonic = !o.harmonic; if (o.harmonic) { o.ratio = snapRatio(o.ratio); r.paint(); } lock.classList.toggle("on", o.harmonic); Engine.touch({ param: true }); Engine.preview(ch); } });
     return el("div", { className: "dw-freq" }, oc.node, r.node, lock);
   };
+  // картинка формы волны оператора (с Skew / Fold / Crush)
+  const waveView = (o, col) => {
+    const cv = el("canvas", { className: "dw-gf-wave", width: 120, height: 44, title: "Форма волны: Skew — перекос фазы, Fold — складывание, Crush — ступеньки" });
+    cv._draw = () => { const g = cv.getContext("2d"), W = cv.width, H = cv.height; g.clearRect(0, 0, W, H); g.fillStyle = "rgba(127,127,127,0.12)"; g.fillRect(0, 0, W, H);
+      g.strokeStyle = col; g.lineWidth = 2; g.beginPath();
+      for (let x = 0; x <= W; x++) { const v = shapeAt(o, (x / W) % 1); x ? g.lineTo(x, H / 2 - v * (H / 2 - 4)) : g.moveTo(x, H / 2 - v * (H / 2 - 4)); }
+      g.stroke(); };
+    cv._draw();
+    return cv;
+  };
   const opRow = (o, i) => {
-    const col = colOf(i), sub = "op" + (i + 1), view = adsrView(o, col);
+    const col = colOf(i), sub = "op" + (i + 1), view = adsrView(o, col), wv = waveView(o, col);
     const waves = el("div", { className: "dw-waves" }, ...GF_WAVES_ALL.map(wv => {
       const b = el("button", { className: "dw-wave" + (o.wave === wv ? " on" : ""), textContent: GF_GLYPH[wv], title: wv,
         onclick: () => { o.wave = wv; if (wv === "custom" && !o.harm) o.harm = [1, 0.5, 0.33, 0.25, 0.2, 0.16, 0.14, 0.12];
-          waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); Engine.touch({ param: true }); Engine.preview(ch); sel.op = i; drawEditor(); } });
+          waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); wv._draw(); Engine.touch({ param: true }); Engine.preview(ch); sel.op = i; drawEditor(); } });
       return b;
     }));
     const k = (key, spec) => paramKnob(ch, key, o, { color: col, sub, spec, size: 28, onSet: () => view._draw() });
+    const ks = key => paramKnob(ch, key, o, { color: col, sub, spec: GF_SPECS[key], size: 26, onSet: () => wv._draw() });
+    const fitB = el("button", { className: "dw-btn" + (o.fit ? " on" : ""), textContent: "⇔", title: "Огибающая оператора пропорциональна длине ноты: настроена под ноту в 1 долю — на 1/16 играет в 4 раза быстрее, на 2 долях — в 2 раза медленнее",
+      onclick: () => { o.fit = !o.fit; fitB.classList.toggle("on", o.fit); Engine.touch({ param: true }); Engine.preview(ch); } });
     view.classList.add("dw-adsr-mini");
     const pick = el("button", { className: "dw-btn" + (sel.op === i ? " on" : ""), textContent: "OP " + (i + 1), title: "Огибающие этого оператора", onclick: () => { sel.op = i; rebuild(); } });
     const envOn = Object.entries(o.env || {}).filter(([, e]) => e?.on).map(([kd]) => ({ vol: "V", pan: "P", pitch: "♪" })[kd]).join("");
     return el("div", { className: "dw-osc dw-op", style: `--oc:${col}` },
-      pick, waves,
-      freqBox(o, i), k("fine", GF_SPECS.fine), k("level", GF_SPECS.level), k("pan", GF_SPECS.pan),
-      ...(o.env?.vol?.on ? [el("span", { className: "dw-dim", textContent: "громкость — по огибающей" })] : [k("att", SPECS.att), k("dec", SPECS.dec), k("sus", SPECS.sus), k("rel", SPECS.rel), view]),
+      pick, waves, wv, ks("wsk"), ks("wfold"), ks("wcrush"),
+      freqBox(o, i), k("fine", GF_SPECS.fine), k("level", GF_SPECS.level), k("pan", GF_SPECS.pan), fitB,
+      ...(o.env?.vol?.on ? [el("span", { className: "dw-dim", textContent: "громкость — по огибающей" })] : [k("att", SPECS.att), k("dec", SPECS.dec), k("sus", SPECS.sus), k("rel", SPECS.rel),
+        k("ac", SPECS.ac), k("dc", SPECS.dc), k("rc", SPECS.rc), view]),
       envOn ? el("span", { className: "dw-gf-badge", textContent: envOn, title: "Включённые огибающие" }) : "");
   };
   // матрица: строки — кому (OP1..4) и OUT, столбцы — от кого
@@ -540,6 +590,7 @@ const inst = {
   icon: "🎚", color: id => Engine.chan(id)?.color || "var(--dw-lav)",
   size: id => ({ sampler: [560, 400], grapefruit: [760, 640] })[Engine.chan(id)?.type] || [620, 640],
   render(c, win, id, Dawn) {
+    DawnRef = Dawn;
     const ch = Engine.chan(id);
     if (!ch) return;
     const root = shell(c, "dw-inst", ch.color);
@@ -565,6 +616,11 @@ const inst = {
           const said = enhance(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
           if (said.length) notify("🪄 " + said.join(" · "), 4500);
         }, "Улучшайзер: металл, бас, модуляция, реверс атаки, случайный риддим-вуб") : "",
+        // кнопки-продюсеры: одна кнопка — одно улучшение
+        el("span", { className: "dw-seg" }, ...Object.entries(PRODUCE).filter(([, d]) => d.for(ch)).map(([k, d]) => dwBtn(d.icon, () => {
+          const said = produce(k, ch); Engine.preview(ch, null, 0.85, 0.6); build();
+          if (said?.length) notify(d.icon + " " + said.join(" · "), 5000);
+        }, { title: d.title }))),
         ch.type !== "sampler" ? dwBtn("⭐", () => {
           const n = prompt("Имя своего пресета (звук + эффекты инсерта + его модуляция):", ch.preset?.startsWith(USER) ? ch.preset.slice(USER.length) : ch.name);
           const saved = n && UserLib.put("synth", n, captureSound(Engine, ch));
@@ -866,7 +922,8 @@ const lib = {
           const ds = DRUMS.filter(d => d.genre === g), ks = KITS.filter(k => k.genre === g);
           if (!ds.length && !ks.length) return [];
           const closed = libClosed.has(g);
-          const head = el("div", { className: "dw-dir-row" + (closed ? "" : " open"), textContent: `${title} · ${ds.length + ks.length}`, onclick: () => { closed ? libClosed.delete(g) : libClosed.add(g); build(); } });
+          const head = el("div", { className: "dw-dir-row" + (closed ? "" : " open"), onclick: () => { closed ? libClosed.delete(g) : libClosed.add(g); build(); } });
+          head.append(el("span", { textContent: title }), el("span", { className: "dw-dim no-i18n", textContent: " · " + (ds.length + ks.length) }));
           return closed ? [head] : [head, ...ds.map(d => card(d, `🥁 ${d.sig} · ${d.tags}`)), ...ks.map(k => card(k, "🎹 " + k.tags + " · лад выбранного канала"))];
         }),
         el("div", { className: "dw-dir-row open", textContent: "🎼 В ладу канала" }),

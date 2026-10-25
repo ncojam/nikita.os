@@ -35,6 +35,19 @@ export function fitParams(p, type, dur) {
   return fit(p);
 }
 
+/* ⇔ у оператора: огибающая пропорциональна длине ноты — настроена под ноту в 1 долю,
+ * на 1/16 играет в 4 раза быстрее, на ноте в 2 доли — в 2 раза медленнее (и ADSR, и нарисованные огибающие) */
+export function fitOps(p, dur, beatSec) {
+  if (!p.ops?.some(o => o.fit)) return p;
+  const k = Math.max(0.05, Math.min(8, dur / beatSec));
+  return { ...p, ops: p.ops.map(o => {
+    if (!o.fit) return o;
+    const q = { ...o, att: (o.att ?? 0) * k, dec: (o.dec ?? 0) * k, rel: (o.rel ?? 0) * k };
+    if (o.env) { q.env = {}; for (const [kd, e] of Object.entries(o.env)) q.env[kd] = e?.pts ? { ...e, pts: e.pts.map(([t, v]) => [t * k, v]) } : e; }
+    return q;
+  }) };
+}
+
 /* растяжение огибающей у отдельной ноты (поле x): атака и спад × k — «вууууб» из двух вубов */
 export function stretchParams(p, type, k) {
   const st = o => ({ ...o, att: (o.att ?? 0) * k, dec: (o.dec ?? 0) * k });
@@ -47,7 +60,7 @@ export function stretchParams(p, type, k) {
 }
 
 /* ---------- улучшайзер (3XOSC) ---------- */
-function insertOf(Engine, ch) {
+export function insertOf(Engine, ch) {
   const P = Engine.project;
   let i = ch.mix || 0;
   const shared = k => k <= 0 || P.channels.some(c => c !== ch && (c.mix || 0) === k);
@@ -59,7 +72,7 @@ function insertOf(Engine, ch) {
   }
   return i;
 }
-function addMod(Engine, ch, m) {
+export function addMod(Engine, ch, m) {
   const P = Engine.project;
   (P.mods ||= []).push({ id: "w" + Math.random().toString(36).slice(2, 7), presetOf: ch.id, color: ch.color, value: 0.5,
     meter: { mix: ch.mix || 1, gain: 1.5 }, env: { len: 4, loop: true, pts: [[0, 0], [4, 1]] }, lfo: { sync: 2, shape: "sine", phase: 0 },

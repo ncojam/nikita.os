@@ -15,6 +15,10 @@ export const GF_SPECS = {
   out:   { min: 0, max: 1, def: 0, label: "Out" },
   pan:   { min: -1, max: 1, def: 0, label: "Pan", bipolar: true },
   mod:   { min: 0, max: 1, def: 0, label: "Mod", curve: 2 },
+  // форма волны (как редактор волны в Sytrus): перекос фазы, складывание, ступеньки
+  wsk:   { min: -1, max: 1, def: 0, label: "Skew", bipolar: true },
+  wfold: { min: 0, max: 1, def: 0, label: "Fold" },
+  wcrush:{ min: 0, max: 1, def: 0, label: "Crush" },
 };
 export const GF_WAVES = ["sine", "triangle", "sawtooth", "square"];
 const INDEX = 6;
@@ -49,6 +53,44 @@ export const GF_PRESETS = {
   "Digital Keys": { ops: [op({ out: 0.9, dec: 0.8, sus: 0.4, rel: 0.4 }), op({ ratio: 2, level: 0.7, dec: 0.4, sus: 0.2 }),
     op({ ratio: 1, out: 0.5, dec: 0.9, sus: 0.3, rel: 0.4 }), op({ ratio: 5, level: 0.4, dec: 0.15, sus: 0 })],
     mod: { m21: 0.3, m31: 0, m41: 0, m32: 0, m42: 0, m43: 0.25 }, cut: 9000, res: 0.7 },
+  // ---- риддим: простые гармоничные ratio (1, 2, ½), злость — от формы волны, огибающих модуляторов и модуляции ----
+  // «Yoi»: огибающая громкости модулятора = глубина FM внутри ноты — вуб «говорит» йо-о-ой
+  "Riddim Yoi": { ops: [op({ wave: "square", out: 0.9, att: 0.004, dec: 0.2, sus: 1, rel: 0.04 }),
+    op({ ratio: 1, level: 1, env: { vol: { on: true, sus: 3, pts: [[0, 0.15], [0.09, 1], [0.22, 0.35], [0.4, 0.8], [0.5, 0.2]] } } }),
+    op({ ratio: 2, level: 0.55, dec: 0.25, sus: 0.3 }), op({ ratio: 0.5, out: 0.45, sus: 1, rel: 0.04 })],
+    mod: { m21: 0.65, m31: 0, m41: 0, m32: 0.35, m42: 0, m43: 0 }, cut: 4200, res: 3 },
+  // складывание волны: пила + Fold, огибающая Fold «раскрывает» ноту
+  "Riddim Fold": { ops: [op({ wave: "sawtooth", out: 0.9, att: 0.003, dec: 0.2, sus: 1, rel: 0.04, wfold: 0.35,
+      env: { fold: { on: true, sus: 2, pts: [[0, 0.1], [0.12, 0.9], [0.3, 0.45], [0.45, 0.1]] } } }),
+    op({ ratio: 1, level: 0.6, dec: 0.3, sus: 0.5 }), op({ ratio: 0.5, out: 0.5, sus: 1, rel: 0.04 }), op({ ratio: 2, level: 0.3, sus: 0.2 })],
+    mod: { m21: 0.3, m31: 0, m41: 0.2, m32: 0, m42: 0, m43: 0 }, cut: 5200, res: 2 },
+  // перекос фазы: квадрат «гнётся» в пилу — гнусавый робот; LFO в 1/8 крутит Skew от ноты к ноте
+  "Riddim Skew": { ops: [op({ wave: "square", out: 1, att: 0.003, dec: 0.15, sus: 1, rel: 0.04, wsk: 0.55 }),
+    op({ ratio: 2, level: 0.8, dec: 0.18, sus: 0.45 }), op({ ratio: 1, level: 0.5, sus: 0.8 }), op({ ratio: 0.5, out: 0.4, sus: 1, rel: 0.04 })],
+    mod: { m21: 0.45, m31: 0.25, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 3800, res: 4 },
+  // ступеньки: Crush + низкий модулятор — цифровой «рык»
+  "Riddim Crush": { ops: [op({ wave: "square", out: 0.9, att: 0.003, dec: 0.1, sus: 1, rel: 0.03, wcrush: 0.55 }),
+    op({ ratio: 0.5, level: 1, dec: 0.2, sus: 0.7 }), op({ ratio: 1, out: 0.4, sus: 1, rel: 0.03 }), op({ ratio: 3, level: 0.4, dec: 0.08, sus: 0 })],
+    mod: { m21: 0.55, m31: 0, m41: 0.3, m32: 0, m42: 0, m43: 0 }, cut: 3000, res: 5 },
+  // ratio модулятора качает LFO — металлический «лазер» на каждой ноте
+  "Riddim Laser": { ops: [op({ wave: "sawtooth", out: 0.9, att: 0.003, dec: 0.2, sus: 1, rel: 0.04 }),
+    op({ ratio: 3, level: 0.9, dec: 0.15, sus: 0.6, env: { pitch: { on: true, sus: -1, range: 12, pts: [[0, 1], [0.08, 0.5], [0.4, 0.5]] } } }),
+    op({ ratio: 1, level: 0.4, sus: 0.6 }), op({ ratio: 0.5, out: 0.45, sus: 1, rel: 0.04 })],
+    mod: { m21: 0.55, m31: 0.2, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 7000, res: 2 },
+  // обратная связь 1→2 и 2→1: грязный «скрежет» tearout
+  "Tearout Screech": { ops: [op({ wave: "square", out: 0.85, att: 0.002, dec: 0.15, sus: 1, rel: 0.03, wfold: 0.2 }),
+    op({ ratio: 2, level: 1, dec: 0.25, sus: 0.8 }), op({ ratio: 1, level: 0.6, sus: 0.6 }), op({ ratio: 0.5, out: 0.4, sus: 1, rel: 0.03 })],
+    mod: { m21: 0.6, m31: 0.3, m41: 0, m32: 0, m42: 0, m43: 0, m12: 0.35 }, cut: 6000, res: 3 },
+  // полый вуб: hollow + Fold, высота модулятора ныряет в атаке
+  "Riddim Hollow": { ops: [op({ wave: "hollow", out: 1, att: 0.004, dec: 0.2, sus: 1, rel: 0.04, wfold: 0.5 }),
+    op({ ratio: 1, level: 0.7, env: { vol: { on: true, sus: 2, pts: [[0, 1], [0.05, 0.6], [0.3, 0.9], [0.45, 0]] } } }),
+    op({ ratio: 0.5, out: 0.5, sus: 1, rel: 0.04 }), op({ ratio: 4, level: 0.25, dec: 0.1, sus: 0 })],
+    mod: { m21: 0.5, m31: 0, m41: 0.15, m32: 0, m42: 0, m43: 0 }, cut: 4500, res: 6 },
+  // медленный тяжёлый вуб: атака закруглена (ease), модуляция нарастает за всю ноту
+  "Riddim Heavy Slow": { ops: [op({ wave: "square", out: 0.95, att: 0.28, dec: 0.05, sus: 1, rel: 0.02, ac: 0.6, wsk: 0.3 }),
+    op({ ratio: 1, level: 1, env: { vol: { on: true, sus: 2, pts: [[0, 0], [0.25, 0.8], [0.32, 1], [0.4, 0]] } } }),
+    op({ ratio: 0.5, out: 0.5, att: 0.2, sus: 1, rel: 0.02, ac: 0.5 }), op({ ratio: 2, level: 0.4, sus: 0.4 })],
+    mod: { m21: 0.7, m31: 0, m41: 0.25, m32: 0, m42: 0, m43: 0 }, cut: 3600, res: 3, fit: true },
   "Sub FM": { ops: [op({ out: 1, dec: 0.3, sus: 1, rel: 0.08 }), op({ ratio: 1, level: 0.4, dec: 0.1, sus: 0.1 }),
     op({ ratio: 1, out: 0, level: 0 }), op({ ratio: 1, out: 0, level: 0 })],
     mod: { m21: 0.15, m31: 0, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 900, res: 0.7 },
@@ -81,16 +123,65 @@ function periodic(ctx, harm) {
   }
   return m.get(key);
 }
+/* один период базовой волны в точке x ∈ [0, 1) */
+function baseAt(o, x) {
+  switch (o.wave) {
+    case "triangle": return x < 0.25 ? 4 * x : x < 0.75 ? 2 - 4 * x : 4 * x - 4;
+    case "sawtooth": return 2 * ((x + 0.5) % 1) - 1;
+    case "square": return x < 0.5 ? 1 : -1;
+    case "sine": case undefined: return Math.sin(2 * Math.PI * x);
+  }
+  const h = o.wave === "custom" ? (o.harm || [1]) : HARM[o.wave] || [1];
+  let y = 0, n = 0;
+  h.forEach((a, i) => { y += (+a || 0) * Math.sin(2 * Math.PI * (i + 1) * x); n += Math.abs(+a || 0); });
+  return n ? y / n * 1.6 : 0;
+}
+/* форма волны оператора: перекос фазы (Skew), складывание (Fold), ступеньки (Crush) */
+export function shapeAt(o, x, fold = o.wfold || 0) {
+  const sk = o.wsk || 0;
+  if (sk) { const m = 0.5 + 0.45 * sk; x = x < m ? 0.5 * x / m : 0.5 + 0.5 * (x - m) / (1 - m); }
+  let y = baseAt(o, x);
+  if (fold > 0.001) y = Math.sin(y * (1 + fold * 7) * Math.PI / 2);
+  const cr = o.wcrush || 0;
+  if (cr > 0.001) { const q = Math.max(1, Math.round(2 + (1 - cr) * 24)); y = Math.round(y * q) / q; }
+  return y;
+}
+const shapedCache = new Map();   // ключ формы → [re, im] (ctx не нужен)
+function shapedCoef(o) {
+  const key = [o.wave, o.wave === "custom" ? (o.harm || []).join(",") : "", (+o.wsk || 0).toFixed(2), (+o.wcrush || 0).toFixed(2)].join("|");
+  if (shapedCache.has(key)) return [key, shapedCache.get(key)];
+  const NS = 1024, NH = 48, y = new Float32Array(NS), re = new Float32Array(NH + 1), im = new Float32Array(NH + 1);
+  for (let i = 0; i < NS; i++) y[i] = shapeAt(o, i / NS, 0);   // Fold — отдельно, живым шейпером (его можно вести огибающей)
+  for (let k = 1; k <= NH; k++) { let a = 0, b = 0; for (let i = 0; i < NS; i++) { const ph = 2 * Math.PI * k * i / NS; a += y[i] * Math.cos(ph); b += y[i] * Math.sin(ph); } re[k] = 2 * a / NS; im[k] = 2 * b / NS; }
+  if (shapedCache.size > 400) shapedCache.clear();
+  shapedCache.set(key, [re, im]);
+  return [key, [re, im]];
+}
+const shapedWaves = new WeakMap();
 function setWave(ctx, osc, o) {
+  if (o.wsk || o.wcrush) {
+    const [key, [re, im]] = shapedCoef(o), m = shapedWaves.get(ctx) || new Map();
+    shapedWaves.set(ctx, m);
+    if (!m.has(key)) m.set(key, ctx.createPeriodicWave(re, im));
+    return osc.setPeriodicWave(m.get(key));
+  }
   const h = o.wave === "custom" ? (o.harm || [1, 0, 0, 0, 0, 0, 0, 0]) : HARM[o.wave];
   if (h) osc.setPeriodicWave(periodic(ctx, h)); else osc.type = o.wave || "sine";
+}
+/* складывание волны: синус-фолдер; вход усиливается (1 + fold·7) раз — чем больше, тем больше складок */
+let foldCurve = null;
+function folder(ctx) {
+  if (!foldCurve) { foldCurve = new Float32Array(2049); for (let i = 0; i < 2049; i++) { const x = (i / 1024 - 1) * 8; foldCurve[i] = Math.sin(x * Math.PI / 2); } }
+  const ws = ctx.createWaveShaper(); ws.curve = foldCurve; ws.oversample = "2x";
+  return ws;
 }
 
 /* нарисованная огибающая: pts [[секунды, 0..1]], sus — индекс точки, на которой держим, пока нажата нота (-1 — без удержания).
  * map(v) → значение параметра. Возвращает момент конца огибающей. */
-export const ENV_KINDS = { vol: "Громкость", pan: "Панорама", pitch: "Высота" };
+export const ENV_KINDS = { vol: "Громкость", pan: "Панорама", pitch: "Высота", fold: "Fold (форма)" };
 export function envDefault(kind) {
   return kind === "vol" ? { on: false, sus: 2, pts: [[0, 0], [0.01, 1], [0.3, 0.6], [0.6, 0]] }
+    : kind === "fold" ? { on: false, sus: 2, pts: [[0, 0], [0.1, 0.8], [0.3, 0.4], [0.5, 0]] }
     : kind === "pan" ? { on: false, sus: -1, pts: [[0, 0.5], [0.5, 0.5]] }
     : { on: false, sus: -1, range: 12, pts: [[0, 0.5], [0.5, 0.5]] };
 }
@@ -130,7 +221,13 @@ export function playGrapefruit(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
       drawEnv(cs.offset, t, dur, E.pitch, x => (x - 0.5) * 2 * range);
       cs.connect(osc.detune); srcs.push(cs);
     }
-    osc.connect(g);
+    // Fold: осциллятор → усиление → синус-фолдер; огибающая Fold ведёт усиление внутри ноты (форма волны меняется во времени)
+    if ((o.wfold || 0) > 0.001 || E.fold?.on) {
+      const pre = ctx.createGain(), ws = folder(ctx), base = o.wfold || 0, toG = x => (1 + Math.min(1, x) * 7) / 8;
+      if (E.fold?.on) end = Math.max(end, drawEnv(pre.gain, t, dur, E.fold, x => toG(Math.max(base, x))));
+      else pre.gain.value = toG(base);
+      osc.connect(pre); pre.connect(ws); ws.connect(g);
+    } else osc.connect(g);
     if (o.out > 0.001) {
       const og = ctx.createGain(), pn = ctx.createStereoPanner();
       og.gain.value = o.out; pn.pan.value = o.pan || 0;

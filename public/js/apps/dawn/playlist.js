@@ -1,4 +1,5 @@
 import { el } from "../../core/util.js";
+import { notify } from "../../ui/notify.js";
 import { Engine } from "./engine.js";
 import { dwBtn, pal, select, shell } from "./ui.js";
 import { LIB_MIME, instantiate } from "./library.js";
@@ -36,13 +37,72 @@ export const PLAYLIST = {
     const view = { px: 22, x: 0, y: 0 };      // px на долю
     let W = 0, H = 0;
 
+    // выделение участка: Ctrl+тянуть (или инструмент ⬚); от него работают копия, разрез, «уникальные» и автоматизация с ручек
+    let tool = "draw", clipboard = null;
+    const sel = () => Engine.plSel;
+    const inSel = cl => { const z = sel(); return z && cl.t >= z.t0 && cl.t <= z.t1 && cl.s < z.e - 1e-9 && cl.s + cl.l > z.s + 1e-9; };
+    const newId = () => "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    function splitAt(x, pred = () => true) {
+      for (const c of [...P().playlist]) {
+        if (!pred(c) || x <= c.s + 1e-6 || x >= c.s + c.l - 1e-6) continue;
+        const pl = Engine.patLength(c.p);
+        P().playlist.push({ ...c, id: newId(), s: x, l: c.s + c.l - x, o: +((((c.o || 0) + x - c.s) % pl)).toFixed(4) });
+        c.l = x - c.s;
+      }
+    }
+    const inTracks = c => { const z = sel(); return c.t >= z.t0 && c.t <= z.t1; };
+    const ops = {
+      cut() { const z = sel(); if (!z) return; splitAt(z.s, inTracks); splitAt(z.e, inTracks); for (const c of P().playlist) if (!c.o) delete c.o; changed(); },
+      copy() {
+        const z = sel(); if (!z) return;
+        clipboard = { len: z.e - z.s, clips: P().playlist.filter(inSel).map(c => {
+          const a = Math.max(c.s, z.s), b = Math.min(c.s + c.l, z.e), pl = Engine.patLength(c.p);
+          return { p: c.p, t: c.t - z.t0, s: a - z.s, l: b - a, o: +(((c.o || 0) + a - c.s) % pl).toFixed(4) };
+        }) };
+        return clipboard;
+      },
+      paste(at = P().songStart || 0, t0 = sel()?.t0 ?? 0) {
+        if (!clipboard?.clips.length) return;
+        for (const c of clipboard.clips) P().playlist.push({ id: newId(), p: c.p, t: Math.min(P().tracks - 1, c.t + t0), s: at + c.s, l: c.l, ...(c.o ? { o: c.o } : {}) });
+        Engine.plSel = { s: at, e: at + clipboard.len, t0, t1: t0 + Math.max(0, ...clipboard.clips.map(c => c.t)) };
+        changed();
+      },
+      dup() { const z = sel(); if (!z) return; ops.copy(); ops.paste(z.e, z.t0); },
+      del() { const z = sel(); if (!z) return; ops.cut(); P().playlist = P().playlist.filter(c => !(inTracks(c) && c.s >= z.s - 1e-6 && c.s + c.l <= z.e + 1e-6)); changed(); },
+      unique() {
+        const map = new Map(), prev = P().cur;
+        for (const c of P().playlist.filter(inSel)) {
+          if (!map.has(c.p)) {
+            const src = Engine.pat(c.p), np = Engine.addPattern(src.name.replace(/ ★\d*$/, "") + " ★" + (P().patterns.length));
+            Object.assign(np, { sig: [...src.sig], len: src.len, color: src.color, notes: JSON.parse(JSON.stringify(src.notes)) });
+            map.set(c.p, np.id);
+          }
+          c.p = map.get(c.p);
+        }
+        Engine.selectPattern(prev);
+        Engine.touch({ patterns: true, playlist: true });
+        return map.size;
+      },
+    };
+    const run = k => { ops[k](); tools(); draw(); };
     function tools() {
+      const z = sel();
       tb.replaceChildren(
         el("div", { className: "dw-seg" },
           el("button", { className: "dw-btn" + (P().mode === "pat" ? " on" : ""), textContent: "PAT", title: "Играть текущий паттерн по кругу", onclick: () => Engine.setMode("pat") }),
           el("button", { className: "dw-btn" + (P().mode === "song" ? " on" : ""), textContent: "SONG", title: "Играть плейлист", onclick: () => Engine.setMode("song") })),
         select([["4", "⧉ такт"], ["2", "⧉ ½ такта"], ["1", "⧉ доля"], ["0.25", "⧉ 1/16"]], snapV, v => { snapV = v; }, "Привязка"),
         dwBtn("−", () => zoom(0.8)), dwBtn("＋", () => zoom(1.25)),
+        dwBtn("⬚", () => { tool = tool === "sel" ? "draw" : "sel"; tools(); }, { className: "dw-btn" + (tool === "sel" ? " on" : ""), title: "Выделение участка (или Ctrl + тянуть): потом копия, разрез, уникальные паттерны, автоматизация с ручки (ПКМ по ручке)" }),
+        ...(z ? [
+          el("span", { className: "dw-dim no-i18n", textContent: `${(z.s / 4 + 1).toFixed(2).replace(/\.00$/, "")}–${(z.e / 4 + 1).toFixed(2).replace(/\.00$/, "")}` }),
+          dwBtn("⧉", () => { ops.copy(); notify("⧉ Скопировано — Ctrl+V вставит у маркера ▼"); }, { title: "Копировать (Ctrl+C)" }),
+          dwBtn("📋", () => run("paste"), { title: "Вставить у маркера ▼ (Ctrl+V)" }),
+          dwBtn("⧉→", () => run("dup"), { title: "Дублировать сразу за выделением (Ctrl+B)" }),
+          dwBtn("✂", () => run("cut"), { title: "Разрезать клипы по краям выделения" }),
+          dwBtn("★", () => { const n = ops.unique(); tools(); draw(); notify(`★ Уникальных паттернов: ${n} — правки больше не трогают остальные клипы`); }, { title: "Сделать уникальными: паттерны клипов в выделении копируются — их можно править отдельно" }),
+          dwBtn("🗑", () => run("del"), { title: "Удалить клипы в выделении (Del)", className: "dw-btn dw-x" }),
+          dwBtn("✕", () => { Engine.plSel = null; tools(); draw(); }, { title: "Снять выделение (Esc)" })] : []),
         el("span", { className: "dw-dim", textContent: `${P().playlist.length} клипов · ${(Engine.songLength() / 4).toFixed(1)} тактов` }));
     }
     function sideList() {
@@ -124,7 +184,8 @@ export const PLAYLIST = {
         // повторы паттерна внутри клипа
         const pl = Engine.patLength(pat.id);
         g.fillStyle = "rgba(0,0,0,0.25)";
-        for (let k = pl; k < cl.l - 1e-6; k += pl) g.fillRect(x + k * view.px, y + 3, 1.5, h - 6);
+        const off = (cl.o || 0) % pl;
+        for (let k = pl - off; k < cl.l - 1e-6; k += pl) if (k > 1e-6) g.fillRect(x + k * view.px, y + 3, 1.5, h - 6);
         // мини-ноты всех каналов паттерна
         const all = Object.values(pat.notes).flat();
         if (all.length) {
@@ -132,8 +193,8 @@ export const PLAYLIST = {
           for (const n of all) { lo = Math.min(lo, n.n); hi = Math.max(hi, n.n); }
           const span = Math.max(1, hi - lo);
           g.fillStyle = "rgba(30,15,50,0.55)";
-          for (let k = 0; k < cl.l - 1e-6; k += pl) for (const n of all) {
-            if (k + n.s >= cl.l) continue;
+          for (let k = -off; k < cl.l - 1e-6; k += pl) for (const n of all) {
+            if (k + n.s >= cl.l || k + n.s < 0) continue;
             const nx = x + (k + n.s) * view.px, ny = y + 14 + (1 - (n.n - lo) / span) * (h - 19);
             g.fillRect(nx, ny, Math.max(1.5, Math.min(n.l, cl.l - k - n.s) * view.px - 1), 2);
           }
@@ -142,6 +203,15 @@ export const PLAYLIST = {
         g.fillText(pat.name, x + 5, y + 11, Math.max(10, w - 10));
         g.fillStyle = "rgba(255,255,255,0.7)"; g.fillRect(x + w - 4, y + 4, 2, h - 8);
         g.restore();
+      }
+      const z = sel();
+      if (z) {   // выделение: полоса по дорожкам + по полосам огибающих (туда ляжет автоматизация с ручки)
+        const x0 = Math.max(HEAD_W, sx(z.s)), x1 = Math.min(W, sx(z.e));
+        if (x1 > x0) {
+          g.fillStyle = "rgba(143,232,207,0.16)"; g.fillRect(x0, Math.max(RULER, ty(z.t0)), x1 - x0, Math.max(0, Math.min(envTop(), ty(z.t1 + 1)) - Math.max(RULER, ty(z.t0))));
+          g.fillStyle = "rgba(143,232,207,0.08)"; g.fillRect(x0, RULER, x1 - x0, H - RULER);
+          g.fillStyle = "#8fe8cf"; g.fillRect(x0, RULER, 1.5, H - RULER); g.fillRect(x1 - 1.5, RULER, 1.5, H - RULER);
+        }
       }
       // линейка
       g.fillStyle = C.panel; g.fillRect(HEAD_W, 0, W - HEAD_W, RULER);
@@ -199,6 +269,14 @@ export const PLAYLIST = {
     cv.addEventListener("pointerdown", e => {
       const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       cv.setPointerCapture(e.pointerId);
+      cv.focus({ preventScroll: true });
+      const wantSel = e.button === 0 && (e.ctrlKey || e.metaKey || tool === "sel") && x > HEAD_W;
+      if (wantSel && (y < RULER || !laneOf(y))) {   // выделение: по линейке — все дорожки, по дорожкам — прямоугольник
+        const q = snap(), s0 = Math.max(0, Math.round(xs(x) / q) * q), t = y < RULER ? 0 : Math.max(0, Math.min(P().tracks - 1, yt(y)));
+        drag = { sel: true, s0, t0: t, all: y < RULER };
+        Engine.plSel = { s: s0, e: s0, t0: drag.all ? 0 : t, t1: drag.all ? P().tracks - 1 : t };
+        draw(); return;
+      }
       if (y < RULER && x > HEAD_W) {   // линейка — откуда играть
         P().songStart = Math.max(0, Math.floor(xs(x) / snap()) * snap());
         if (Engine.playing && P().mode === "song") { Engine.stop(); Engine.play(); }
@@ -238,6 +316,11 @@ export const PLAYLIST = {
         return;
       }
       if (drag.erase) { const h = hit(x, y); if (h) del(h.cl); return; }
+      if (drag.sel) {
+        const q = snap(), b = Math.max(0, Math.round(xs(x) / q) * q), t = Math.max(0, Math.min(P().tracks - 1, yt(Math.max(RULER, y))));
+        Engine.plSel = { s: Math.min(drag.s0, b), e: Math.max(drag.s0, b), t0: drag.all ? 0 : Math.min(drag.t0, t), t1: drag.all ? P().tracks - 1 : Math.max(drag.t0, t) };
+        draw(); return;
+      }
       if (drag.env) {
         drag.pt[0] = Math.max(0, Math.min(drag.env.len, Math.round((xs(x) - drag.off) * 4) / 4)); drag.pt[1] = +drag.V(y).toFixed(3);
         draw(); return;
@@ -249,8 +332,20 @@ export const PLAYLIST = {
       } else if (drag.resize) drag.cl.l = Math.max(Math.min(q, 0.25) || 0.25, Math.round((xs(x) - drag.cl.s) / q) * q || q);
       changed(); draw();
     });
-    const up = () => { if (drag?.env) Engine.touch({ param: true }); else if (drag && !drag.erase) Engine.touch({ playlist: true }); drag = null; };
+    const up = () => { if (drag?.sel) { if (!(sel()?.e > sel()?.s)) Engine.plSel = null; drag = null; tools(); draw(); return; } if (drag?.env) Engine.touch({ param: true }); else if (drag && !drag.erase) Engine.touch({ playlist: true }); drag = null; };
     cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+    cv.tabIndex = 0;
+    cv.addEventListener("keydown", e => {
+      const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+      if (mod && k === "c") ops.copy();
+      else if (mod && k === "x") { ops.copy(); run("del"); }
+      else if (mod && k === "v") run("paste");
+      else if (mod && (k === "b" || k === "d")) run("dup");
+      else if ((k === "delete" || k === "backspace") && sel()) run("del");
+      else if (k === "escape") { Engine.plSel = null; tools(); draw(); }
+      else return;
+      e.preventDefault(); e.stopPropagation();
+    });
     function del(cl) { const L = P().playlist, i = L.indexOf(cl); if (i >= 0) { L.splice(i, 1); changed(); tools(); draw(); } }
     cv.addEventListener("wheel", e => {
       e.preventDefault();

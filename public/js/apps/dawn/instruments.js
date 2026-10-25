@@ -21,6 +21,10 @@ export const SPECS = {
   dec:   { min: 0.01, max: 3, def: 0.25, label: "Dec", curve: 3 },
   sus:   { min: 0, max: 1, def: 0.7, label: "Sus" },
   rel:   { min: 0.01, max: 4, def: 0.25, label: "Rel", curve: 3 },
+  // закругление участков ADSR: < 0 — быстро в начале (выпукло), > 0 — медленно в начале (изинг «вверх»)
+  ac:    { min: -1, max: 1, def: 0, label: "A~", bipolar: true },
+  dc:    { min: -1, max: 1, def: 0, label: "D~", bipolar: true },
+  rc:    { min: -1, max: 1, def: 0, label: "R~", bipolar: true },
   cut:   { min: 40, max: 18000, def: 9000, label: "Cut", curve: 4 },
   res:   { min: 0.1, max: 18, def: 0.8, label: "Res", curve: 2 },
   // сэмплер
@@ -68,7 +72,28 @@ function getNoise(ctx) {
 }
 
 /* огибающая громкости: A → D → S, на note-off — R. Возвращает время, когда голос можно глушить */
+/* кривая участка: x 0..1 → 0..1; c — изгиб (-1..1), 0 — прямая */
+export function ease(x, c = 0) {
+  if (Math.abs(c) < 0.01) return x;
+  const k = c * 6;
+  return (Math.exp(k * x) - 1) / (Math.exp(k) - 1);
+}
+/* ADSR с закруглёнными участками: ломаная из 16 отрезков на участок (setValueCurve нельзя прервать на note-off) */
+function adsrCurved(g, t, dur, p, peak) {
+  const a = Math.max(0.001, p.att), d = p.dec ?? 0.001, s = p.sus ?? 1, r = p.rel, off = t + Math.max(dur, a), SEG = 16;
+  const seg = (t0, len, v0, v1, c) => { for (let i = 1; i <= SEG; i++) { const tt = t0 + len * i / SEG; if (tt > off) break; g.gain.linearRampToValueAtTime(v0 + (v1 - v0) * ease(i / SEG, c), tt); } };
+  const at = x => x < t + a ? peak * ease((x - t) / a, p.ac || 0) : x < t + a + d ? peak + (peak * s - peak) * ease((x - t - a) / Math.max(1e-4, d), p.dc || 0) : peak * s;
+  g.gain.cancelScheduledValues(t);
+  g.gain.setValueAtTime(0, t);
+  seg(t, a, 0, peak, p.ac || 0);
+  if (t + a < off) seg(t + a, d, peak, peak * s, p.dc || 0);
+  const v = at(off);
+  g.gain.linearRampToValueAtTime(v, off);
+  for (let i = 1; i <= SEG; i++) g.gain.linearRampToValueAtTime(v * (1 - ease(i / SEG, p.rc || 0)), off + r * i / SEG);
+  return off + r + 0.05;
+}
 export function adsr(g, t, dur, p, peak) {
+  if (p.ac || p.dc || p.rc) return adsrCurved(g, t, dur, p, peak);
   const a = p.att, d = p.dec ?? 0.001, s = p.sus ?? 1, r = p.rel;
   g.gain.cancelScheduledValues(t);
   g.gain.setValueAtTime(0, t);
@@ -131,9 +156,38 @@ export function playOsc3(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
 }
 
 /* ---------- встроенные ударные (рендерятся при первом обращении, путь "builtin:имя") ---------- */
-export const BUILTIN = { kick: "Kick", snare: "Snare", clap: "Clap", hat: "Hat", openhat: "Open hat", tom: "Tom" };
+export const BUILTIN = { kick: "Kick", snare: "Snare", clap: "Clap", hat: "Hat", openhat: "Open hat", tom: "Tom",
+  kickhard: "Kick punch", kick808: "808", snarefat: "Snare fat", rim: "Rim", snap: "Snap", shaker: "Shaker",
+  crash: "Crash", ride: "Ride", cowbell: "Cowbell", conga: "Conga", metal: "Metal hit", impact: "Impact", revcrash: "Reverse crash" };
+const BUILTIN_DUR = { kick: 0.6, snare: 0.35, clap: 0.4, hat: 0.08, openhat: 0.45, tom: 0.5, kickhard: 0.5, kick808: 1.5, snarefat: 0.45, rim: 0.1,
+  snap: 0.2, shaker: 0.15, crash: 2, ride: 1.3, cowbell: 0.4, conga: 0.3, metal: 0.35, impact: 2.5, revcrash: 2 };
+/* новые ударные: из простых генераторов, с насыщением (tanh) — сразу «жирные» */
+function extraDrum(oc, name, out, noise, env, sr) {
+  const sat = (k = 2) => { const ws = oc.createWaveShaper(), c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; c[i] = Math.tanh(x * k) / Math.tanh(k); } ws.curve = c; ws.connect(out); return ws; };
+  const osc = (type, f, dest, g0, dec, t = 0) => { const o = oc.createOscillator(), g = oc.createGain(); o.type = type; o.frequency.value = f; env(g, g0, dec, t); o.connect(g); g.connect(dest); o.start(t); o.stop(t + dec + 0.02); return o; };
+  const nz = (type, f, q, dest, g0, dec, t = 0) => { const n = noise(), fl = oc.createBiquadFilter(), g = oc.createGain(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; env(g, g0, dec, t); n.connect(fl); fl.connect(g); g.connect(dest); n.start(t); return n; };
+  const metal = (dest, g0, dec, freqs = [205, 304, 369, 522, 540, 800]) => { const bus = oc.createGain(); bus.gain.value = 1 / freqs.length; bus.connect(dest); freqs.forEach(f => osc("square", f * 1.71, bus, g0, dec)); };
+  if (name === "kickhard" || name === "kick808" || name === "impact") {
+    const [f0, f1, sweep, dec, drive] = { kickhard: [230, 48, 0.07, 0.42, 3], kick808: [120, 46, 0.06, 1.35, 1.6], impact: [90, 28, 0.9, 2.3, 2.5] }[name];
+    const s = sat(drive), o = osc("sine", f0, s, 1, dec);
+    o.frequency.setValueAtTime(f0, 0); o.frequency.exponentialRampToValueAtTime(f1, sweep);
+    if (name !== "kick808") nz("highpass", name === "impact" ? 200 : 2500, 0.7, s, name === "impact" ? 0.5 : 0.35, name === "impact" ? 1.6 : 0.015);
+    if (name === "impact") nz("lowpass", 400, 0.7, out, 0.6, 2.2);
+  } else if (name === "snarefat") {
+    const s = sat(2.2);
+    nz("bandpass", 1900, 0.7, s, 0.9, 0.3); nz("highpass", 6000, 0.7, s, 0.35, 0.12);
+    const b = osc("triangle", 200, s, 0.8, 0.12); b.frequency.setValueAtTime(240, 0); b.frequency.exponentialRampToValueAtTime(170, 0.08); osc("sine", 330, s, 0.35, 0.08);
+  } else if (name === "rim") { const bp = oc.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1700; bp.Q.value = 3; bp.connect(out); osc("triangle", 820, bp, 1, 0.05); osc("square", 1650, bp, 0.5, 0.03); }
+  else if (name === "snap") { for (const t of [0, 0.008, 0.016]) nz("bandpass", 2600, 2, out, 0.9, 0.012, t); nz("bandpass", 2400, 1.2, out, 0.6, 0.11, 0.022); }
+  else if (name === "shaker") { const n = noise(), hp = oc.createBiquadFilter(), g = oc.createGain(); hp.type = "highpass"; hp.frequency.value = 5500; g.gain.setValueAtTime(0.001, 0); g.gain.linearRampToValueAtTime(0.5, 0.025); g.gain.exponentialRampToValueAtTime(0.001, 0.13); n.connect(hp); hp.connect(g); g.connect(out); n.start(); }
+  else if (name === "crash" || name === "revcrash") { const hp = oc.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 5000; hp.connect(out); metal(hp, 0.6, 1.8); nz("highpass", 4000, 0.7, out, 0.55, 1.9); }
+  else if (name === "ride") { const hp = oc.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 7000; hp.connect(out); metal(hp, 0.5, 1.2, [310, 435, 520, 690]); osc("sine", 5200, out, 0.12, 0.6); nz("highpass", 9000, 0.7, out, 0.15, 0.5); }
+  else if (name === "cowbell") { const bp = oc.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 800; bp.Q.value = 1.5; const s = sat(1.5); bp.connect(s); osc("square", 545, bp, 0.8, 0.32); osc("square", 815, bp, 0.8, 0.32); }
+  else if (name === "conga") { const o = osc("sine", 320, out, 0.9, 0.25); o.frequency.setValueAtTime(330, 0); o.frequency.exponentialRampToValueAtTime(230, 0.05); nz("bandpass", 2000, 1, out, 0.15, 0.02); }
+  else if (name === "metal") { const s = sat(3); metal(s, 0.9, 0.3, [610, 870, 1131, 1420]); nz("bandpass", 3500, 2, s, 0.4, 0.06); }
+}
 async function renderBuiltin(name, sr) {
-  const dur = { kick: 0.6, snare: 0.35, clap: 0.4, hat: 0.08, openhat: 0.45, tom: 0.5 }[name] || 0.4;
+  const dur = BUILTIN_DUR[name] || 0.4;
   const oc = new OfflineAudioContext(1, Math.ceil(sr * dur), sr);
   const noise = () => { const b = oc.createBuffer(1, oc.length, sr), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; const s = oc.createBufferSource(); s.buffer = b; return s; };
@@ -156,11 +210,13 @@ async function renderBuiltin(name, sr) {
     for (const t of [0, 0.012, 0.024]) { g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.01); }
     g.gain.setValueAtTime(0.7, 0.036); g.gain.exponentialRampToValueAtTime(0.0008, 0.3);
     n.connect(bp); bp.connect(g); g.connect(out); n.start();
-  } else {   // hat / openhat
+  } else if (name === "hat" || name === "openhat") {
     const n = noise(), g = oc.createGain(), hp = oc.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 7000;
     env(g, 0.6, name === "hat" ? 0.06 : 0.4); n.connect(hp); hp.connect(g); g.connect(out); n.start();
-  }
-  return oc.startRendering();
+  } else extraDrum(oc, name, out, noise, env, sr);
+  const buf = await oc.startRendering();
+  if (name === "revcrash") { const d = buf.getChannelData(0); d.reverse(); }   // тарелка задом наперёд — «засос» перед дропом
+  return buf;
 }
 
 /* ---------- кэш сэмплов ---------- */

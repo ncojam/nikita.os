@@ -7,6 +7,8 @@ import { SPECS } from "./instruments.js";
  * Если параметр модулируется, поверх рисуется тонкая дуга текущего значения (ModView).
  */
 /* что сейчас модулируется: адрес → значение; окно модуляции обновляет, крутилки подписаны */
+/* ПКМ по ручке с адресом — меню (его ставит windows.js: «Сделать автоматизацию» на выделенный участок плейлиста) */
+export const KnobHooks = { menu: null };
 export const ModView = { over: new Map(), subs: new Set(),
   set(over) { this.over = over; for (const f of [...this.subs]) f(); } };
 const toNorm = (v, s) => ((v - s.min) / (s.max - s.min)) ** (1 / (s.curve || 1));
@@ -63,6 +65,7 @@ export function knob(o) {
     ModView.subs.add(sub);
   }
 
+  if (o.path) node.addEventListener("contextmenu", e => { if (!KnobHooks.menu) return; e.preventDefault(); e.stopPropagation(); KnobHooks.menu(o.path, e, paint); });
   // крутилка без адреса DAWN — всё равно цель для проводков (через core/uiparams.js)
   if (!o.path) node._ctl = { spec, get: o.get, set: v => { o.set(v); paint(); }, label: o.label ?? spec.label };
 
