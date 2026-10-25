@@ -439,7 +439,7 @@ export const Engine = {
     this.G.rebuildPedals(); this.touch({ pedals: true });
   },
   pedalsChanged() { this.G.rebuildPedals(); this.touch({ pedals: true }); },
-  fxToggle(i, k) { const f = this.project.mixer[i].fx[k]; f.on = !f.on; this.G.rebuildFx(i); this.touch({ mixer: true });   // без param — микшер перерисуется и кружок погаснет },
+  fxToggle(i, k) { const f = this.project.mixer[i].fx[k]; f.on = !f.on; this.G.rebuildFx(i); this.touch({ mixer: true }); },   // без param — микшер перерисуется и кружок погаснет
   fxParam(i, k) { this.G.fxSet(i, k); },
   applyInsert(i) { this.G.applyInsert(i); },
   /* живые данные для модуляции: уровни, ноты, время */

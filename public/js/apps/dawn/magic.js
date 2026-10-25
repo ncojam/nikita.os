@@ -305,7 +305,7 @@ export function basePattern(basis = "pattern", bars = 8) {
     if (!pat || /^✨ (Build|Fill|Impact|Pad|Hats|Arp|Break|Intro)/.test(pat.name) || / · /.test(pat.name)) continue;   // служебные куски магии — не основа
     const hasDrums = pat && Object.entries(pat.notes).some(([id, L]) => L.length && isDrum(Engine.chan(id)));
     const parts = pat ? Object.values(pat.notes).filter(L => L.length).length : 0;   // чем больше партий — тем вероятнее это дроп
-    score[c.p] = (score[c.p] || 0) + (b - a) * (hasDrums ? 2 : 1) * parts * (/^✨/.test(pat?.name || "") ? 0.3 : 1);
+    score[c.p] = (score[c.p] || 0) + (b - a) * (hasDrums ? 2 : 1) * parts * (/^✨/.test(pat?.name || "") ? 0.05 : 1);   // свой паттерн важнее результатов прошлой магии
   }
   const best = Object.entries(score).sort((x, y) => y[1] - x[1])[0];
   return best ? best[0] : P.cur;
@@ -395,7 +395,7 @@ export function compose(opt) {
   });
   // синт каждого дропа: первый — исходный вуб, дальше — изменённые клоны (сила — «переделывание», «крутость»)
   const dropSynth = d => once("syn" + d, () => {
-    if (!A.wub || d === 0 || lv.remake < 0.15) return A.wub?.ch || null;
+    if (!A.wub || d === 0) return A.wub?.ch || null;   // каждый следующий дроп — со своим синтом, даже при малом «переделывании»
     const c = cloneWub(Engine, A.wub.ch, `Wub D${d + 1} ✨`), got = [];
     if (rnd() < 0.3 + lv.cool * 0.6) enhance(Engine, c, "metal", got);
     if (rnd() < 0.4 + lv.cool * 0.5) enhance(Engine, c, "mod", got);
@@ -460,8 +460,11 @@ export function compose(opt) {
     if (lv.melody > 0.6) for (let k = Math.floor(n / 2); k < n; k++) clip(arpPat(), T.mel, at + units(k));
     at += units(n);
   }
+  const dropAt = [];
   for (let d = 0; d < drops; d++) {
     if (S.build) doBuild(d);
+    else if (d > 0 && !S.break) { const f = dropPats(d - 1).fills[0]; clip(f, T.main, at); at += units(1); }   // без нарастаний и брейков — хотя бы брейк на стыке
+    dropAt.push(at);
     doDrop(d, d === drops - 1 && lv.drama > 0.6 ? size + 4 : size);
     if (S.break && d < drops - 1) {
       const n = Math.max(2, Math.round(size / 2 * (0.6 + lv.melody * 0.8)));
@@ -474,6 +477,7 @@ export function compose(opt) {
     for (let k = 0; k < n; k++) { if (opt.pad !== false) clip(padPat(), T.pad, at + units(k)); if (k < n - 1) clip(hatsPat(), T.hats, at + units(k)); }
     at += units(n);
   }
+  if (dropAt.length) said.unshift(`дропов: ${dropAt.length} — начинаются с тактов ` + dropAt.map(s => Math.floor(s / 4) + 1).join(", "));   // такты линейки плейлиста (4/4)
   // автоматизация нарастаний: одна огибающая по всей песне — 0 вне нарастаний, рост внутри, обрыв на дропе
   if (sweeps.length) {
     const pts = [[0, 0]];
