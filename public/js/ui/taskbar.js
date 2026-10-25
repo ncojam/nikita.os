@@ -1,10 +1,7 @@
-import { openExplorer } from "../apps/explorer.js";
-import { openSettings } from "../apps/settings.js";
 import { D, EASE } from "../core/anim.js";
 import { $ } from "../core/util.js";
 import { openAbout } from "../open.js";
-import { openBrowser } from "../apps/browser.js";
-import { openDawn } from "../apps/dawn/index.js";
+import { openBrowser, openDawn, openExplorer, openSettings } from "../apps/lazy.js";
 import { WM } from "../wm.js";
 
 /* ================= пуск (с анимацией) ================= */

@@ -1,12 +1,5 @@
-import { openExplorer } from "./apps/explorer.js";
 import { Player } from "./apps/player.js";
-import { openSettings } from "./apps/settings.js";
-import { openChat } from "./apps/chat.js";
-import { openFakeDL } from "./apps/fakedl.js";
-import { openPost } from "./apps/post.js";
-import { openAirHockey } from "./apps/airhockey.js";
-import { openBrowser } from "./apps/browser.js";
-import { openDawn } from "./apps/dawn/index.js";
+import { openAirHockey, openBrowser, openChat, openDawn, openExplorer, openFakeDL, openPost, openSettings } from "./apps/lazy.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";

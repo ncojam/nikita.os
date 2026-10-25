@@ -154,3 +154,45 @@ export function select(items, value, onChange, title = "") {
 
 export const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 export const noteName = n => NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1);
+
+/* число «по разрядам», как в FL: зажми цифру (целые, десятые… десятитысячные) и тяни вверх/вниз — меняется этот разряд;
+ * колесо над цифрой — тоже; двойной клик — ввести. o: { get, set, min, max, decimals, label, title, done } */
+export function digits(o) {
+  const dec = o.decimals ?? 4, box = el("div", { className: "dw-digits", title: o.title || "" });
+  const val = el("div", { className: "dw-digits-v" }), lab = el("div", { className: "dw-digits-l", textContent: o.label || "" });
+  box.append(val, lab);
+  const clampV = v => Math.max(o.min ?? -Infinity, Math.min(o.max ?? Infinity, +(+v).toFixed(dec)));
+  function paint() {
+    const v = o.get(), s = (v < 0 ? "−" : "") + Math.abs(v).toFixed(dec), dot = s.indexOf(".");
+    val.replaceChildren(...[...s].map((c, i) => {
+      if (c === "." || c === "−") return el("span", { textContent: c });
+      const place = (dot < 0 ? s.length : dot) - i - (i < dot || dot < 0 ? 1 : 0);   // 0 — единицы, 1 — десятки, −1 — десятые…
+      const d = el("span", { className: "dw-dig", textContent: c });
+      d.dataset.p = String(place);   // el() атрибуты data-* не ставит
+      return d;
+    }));
+  }
+  const step = d => Math.pow(10, +d.dataset.p);
+  let drag = null;
+  val.addEventListener("pointerdown", e => {
+    const d = e.target.closest(".dw-dig");
+    if (!d || e.button !== 0) return;
+    e.preventDefault(); val.setPointerCapture(e.pointerId);
+    drag = { y: e.clientY, v: o.get(), st: step(d) }; d.classList.add("on");
+  });
+  val.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const n = Math.round((drag.y - e.clientY) / 8);
+    o.set(clampV(drag.v + n * drag.st), Math.sign(n)); paint();
+  });
+  const end = () => { if (!drag) return; drag = null; o.done?.(); };
+  val.addEventListener("pointerup", end); val.addEventListener("pointercancel", end);
+  val.addEventListener("wheel", e => {
+    const d = e.target.closest(".dw-dig"); if (!d) return;
+    e.preventDefault(); const dir = e.deltaY < 0 ? 1 : -1;
+    o.set(clampV(o.get() + dir * step(d)), dir); paint(); o.done?.();
+  }, { passive: false });
+  val.addEventListener("dblclick", () => { const v = prompt(o.label || "", o.get()); if (v != null && isFinite(+v.replace(",", "."))) { o.set(clampV(+v.replace(",", ".")), 0); paint(); o.done?.(); } });
+  paint();
+  return { node: box, paint };
+}

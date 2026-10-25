@@ -1,10 +1,8 @@
-import { openExplorer } from "../apps/explorer.js";
-import { openSettings } from "../apps/settings.js";
 import { D, EASE, REDUCED } from "../core/anim.js";
 import { baseName, el, fsUrl, parentOf } from "../core/util.js";
 import { DESKTOP, Desktop } from "../desktop.js";
 import { openAbout, openPath } from "../open.js";
-import { createPost, reportPostByPath } from "../apps/post.js";
+import { createPost, openExplorer, openSettings, reportPostByPath } from "../apps/lazy.js";
 import { createServerFolder, deleteServerFolder, deleteServerProject } from "../remote/userfolders.js";
 import { GitHub } from "../remote/github.js";
 import { VFS } from "../core/vfs.js";

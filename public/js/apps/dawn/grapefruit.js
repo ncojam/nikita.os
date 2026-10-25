@@ -8,7 +8,8 @@ import { hz } from "./tuning.js";
  * Out — сколько оператора идёт в звук (несущая); модуляторам обычно ставят 0.
  */
 export const GF_SPECS = {
-  ratio: { min: 0.25, max: 16, def: 1, label: "Ratio", curve: 2 },
+  ratio: { min: 0.01, max: 32, def: 1, label: "Ratio", curve: 2 },
+  oct:   { min: -4, max: 4, def: 0, label: "Oct", step: 1, bipolar: true },
   fine:  { min: -50, max: 50, def: 0, label: "Fine", bipolar: true },
   level: { min: 0, max: 1, def: 1, label: "Level" },
   out:   { min: 0, max: 1, def: 0, label: "Out" },
@@ -52,6 +53,14 @@ export const GF_PRESETS = {
     op({ ratio: 1, out: 0, level: 0 }), op({ ratio: 1, out: 0, level: 0 })],
     mod: { m21: 0.15, m31: 0, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 900, res: 0.7 },
 };
+/* «гармонично»: ratio прилипает к целым и простым дробям — обертоны ложатся в гармонический ряд, без диссонанса */
+export const HARMONIC = [0.25, 1 / 3, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+export function snapRatio(v, dir = 0) {
+  if (dir > 0) return HARMONIC.find(h => h > v - 1e-9 && h >= v) ?? HARMONIC.at(-1);
+  if (dir < 0) return [...HARMONIC].reverse().find(h => h <= v + 1e-9) ?? HARMONIC[0];
+  return HARMONIC.reduce((a, b) => Math.abs(b - v) < Math.abs(a - v) ? b : a);
+}
+
 /* матрица модуляции: m<от><кому> для любой пары. Старший → младшему — напрямую; младший → старшему (обратная связь)
  * идёт через задержку в один блок (~3 мс) — иначе Web Audio глушит петлю. */
 export const MOD_KEYS = [];
@@ -112,7 +121,7 @@ export function playGrapefruit(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
   p.ops.forEach((o, i) => {
     const osc = ctx.createOscillator(), g = ctx.createGain();
     setWave(ctx, osc, o);
-    osc.frequency.value = f * o.ratio;
+    osc.frequency.value = f * o.ratio * Math.pow(2, o.oct || 0);
     bendDetune(osc.detune, t, dur, o.fine, bend, edo);
     const E = o.env || {};
     end = Math.max(end, E.vol?.on ? drawEnv(g.gain, t, dur, E.vol, x => x * o.level) : adsr(g, t, dur, o, o.level));
@@ -134,7 +143,7 @@ export function playGrapefruit(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
     const m = p.mod?.[key] || 0;
     if (m < 0.001) continue;
     const mg = ctx.createGain();
-    mg.gain.value = m * INDEX * f * p.ops[from - 1].ratio;
+    mg.gain.value = m * INDEX * f * p.ops[from - 1].ratio * Math.pow(2, p.ops[from - 1].oct || 0);
     gains[from - 1].connect(mg);
     if (from > to) mg.connect(oscs[to - 1].frequency);
     else { const d = ctx.createDelay(0.01); d.delayTime.value = 128 / ctx.sampleRate; mg.connect(d); d.connect(oscs[to - 1].frequency); }

@@ -3,7 +3,7 @@ import { notify } from "../../ui/notify.js";
 import { BUILTIN, Engine, FLASH_COLORS, PASTEL, TYPES, WAVES, WAVE_GLYPH, flashOf, newProject, sampleNow } from "./engine.js";
 import { fromFile } from "./format.js";
 import { aiPackage, aiDoc } from "./schema.js";
-import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults } from "./grapefruit.js";
+import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults, snapRatio } from "./grapefruit.js";
 import { MODS } from "./mod.js";
 import { MAGIC } from "./magic.js";
 import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
@@ -14,7 +14,7 @@ import { SPECS } from "./instruments.js";
 import { FX, fxDefaults } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
 import { PLAYLIST } from "./playlist.js";
-import { applyTheme, dwBtn, knob, led, pal, select, shell, theme } from "./ui.js";
+import { applyTheme, digits, dwBtn, knob, led, pal, select, shell, theme } from "./ui.js";
 import { noteNameE } from "./tuning.js";
 
 /* ================= DAWN — окна модулей =================
@@ -384,6 +384,15 @@ function gfPanel(ch, rebuild) {
   gfSel.set(ch.id, sel);
   const colOf = i => PASTEL[[0, 1, 2, 4][i]];
   const editor = el("div", { className: "dw-gf-env" });
+  // частота оператора: Oct (октавы) × Ratio по разрядам до десятитысячных; ♪ — прилипать к гармоникам
+  const freqBox = (o, i) => {
+    const r = digits({ get: () => o.ratio, set: (v, dir) => { o.ratio = o.harmonic ? snapRatio(v, dir) : v; }, min: 0.0001, max: 32, decimals: 4, label: "Ratio",
+      title: "Множитель частоты: зажми цифру и тяни вверх/вниз, колесо — по разряду, двойной клик — ввести", done: () => { Engine.touch({ param: true }); Engine.preview(ch); } });
+    const oc = digits({ get: () => o.oct || 0, set: v => { o.oct = Math.round(v); }, min: -4, max: 4, decimals: 0, label: "Oct", title: "Сдвиг на октавы", done: () => { Engine.touch({ param: true }); Engine.preview(ch); } });
+    const lock = el("button", { className: "dw-btn dw-harm" + (o.harmonic ? " on" : ""), textContent: "♪", title: "Гармонично: Ratio прилипает к целым и простым дробям (1/2, 1.5, 2, 3…) — без диссонанса",
+      onclick: () => { o.harmonic = !o.harmonic; if (o.harmonic) { o.ratio = snapRatio(o.ratio); r.paint(); } lock.classList.toggle("on", o.harmonic); Engine.touch({ param: true }); Engine.preview(ch); } });
+    return el("div", { className: "dw-freq" }, oc.node, r.node, lock);
+  };
   const opRow = (o, i) => {
     const col = colOf(i), sub = "op" + (i + 1), view = adsrView(o, col);
     const waves = el("div", { className: "dw-waves" }, ...GF_WAVES_ALL.map(wv => {
@@ -398,7 +407,7 @@ function gfPanel(ch, rebuild) {
     const envOn = Object.entries(o.env || {}).filter(([, e]) => e?.on).map(([kd]) => ({ vol: "V", pan: "P", pitch: "♪" })[kd]).join("");
     return el("div", { className: "dw-osc dw-op", style: `--oc:${col}` },
       pick, waves,
-      k("ratio", GF_SPECS.ratio), k("fine", GF_SPECS.fine), k("level", GF_SPECS.level), k("pan", GF_SPECS.pan),
+      freqBox(o, i), k("fine", GF_SPECS.fine), k("level", GF_SPECS.level), k("pan", GF_SPECS.pan),
       ...(o.env?.vol?.on ? [el("span", { className: "dw-dim", textContent: "громкость — по огибающей" })] : [k("att", SPECS.att), k("dec", SPECS.dec), k("sus", SPECS.sus), k("rel", SPECS.rel), view]),
       envOn ? el("span", { className: "dw-gf-badge", textContent: envOn, title: "Включённые огибающие" }) : "");
   };

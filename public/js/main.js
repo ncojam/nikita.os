@@ -1,12 +1,9 @@
 // Точка входа nikita.os: подключает модули и запускает их в исходном порядке
 import { init_i18n } from "./core/i18n.js";   // язык — первым: остальные модули уже видят NOS_LOCALE
 import "./i18n/os.js";
-import { openExplorer } from "./apps/explorer.js";
+import { openBrowser, openExplorer } from "./apps/lazy.js";   // приложения — лениво, при первом открытии
 import "./apps/id3.js";
 import { init_apps_player } from "./apps/player.js";
-import "./apps/settings.js";
-import "./apps/chat.js";
-import { openBrowser } from "./apps/browser.js";
 import "./core/anim.js";
 import "./core/types.js";
 import "./core/util.js";

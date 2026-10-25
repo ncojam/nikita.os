@@ -1,4 +1,4 @@
-import { openExplorer } from "./apps/explorer.js";
+import { openExplorer } from "./apps/lazy.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { $, joinPath, store } from "./core/util.js";
 import { VFS } from "./core/vfs.js";
