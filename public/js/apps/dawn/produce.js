@@ -22,9 +22,9 @@ const N = (s, l, n, v) => ({ s: +s.toFixed(4), l: +Math.max(0.03, l).toFixed(4),
 const deep = o => JSON.parse(JSON.stringify(o));
 /* по отзывам: основа — семейство Metal Crush (басовый звук с нарастающим металлом); Laser и Tearout в генерилки не берём,
  * Neuro Bass — изредка */
-export const METAL_OSC3 = ["Metal Crush", "Metal Rise", "Metal Creak", "Metal Growl Rise", "Metal Snap", "Metal Yoi", "Metal Screech", "Metal Deep"];
-export const RIDDIM_GF = ["Metal Crush FM", "Metal Creak FM", "Riddim Heavy Slow", "Riddim Crush", "Riddim Yoi"];
-export function pickRiddim() { const r = rnd(); return r < 0.06 ? ["grapefruit", "Neuro Bass"] : r < 0.75 ? ["osc3", pick(METAL_OSC3)] : ["grapefruit", pick(RIDDIM_GF)]; }
+export const METAL_OSC3 = ["Metal Crush", "Metal Rise", "Metal Creak", "Metal Growl Rise", "Metal Snap", "Metal Yoi", "Metal Screech", "Metal Deep", "Screech Rise", "Grind Fifth"];
+export const RIDDIM_GF = ["Metal Creak FM", "Extreme Creak FM", "Metal Scream FM", "Metal Howl FM", "Shred FM", "Iron Yoi FM", "Creak Glide FM", "Metal Crush FM", "Riddim Heavy Slow"];
+export function pickRiddim() { const r = rnd(); return r < 0.06 ? ["grapefruit", "Neuro Bass"] : r < 0.5 ? ["osc3", pick(METAL_OSC3)] : ["grapefruit", pick(RIDDIM_GF)]; }
 
 /* эффекты на свой инсерт канала: такой же тип — подправить, нет — добавить (максимум 4) */
 function chain(ch, list) {
