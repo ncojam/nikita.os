@@ -1147,3 +1147,6 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .dw-dig:hover, .dw-dig.on { background: var(--oc, var(--dw-pink)); color: #111; }
 .dw-digits-l { font-size: 10px; opacity: .7; }
 .dw-harm.on { background: var(--oc, var(--dw-pink)); color: #111; }
+.dw-magic-lvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 12px; }
+.dw-magic-lv { display: grid; grid-template-columns: 110px 1fr 38px; align-items: center; gap: 6px; font-size: 12px; }
+.dw-magic-lv input { width: 100%; }
