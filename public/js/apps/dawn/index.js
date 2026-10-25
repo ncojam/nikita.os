@@ -156,7 +156,8 @@ export const Dawn = {
       try {
         const r = await fetch("/api/dawn/save", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dir: dirOf(path), name: path.split("/").pop(), data }) });
-        const d = await r.json();
+        if (r.status === 413) throw new Error("прокси сервера не пропустил проект (" + Math.round(data.length / 1024) + " КБ): в nginx нужен client_max_body_size побольше для /api/dawn/save");
+        const d = await r.json().catch(() => ({ error: "сервер ответил " + r.status }));
         if (!r.ok) throw new Error(d.error || r.statusText);
         Engine.path = d.path; Engine.shared = true; Engine.dirty = false;
         Engine.emit("change", { saved: true, param: true });

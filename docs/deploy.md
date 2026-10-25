@@ -32,4 +32,5 @@
 
 - `deploy.sh` после `git pull` докладывает недостающие файлы из `seed/` в `fs/` (`cp -rn`: твои правки не перезаписываются) — так в репозитории живут общедоступные файлы вроде `seed/home/nikita/Projects/Bayati in 7-8.dawn`.
 - Ярлыки рабочего стола из `DEFAULT_DESKTOP` создаются **только на пустой** `fs/home/nikita/Desktop` — новые ярлыки на живом сайте кладутся руками.
+- В `deploy/nginx-site.conf` тела запросов ограничены 64k, кроме `/api/dawn/save` (3m) — иначе проекты DAWN больше ~60 КБ не сохраняются на сервер (413). Конфиг nginx `deploy.sh` не обновляет: после правки — скопировать и `sudo nginx -t && sudo systemctl reload nginx`.
 - Прокси не должен резать WebSocket (`/api/chat/ws`, арена) и заголовки COOP/COEP.
