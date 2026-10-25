@@ -8,7 +8,7 @@ import { c4, scaleSet } from "./tuning.js";
 import { dwBtn, select, shell } from "./ui.js";
 import { UserLib } from "./userlib.js";
 import { cloneWub, enhance } from "./wubs.js";
-import { addSub, fatten, neighbour, produceAll } from "./produce.js";
+import { METAL_OSC3, RIDDIM_GF, addSub, fatten, neighbour, produceAll } from "./produce.js";
 
 /* ================= DAWN — «Магия»: умные функции поверх проекта =================
  * Достроить композицию: смотрит на паттерн (размер, лад, бас, ударные, темп → стиль) и собирает вокруг него трек:
@@ -437,12 +437,10 @@ export function compose(opt) {
   const dropSynth = d => once("syn" + d, () => {
     if (!A.wub || d === 0) return A.wub?.ch || null;   // каждый следующий дроп — со своим синтом, даже при малом «переделывании»
     const c = cloneWub(Engine, A.wub.ch, `Wub D${d + 1} ✨`), got = [];
-    if (rnd() < 0.3 + lv.cool * 0.6) enhance(Engine, c, "metal", got);
-    if (rnd() < 0.4 + lv.cool * 0.5) enhance(Engine, c, "mod", got);
-    if (rnd() < lv.drama * 0.6) enhance(Engine, c, "bass", got);
-    if (rnd() < lv.remake * 0.4) enhance(Engine, c, "revatt", got);
-    if (lv.remake > 0.8 && rnd() < 0.5) enhance(Engine, c, "random", got);
-    if (!got.length) enhance(Engine, c, "mod", got);
+    // по отзывам: основа — семейство Metal Crush (бас + нарастающий металл); чем дальше дроп и выше «крутость», тем злее
+    const fam = c.type === "osc3" ? METAL_OSC3 : RIDDIM_GF, k = Math.min(fam.length - 1, Math.floor((d / Math.max(1, drops - 1)) * 0.5 * fam.length + rnd() * fam.length * 0.5 * (0.5 + lv.cool)));
+    applyPreset(Engine, c, fam[Math.max(1, k)] || fam[1]); got.push(`звук «${c.preset}»`);
+    if (rnd() < lv.drama * 0.4) enhance(Engine, c, "revatt", got);
     c.params.fit = true;
     said.push(`дроп ${d + 1} — новый синт «${c.name}»: ` + got.map(s => s.split(":")[0]).join(", "));
     return c;

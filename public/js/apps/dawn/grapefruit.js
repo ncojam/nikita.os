@@ -91,6 +91,13 @@ export const GF_PRESETS = {
     op({ ratio: 1, level: 1, env: { vol: { on: true, sus: 2, pts: [[0, 0], [0.25, 0.8], [0.32, 1], [0.4, 0]] } } }),
     op({ ratio: 0.5, out: 0.5, att: 0.2, sus: 1, rel: 0.02, ac: 0.5 }), op({ ratio: 2, level: 0.4, sus: 0.4 })],
     mod: { m21: 0.7, m31: 0, m41: 0.25, m32: 0, m42: 0, m43: 0 }, cut: 3600, res: 3, fit: true },
+  // Metal Crush на FM: синус октавой ниже + чуть квадрата; во «Creak» глубина FM растёт внутри ноты — скрип
+  "Metal Crush FM": { ops: [op({ ratio: 0.5, out: 0.9, att: 0.05, dec: 0.2, sus: 1, rel: 0.02 }), op({ wave: "square", ratio: 0.5, out: 0.12, att: 0.05, sus: 1, rel: 0.02 }),
+    op({ ratio: 1, level: 0.4, dec: 0.3, sus: 0.6 }), op({ ratio: 1, out: 0, level: 0 })],
+    mod: { m21: 0, m31: 0.15, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 2400, res: 1.2 },
+  "Metal Creak FM": { ops: [op({ ratio: 0.5, out: 0.9, att: 0.04, dec: 0.2, sus: 1, rel: 0.02 }), op({ wave: "square", ratio: 0.5, out: 0.12, sus: 1, rel: 0.02 }),
+    op({ ratio: 1.5, level: 1, env: { vol: { on: true, sus: 2, pts: [[0, 0], [0.25, 0.7], [0.4, 1], [0.55, 0]] } } }), op({ ratio: 1, out: 0, level: 0 })],
+    mod: { m21: 0, m31: 0.3, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 2600, res: 2 },
   "Sub FM": { ops: [op({ out: 1, dec: 0.3, sus: 1, rel: 0.08 }), op({ ratio: 1, level: 0.4, dec: 0.1, sus: 0.1 }),
     op({ ratio: 1, out: 0, level: 0 }), op({ ratio: 1, out: 0, level: 0 })],
     mod: { m21: 0.15, m31: 0, m41: 0, m32: 0, m42: 0, m43: 0 }, cut: 900, res: 0.7 },

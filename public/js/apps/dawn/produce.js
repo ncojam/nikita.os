@@ -20,7 +20,11 @@ const rnd = Math.random, pick = a => a[Math.floor(rnd() * a.length)];
 const P = () => Engine.project;
 const N = (s, l, n, v) => ({ s: +s.toFixed(4), l: +Math.max(0.03, l).toFixed(4), n, v: +Math.min(1, Math.max(0.05, v)).toFixed(3) });
 const deep = o => JSON.parse(JSON.stringify(o));
-export const RIDDIM_GF = ["Riddim Yoi", "Riddim Fold", "Riddim Skew", "Riddim Crush", "Riddim Laser", "Tearout Screech", "Riddim Hollow", "Riddim FM", "Neuro Bass"];
+/* по отзывам: основа — семейство Metal Crush (басовый звук с нарастающим металлом); Laser и Tearout в генерилки не берём,
+ * Neuro Bass — изредка */
+export const METAL_OSC3 = ["Metal Crush", "Metal Rise", "Metal Creak", "Metal Growl Rise", "Metal Snap", "Metal Yoi", "Metal Screech", "Metal Deep"];
+export const RIDDIM_GF = ["Metal Crush FM", "Metal Creak FM", "Riddim Heavy Slow", "Riddim Crush", "Riddim Yoi"];
+export function pickRiddim() { const r = rnd(); return r < 0.06 ? ["grapefruit", "Neuro Bass"] : r < 0.75 ? ["osc3", pick(METAL_OSC3)] : ["grapefruit", pick(RIDDIM_GF)]; }
 
 /* эффекты на свой инсерт канала: такой же тип — подправить, нет — добавить (максимум 4) */
 function chain(ch, list) {
@@ -95,10 +99,12 @@ export function pump(ch, said = []) {
       wires: [{ to: `ch.${ch.id}.op${car + 1}.wfold`, amt: 0.35 }, { to: `ch.${ch.id}.${key}`, amt: 0.25 }] });
     said.push(`глубина FM ${mod + 1}→${car + 1} «говорит» внутри ноты, Fold раскрывает атаку, питч-дайв, LFO меняет форму от ноты к ноте`);
   } else if (ch.type === "osc3") {
-    p.oscs.forEach((o, k) => { if (k < 2 && o.wave === "sawtooth" && rnd() < 0.5) o.wave = "square"; });
-    Object.assign(p, { res: Math.max(p.res, 6), cut: Math.min(p.cut, 1600), fit: true });
-    addMod(Engine, ch, { type: "trig", name: "🔥 " + ch.name.slice(0, 14), trig: { ch: ch.id, att: 30, hold: 60, rel: 200, vel: true }, wires: [{ to: `ch.${ch.id}.cut`, amt: 0.2 }] });
-    said.push("квадрат, резонанс, фильтр раскрывается на каждой ноте");
+    // как Metal Crush: синус октавой ниже + немного квадрата, crush с закрытым Tone, Tone нарастает внутри ноты
+    applyPreset(Engine, ch, pick(METAL_OSC3.slice(1)));
+    said.push(`звук — «${ch.preset}»: басовый синус, металл и скрип нарастают внутри ноты`);
+    if (!P().channels.some(c => c.subOf === ch.id)) addSub(ch, said);
+    Engine.touch({ channels: true, mixer: true, mods: true });
+    return said;
   }
   chain(ch, [["dist", { drive: 0.65, shape: pick([0, 2, 3]), tone: 7000, mix: 1, out: 0.55 }], ["ott", { depth: 0.85, time: 0.5, high: 3 }], ["eq", { lf: 120, lg: -10, mf: 900, mg: 2, hf: 6500, hg: -1 }]]);
   said.push("цепочка: дисторшн → OTT → EQ");
@@ -166,8 +172,9 @@ function newPattern(src, name, notes) {
 export function neighbour(ch, said = []) {
   const src = Engine.pat()?.notes[ch.id]?.length ? Engine.pat() : patsWith(ch)[0];
   if (!src) { said.push("у синта нет нот — сначала нарисуй пару"); return said; }
-  const presetB = pick(RIDDIM_GF.filter(n => n !== ch.preset));
-  const b = Engine.addChannel("grapefruit", (ch.name.replace(/ ⇄.*$/, "") + " ⇄ " + presetB.replace(/^Riddim /, "")).slice(0, 24));
+  let [typeB, presetB] = pickRiddim();
+  while (presetB === ch.preset) [typeB, presetB] = pickRiddim();
+  const b = Engine.addChannel(typeB, (ch.name.replace(/ ⇄.*$/, "") + " ⇄ " + presetB.replace(/^Riddim /, "")).slice(0, 24));
   applyPreset(Engine, b, presetB);
   Object.assign(b, { edo: ch.edo || 12, scale: { ...(ch.scale || {}) }, poly: ch.poly || 1, vol: ch.vol, color: PASTEL[(P().channels.length + 3) % PASTEL.length] });
   b.params.fit = true;
