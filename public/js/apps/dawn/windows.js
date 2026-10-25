@@ -8,7 +8,7 @@ import { MODS } from "./mod.js";
 import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
 import { applyPreset, presetsFor } from "./presets.js";
 import { SPECS } from "./instruments.js";
-import { FX } from "./fx.js";
+import { FX, fxDefaults } from "./fx.js";
 import { PIANO } from "./pianoroll.js";
 import { PLAYLIST } from "./playlist.js";
 import { applyTheme, dwBtn, knob, led, select, shell, theme } from "./ui.js";
@@ -84,6 +84,7 @@ const transport = {
         mod("🎛 Стойка", "rack", "Стойка каналов"), mod("🎹 Пиано ролл", "piano", "Ноты канала"),
         mod("🎞 Плейлист", "playlist", "Общий таймлайн"), mod("🎚 Микшер", "mixer", "Микшер и эффекты"),
         mod("🔌 Модуляция", "mods", "Ручки, огибающие и LFO на проводках"),
+        mod("🎛 Педали", "pedals", "Эффекты-педали: любой вход, любой выход, формула и свой код"),
         mod("📚 Библиотека", "lib", "Готовые грувы и паттерны в ладу"),
         mod("📂 Сэмплы", "browser", "Сэмплы из файловой системы"), mod("🤖", "ai", "Проект как текст — для нейросети")),
       el("div", { className: "dw-file" },
@@ -510,11 +511,9 @@ const mixer = {
             led(f.on, () => Engine.fxToggle(i, k), "Вкл/выкл эффект", spec.color),
             el("b", { textContent: spec.icon + " " + spec.name }),
             select(Object.entries(FX).map(([t, s2]) => [t, s2.name]), f.type, v => Engine.setFx(i, k, v), "Тип эффекта"),
+            dwBtn("⏏", () => { Engine.detachFx(i, k); Dawn.open("pedals"); }, { title: "Отсоединить в педаль: подключай к любому каналу или инсерту" }),
             dwBtn("✕", () => Engine.setFx(i, k, null), { title: "Убрать", className: "dw-btn dw-x" })),
-          el("div", { className: "dw-fx-knobs" }, ...Object.entries(spec.params).map(([key, ps]) => ps.kind === "channel"
-            ? el("label", { className: "dw-fx-src" }, el("span", { className: "dw-dim", textContent: ps.label }),
-                select(Engine.project.channels.map(c2 => [c2.id, c2.name]), f.p[key], v => { f.p[key] = v; Engine.fxParam(i, k); Engine.touch({ param: true }); }, "Чьи ноты дёргают сайдчейн"))
-            : knob({ spec: ps, color: spec.color, path: `mix.${i}.${k}.${key}`, get: () => f.p[key], set: v => { f.p[key] = v; Engine.fxParam(i, k); }, done: () => Engine.touch({ param: true }) }).node)));
+          el("div", { className: "dw-fx-knobs" }, ...fxControls(spec, f, `mix.${i}.${k}.`, () => Engine.fxParam(i, k))));
       });
       fxBox.replaceChildren(
         el("div", { className: "dw-fx-title" }, el("b", { textContent: i ? `${i} · ${m.name}` : "Master" }), el("span", { className: "dw-dim", textContent: " — эффекты по порядку сверху вниз" })),
@@ -630,6 +629,60 @@ const ai = {
 };
 
 /* ======================= библиотека паттернов ======================= */
+/* ручки эффекта: числа — крутилки (с адресом для проводков), канал — выбор, текст — поле (формула, код) */
+function fxControls(spec, f, pre, apply) {
+  return Object.entries(spec.params).map(([key, ps]) => {
+    if (ps.kind === "channel") return el("label", { className: "dw-fx-src" }, el("span", { className: "dw-dim", textContent: ps.label }),
+      select(Engine.project.channels.map(c2 => [c2.id, c2.name]), f.p[key], v => { f.p[key] = v; apply(); Engine.touch({ param: true }); }, "Чьи ноты дёргают сайдчейн"));
+    if (ps.kind === "text") {
+      const box = el(ps.multiline ? "textarea" : "input", { className: "dw-code" + (ps.multiline ? " multi" : ""), value: f.p[key] ?? ps.def, spellcheck: false,
+        title: ps.multiline ? "Тело функции (x, t, a, b, ch, state, sr) → новый сэмпл. Применяется по Ctrl+Enter или при уходе из поля" : "Формула от x (сэмпл), t (время), a, b. Есть sin, tanh, clip, fold, crush…" });
+      const commit = () => { f.p[key] = box.value; apply(); Engine.touch({ param: true }); };
+      box.onchange = commit;
+      box.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter" && (e.ctrlKey || !ps.multiline)) { e.preventDefault(); commit(); } };
+      return el("label", { className: "dw-fx-text" }, el("span", { className: "dw-dim", textContent: ps.label }), box);
+    }
+    return knob({ spec: ps, color: spec.color, path: pre + key, get: () => f.p[key], set: v => { f.p[key] = v; apply(); }, done: () => Engine.touch({ param: true }) }).node;
+  });
+}
+addEventListener("dawn-code", e => notify("⚠ Код педали: " + e.detail.error, 4000));
+
+/* ======================= педали: эффекты вне микшера ======================= */
+const pedals = {
+  title: () => "Педали",
+  icon: "🎛", color: "#c3a6ff",
+  size: () => [620, 520, Math.max(12, innerWidth - 640), 140],
+  render(c, win, _a, Dawn) {
+    const root = shell(c, "dw-pedals", "#c3a6ff");
+    const body = el("div", { className: "dw-pedal-list" }), foot = el("div", { className: "dw-fx-add" });
+    root.append(el("div", { className: "dw-dim dw-hint", textContent: "Педаль берёт звук канала или инсерта и отдаёт в любой инсерт или Master (параллельно основному звуку). ⏏ в микшере отсоединяет эффект сюда, ⏎ — возвращает. Ручки педалей — цели для проводков." }), body, foot);
+    function build() {
+      const P = Engine.project, list = P.pedals || [];
+      const ins = P.mixer.map((m, i) => [`mix:${i}`, i ? `🎚 ${i} · ${m.name}` : "🔊 Master"]);
+      const srcs = [...P.channels.map(ch => [`ch:${ch.id}`, `${ch.type === "sampler" ? "🥁" : "🎹"} ${ch.name}`]), ...ins.slice(1)];
+      body.replaceChildren(...(list.length ? list.map(pd => {
+        const spec = FX[pd.type];
+        const set = () => Engine.G.pedalSet(pd.id);
+        return el("div", { className: "dw-fx dw-pedal", style: `--fc:${spec.color}` },
+          el("div", { className: "dw-fx-head" },
+            led(pd.on, () => { pd.on = !pd.on; Engine.pedalsChanged(); }, "Вкл/выкл", spec.color),
+            el("b", { textContent: spec.icon + " " + spec.name }),
+            select(Object.entries(FX).map(([t, s2]) => [t, s2.name]), pd.type, v => { pd.type = v; pd.p = fxDefaults(v); Engine.pedalsChanged(); }, "Тип эффекта"),
+            dwBtn("⏎", () => { const i = +(pd.out.startsWith("mix:") && pd.out !== "mix:0" ? pd.out : pd.in).split(":")[1] || 0; if (!Engine.attachPedal(pd.id, i)) notify("В том инсерте уже 4 эффекта"); }, { title: "Вернуть в микшер (на инсерт выхода или входа)" }),
+            dwBtn("✕", () => { P.pedals = P.pedals.filter(x => x !== pd); Engine.pedalsChanged(); }, { title: "Убрать", className: "dw-btn dw-x" })),
+          el("div", { className: "dw-pedal-io" },
+            el("span", { className: "dw-dim", textContent: "Вход" }), select(srcs, pd.in, v => { pd.in = v; Engine.pedalsChanged(); }, "Откуда педаль берёт звук"),
+            el("span", { className: "dw-dim", textContent: "→ Выход" }), select(ins, pd.out, v => { pd.out = v; Engine.pedalsChanged(); }, "Куда педаль отдаёт звук"),
+            pd.in === pd.out ? el("span", { className: "dw-dim", textContent: "⚠ вход = выход — педаль молчит" }) : ""),
+          el("div", { className: "dw-fx-knobs" }, ...fxControls(spec, pd, `pedal.${pd.id}.`, set)));
+      }) : [el("div", { className: "dw-dim dw-empty", textContent: "Педалей нет. Добавь снизу или отсоедини эффект в микшере (⏏)." })]));
+      foot.replaceChildren(el("span", { className: "dw-dim", textContent: "＋ педаль:" }), ...Object.entries(FX).map(([t, s]) => dwBtn(s.icon + " " + s.name, () => Engine.addPedal(t))));
+    }
+    build();
+    return Engine.on("change", w => { if (w?.pedals || w?.channels || w?.mixer || w?.all) build(); });
+  },
+};
+
 const lib = {
   title: () => "Библиотека",
   icon: "📚", color: "#ffb3b3",
@@ -669,4 +722,4 @@ const lib = {
   },
 };
 
-export const MODULES = { transport, rack, piano: PIANO, playlist: PLAYLIST, mixer, inst, browser, ai, mods: MODS, lib };
+export const MODULES = { transport, rack, piano: PIANO, playlist: PLAYLIST, mixer, inst, browser, ai, mods: MODS, lib, pedals };

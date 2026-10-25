@@ -1,4 +1,4 @@
-import { FX, fxDefaults } from "./fx.js";
+import { FX, fxDefaults, loadCodeWorklet } from "./fx.js";
 import { PASTEL, barLen, fromFile, newInsert, patLen, slug, toFile } from "./format.js";
 import { BUILTIN, DEFAULT_PARAMS, TYPES, ensureSample, playOsc3, playSampler, sampleNow } from "./instruments.js";
 import { playGrapefruit } from "./grapefruit.js";
@@ -77,6 +77,39 @@ function buildGraph(ctx, P) {
       return p;
     },
     fxSet(i, k) { G.inserts[i]?.fx[k]?.set(G.fxParams(i, k)); },
+    /* ---------- педали: эффекты вне микшера. Вход — канал (ch:id) или инсерт (mix:i, после фейдера),
+     * выход — инсерт (mix:i) или Master. Петли не даём: вход-инсерт ≠ выход, Master как вход нельзя. ---------- */
+    pedals: new Map(),
+    pedalParams(pd) {
+      const pre = `pedal.${pd.id}.`;
+      let p = pd.p;
+      for (const [a, v] of G.over) if (a.startsWith(pre)) { if (p === pd.p) p = { ...pd.p }; p[a.slice(pre.length)] = v; }
+      return p;
+    },
+    pedalSrc(ref) {
+      const [k, id] = String(ref || "").split(":");
+      if (k === "ch") { const ch = P.channels.find(c => c.id === id); return ch ? G.strip(ch).pan : null; }
+      if (k === "mix" && +id > 0) return G.inserts[+id]?.meter || null;
+      return null;
+    },
+    pedalDst(ref) {
+      const [k, id] = String(ref || "mix:0").split(":");
+      return k === "mix" ? G.inserts[clamp(+id || 0, 0, P.mixer.length - 1)]?.input : G.inserts[0].input;
+    },
+    rebuildPedals() {
+      for (const g of G.pedals.values()) { try { g.src.disconnect(g.fx.input); } catch { /* уже отключён */ } g.fx.output.disconnect(); g.fx.dispose(); }
+      G.pedals.clear();
+      for (const pd of P.pedals || []) {
+        if (!pd.on || !FX[pd.type]) continue;
+        const src = G.pedalSrc(pd.in), dst = G.pedalDst(pd.out);
+        if (!src || !dst || (pd.in.startsWith("mix:") && pd.in === pd.out)) continue;
+        const fx = FX[pd.type].create(ctx, G.pedalParams(pd));
+        fx.tempo(G.bpm);
+        src.connect(fx.input); fx.output.connect(dst);
+        G.pedals.set(pd.id, { fx, src });
+      }
+    },
+    pedalSet(id) { const pd = (P.pedals || []).find(x => x.id === id); if (pd) G.pedals.get(id)?.fx.set(G.pedalParams(pd)); },
     /* модуляция: новые значения целей; непрерывные параметры (громкость, пан, фильтр, эффекты) — сразу */
     applyOver(over) {
       const prev = G.over;
@@ -95,8 +128,9 @@ function buildGraph(ctx, P) {
         if (changed.has(`mix.${i}.vol`) || changed.has(`mix.${i}.pan`)) G.applyInsert(i);
         m.fx.forEach((f, k) => { if ([...changed].some(a => a.startsWith(`mix.${i}.${k}.`))) G.fxSet(i, k); });
       });
+      for (const pd of P.pedals || []) if ([...changed].some(a => a.startsWith(`pedal.${pd.id}.`))) G.pedalSet(pd.id);
     },
-    tempo(bpm) { G.bpm = bpm; for (const ins of G.inserts) for (const f of ins.fx) f.tempo(bpm); },
+    tempo(bpm) { G.bpm = bpm; for (const ins of G.inserts) for (const f of ins.fx) f.tempo(bpm); for (const g of G.pedals.values()) g.fx.tempo(bpm); },
     audible(ch) {
       const anySolo = P.channels.some(c => c.solo);
       return !ch.mute && (!anySolo || ch.solo);
@@ -106,12 +140,12 @@ function buildGraph(ctx, P) {
       let s = G.strips.get(ch.id);
       const mix = clamp(ch.mix || 0, 0, P.mixer.length - 1);
       if (!s) {
-        const gain = ctx.createGain(), pan = ctx.createStereoPanner();
-        gain.connect(pan);
-        s = { gain, pan, mix: -1 };
+        const gain = ctx.createGain(), pan = ctx.createStereoPanner(), out = ctx.createGain();
+        gain.connect(pan); pan.connect(out);       // педали берут звук канала с pan (до инсерта)
+        s = { gain, pan, out, mix: -1 };
         G.strips.set(ch.id, s);
       }
-      if (s.mix !== mix) { s.pan.disconnect(); s.pan.connect(G.inserts[mix].input); s.mix = mix; }
+      if (s.mix !== mix) { s.out.disconnect(); s.out.connect(G.inserts[mix].input); s.mix = mix; }
       s.gain.gain.value = G.audible(ch) ? effOf(G.over, `ch.${ch.id}.vol`, ch.vol) : 0;
       s.pan.pan.value = effOf(G.over, `ch.${ch.id}.pan`, ch.pan);
       return s;
@@ -120,7 +154,7 @@ function buildGraph(ctx, P) {
       G.ensureInserts();
       for (let i = 0; i < P.mixer.length; i++) G.applyInsert(i);
       for (const ch of P.channels) G.strip(ch);
-      for (const [id, s] of G.strips) if (!P.channels.some(c => c.id === id)) { s.gain.disconnect(); s.pan.disconnect(); G.strips.delete(id); }
+      for (const [id, s] of G.strips) if (!P.channels.some(c => c.id === id)) { s.gain.disconnect(); s.pan.disconnect(); s.out.disconnect(); G.strips.delete(id); }
     },
     /* нота: параметры с учётом модуляции, изгиб, полифония (лишний старый голос крадём) */
     voice(ch, t, durSec, n, v, bend = 0) {
@@ -131,6 +165,7 @@ function buildGraph(ctx, P) {
         : playSampler(ctx, out, p, t, durSec, n, v, sampleNow(p.path), edo, bend);
       // сайдчейн: эффекты Sidechain, слушающие этот канал, ныряют ровно в момент ноты
       P.mixer.forEach((m, i) => m.fx.forEach((f, k) => { if (f.on && f.type === "side" && f.p.src === ch.id) G.inserts[i]?.fx[k]?.duck?.(t); }));
+      for (const pd of P.pedals || []) if (pd.on && pd.type === "side" && pd.p.src === ch.id) G.pedals.get(pd.id)?.fx.duck?.(t);
       G.onNote?.(ch, t, v);
       if (!h) return;
       const now = ctx.currentTime, list = (G.active[ch.id] = (G.active[ch.id] || []).filter(x => x.end > now));
@@ -140,12 +175,14 @@ function buildGraph(ctx, P) {
     },
     dispose() {
       for (const ins of G.inserts) { ins.input.disconnect(); ins.meter.disconnect(); ins.fx.forEach(f => f.dispose()); }
-      for (const s of G.strips.values()) { s.gain.disconnect(); s.pan.disconnect(); }
+      for (const s of G.strips.values()) { s.gain.disconnect(); s.pan.disconnect(); s.out.disconnect(); }
+      for (const g of G.pedals.values()) { g.fx.output.disconnect(); g.fx.dispose(); }
       final.disconnect(); lim.disconnect(); analyser.disconnect();
     },
   };
   G.ensureInserts();
   for (const ch of P.channels) G.strip(ch);
+  G.rebuildPedals();
   return G;
 }
 
@@ -206,6 +243,13 @@ export const Engine = {
   init() {
     if (this.ctx) { if (this.ctx.state === "suspended") this.ctx.resume(); return; }
     this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+    // модуль педалей «Formula» и «Code»: как загрузится — пересобираем эффекты, где они есть
+    loadCodeWorklet(this.ctx).then(() => {
+      const P = this.project, G = this.G, uses = f => f.type === "math" || f.type === "code";
+      if (!P || !G) return;
+      P.mixer.forEach((m, i) => { if (m.fx.some(uses)) G.rebuildFx(i); });
+      if ((P.pedals || []).some(uses)) G.rebuildPedals();
+    });
   },
   get analyser() { return this.G?.analyser; },
 
@@ -366,6 +410,31 @@ export const Engine = {
     this.G.rebuildFx(i);
     this.touch({ mixer: true });
   },
+  /* ⏏ эффект из микшера → педаль (вход — этот инсерт, выход — Master); и обратно */
+  detachFx(i, k) {
+    const f = this.project.mixer[i].fx.splice(k, 1)[0];
+    if (!f) return;
+    (this.project.pedals ||= []).push({ id: "pd" + Date.now().toString(36).slice(-5), type: f.type, on: f.on, p: f.p, in: `mix:${i}`, out: "mix:0" });
+    this.G.rebuildFx(i); this.G.rebuildPedals();
+    this.touch({ mixer: true, pedals: true });
+  },
+  attachPedal(id, i) {
+    const P = this.project, pd = (P.pedals || []).find(x => x.id === id);
+    if (!pd || !P.mixer[i] || P.mixer[i].fx.length >= 4) return false;
+    P.mixer[i].fx.push({ type: pd.type, on: pd.on, p: pd.p });
+    P.pedals = P.pedals.filter(x => x !== pd);
+    this.G.rebuildFx(i); this.G.rebuildPedals();
+    this.touch({ mixer: true, pedals: true });
+    return true;
+  },
+  addPedal(type) {
+    const p = fxDefaults(type);
+    if (type === "side") p.src = (this.project.channels.find(c => /kick/i.test(c.id)) || this.project.channels[0])?.id || "";
+    const src = this.project.channels.find(c => c.type !== "sampler") || this.project.channels[0];
+    (this.project.pedals ||= []).push({ id: "pd" + Date.now().toString(36).slice(-5), type, on: true, p, in: src ? "ch:" + src.id : "mix:1", out: "mix:0" });
+    this.G.rebuildPedals(); this.touch({ pedals: true });
+  },
+  pedalsChanged() { this.G.rebuildPedals(); this.touch({ pedals: true }); },
   fxToggle(i, k) { const f = this.project.mixer[i].fx[k]; f.on = !f.on; this.G.rebuildFx(i); this.touch({ mixer: true, param: true }); },
   fxParam(i, k) { this.G.fxSet(i, k); },
   applyInsert(i) { this.G.applyInsert(i); },
@@ -474,6 +543,7 @@ export const Engine = {
     const lenBeats = song ? songLen(P) : this.patLength();
     const tail = 3, sec = lenBeats * this.beatDur() + tail, sr = 44100;
     const oc = new OfflineAudioContext(2, Math.ceil(sr * sec), sr);
+    await loadCodeWorklet(oc);
     const G = buildGraph(oc, P), log = {};
     G.onNote = (ch, t, v) => logNote(log, ch.id, t, v);
     const rt = q => ({ now: q, notes: id => log[id] || [], meter: () => 0 });

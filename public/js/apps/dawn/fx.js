@@ -251,8 +251,94 @@ export const FX = {
       };
     },
   },
+  /* формула над каждым сэмплом: y = f(x, t, a, b) — пишется в поле «y =» */
+  math: {
+    name: "Formula", icon: "ƒ", color: "#c3a6ff",
+    params: {
+      expr: { kind: "text", def: "tanh(x * (1 + a * 9))", label: "y =" },
+      a: { min: 0, max: 1, def: 0.3, label: "a" },
+      b: { min: 0, max: 1, def: 0.5, label: "b" },
+      mix: { min: 0, max: 1, def: 1, label: "Mix" },
+    },
+    create: (ctx, p) => codeFx(ctx, p, q => `return (${q.expr || "x"});`),
+  },
+  /* свой код: тело функции (x, t, a, b, ch, state, sr) → y; state — объект, живёт между сэмплами */
+  code: {
+    name: "Code", icon: "{}", color: "#b8f59e",
+    params: {
+      code: { kind: "text", multiline: true, label: "JS", def: "// x — сэмпл, t — время (с), a/b — ручки 0..1, ch — канал, state — память\nstate.y = (state.y || 0) + (x - (state.y || 0)) * (0.02 + a * 0.5);   // фильтр\nreturn state.y * (1 + b * 3);" },
+      a: { min: 0, max: 1, def: 0.2, label: "a" },
+      b: { min: 0, max: 1, def: 0.3, label: "b" },
+      mix: { min: 0, max: 1, def: 1, label: "Mix" },
+    },
+    create: (ctx, p) => codeFx(ctx, p, q => q.code || "return x;"),
+  },
 };
+
+/* ---------- педали с формулой и кодом: AudioWorklet, код пользователя — по сэмплу ----------
+ * Код выполняется в AudioWorkletGlobalScope (без DOM и сети), ошибка → звук идёт как есть и событие "dawn-code".
+ * Модуль грузится один раз на контекст: loadCodeWorklet(ctx); до загрузки педаль просто пропускает звук. */
+const CODE_SRC = `
+const PRE = "const {sin,cos,tan,tanh,atan,abs,sign,min,max,pow,sqrt,exp,log,floor,ceil,round,random,PI,E}=Math;" +
+  "const clip=(v,l=1)=>v<-l?-l:v>l?l:v; const fold=v=>Math.abs(((v+1)%4+4)%4-2)-1; const crush=(v,s=8)=>Math.round(v*s)/s;";
+class NosCode extends AudioWorkletProcessor {
+  static get parameterDescriptors() { return [{ name: "a", defaultValue: 0 }, { name: "b", defaultValue: 0 }]; }
+  constructor() {
+    super(); this.fn = null; this.st = {}; this.err = false;
+    this.port.onmessage = e => {
+      try { this.fn = new Function("x", "t", "a", "b", "ch", "state", "sr", PRE + e.data.code); this.st = {}; this.err = false; this.port.postMessage({ ok: true }); }
+      catch (err) { this.fn = null; this.port.postMessage({ error: String(err.message || err) }); }
+    };
+  }
+  process(inputs, outputs, params) {
+    const inp = inputs[0], out = outputs[0], A = params.a, B = params.b;
+    for (let c = 0; c < out.length; c++) {
+      const i = inp[c] || inp[0], o = out[c];
+      if (!i) { o.fill(0); continue; }
+      if (!this.fn) { o.set(i); continue; }
+      for (let n = 0; n < o.length; n++) {
+        let y;
+        try { y = this.fn(i[n], (currentFrame + n) / sampleRate, A.length > 1 ? A[n] : A[0], B.length > 1 ? B[n] : B[0], c, this.st, sampleRate); }
+        catch (err) { y = i[n]; if (!this.err) { this.err = true; this.port.postMessage({ error: String(err.message || err) }); } }
+        o[n] = y === y && y > -8 && y < 8 ? y : 0;   // NaN и взрывы глушим
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("nos-code", NosCode);`;
+export function loadCodeWorklet(ctx) {
+  if (!ctx.__nosCodeP) {
+    const url = URL.createObjectURL(new Blob([CODE_SRC], { type: "application/javascript" }));
+    ctx.__nosCodeP = ctx.audioWorklet ? ctx.audioWorklet.addModule(url).then(() => { ctx.__nosCode = true; }, e => console.warn("code worklet", e)) : Promise.resolve();
+  }
+  return ctx.__nosCodeP;
+}
+function codeFx(ctx, p, template) {
+  const input = ctx.createGain(), output = ctx.createGain(), dry = ctx.createGain(), wet = ctx.createGain();
+  input.connect(dry); dry.connect(output); wet.connect(output);
+  let node = null, last = null;
+  if (ctx.__nosCode) {
+    node = new AudioWorkletNode(ctx, "nos-code", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+    input.connect(node); node.connect(wet);
+    node.port.onmessage = e => { if (e.data.error) dispatchEvent(new CustomEvent("dawn-code", { detail: e.data })); };
+  }
+  const n = {
+    input, output,
+    set(q) {
+      if (!node) { dry.gain.value = 1; wet.gain.value = 0; return; }
+      dry.gain.value = 1 - q.mix; wet.gain.value = q.mix;
+      node.parameters.get("a").value = q.a; node.parameters.get("b").value = q.b;
+      const src = template(q);
+      if (src !== last) { last = src; node.port.postMessage({ code: src }); }
+    },
+    tempo() {},
+    dispose() { input.disconnect(); dry.disconnect(); wet.disconnect(); if (node) { node.disconnect(); node.port.close(); } },
+  };
+  n.set(p);
+  return n;
+}
 
 export const fxDefaults = type => Object.fromEntries(Object.entries(FX[type].params).map(([k, s]) => [k, s.def]));
 /* числовые параметры эффекта (для крутилок и модуляции; src сайдчейна — выбор канала) */
-export const fxNumeric = type => Object.entries(FX[type].params).filter(([, s]) => s.kind !== "channel");
+export const fxNumeric = type => Object.entries(FX[type].params).filter(([, s]) => !s.kind);

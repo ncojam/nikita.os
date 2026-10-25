@@ -59,7 +59,8 @@ export function toFile(P) {
     mixer: P.mixer.map((m, i) => ({ name: m.name, ...(i ? { color: m.color } : {}), vol: q(m.vol), pan: q(m.pan),
       ...(m.mute ? { mute: true } : {}), fx: m.fx.map(f => ({ type: f.type, on: f.on, ...roundDeep(f.p) })) })),
     mods: (P.mods || []).map(m => roundDeep({ id: m.id, type: m.type, name: m.name, color: m.color,
-      ...(m.type === "knob" ? { value: m.value } : m.type === "env" ? { env: m.env } : m.type === "meter" ? { meter: m.meter } : m.type === "trig" ? { trig: m.trig } : { lfo: m.lfo }), wires: m.wires })),
+      ...(m.type === "knob" ? { value: m.value } : m.type === "env" ? { env: m.env } : m.type === "meter" ? { meter: m.meter } : m.type === "trig" ? { trig: m.trig } : m.type === "wind" ? { wind: m.wind } : { lfo: m.lfo }), wires: m.wires })),
+    ...((P.pedals || []).length ? { pedals: P.pedals.map(pd => ({ id: pd.id, type: pd.type, on: pd.on, in: pd.in, out: pd.out, ...roundDeep(pd.p) })) } : {}),
     layout: P.layout || {},
   };
 }
@@ -133,7 +134,7 @@ export function fromFile(raw) {
 
   for (const ch of channels) if (ch.mix >= mixer.length) ch.mix = 0;
   const fixAddr = a => String(a || "").replace(/^ch\.([^.]+)\./, (m, id) => `ch.${chMap[id] || id}.`);
-  const mods = (Array.isArray(raw.mods) ? raw.mods : []).filter(m => ["knob", "env", "lfo", "meter", "trig"].includes(m?.type)).slice(0, 32).map((m, i) => ({
+  const mods = (Array.isArray(raw.mods) ? raw.mods : []).filter(m => ["knob", "env", "lfo", "meter", "trig", "wind"].includes(m?.type)).slice(0, 32).map((m, i) => ({
     id: String(m.id || "mod" + (i + 1)).slice(0, 24), type: m.type, name: String(m.name || m.type).slice(0, 24),
     color: m.color || PASTEL[(i + 5) % PASTEL.length],
     value: clamp(m.value, 0, 1, 0.5),
@@ -143,11 +144,18 @@ export function fromFile(raw) {
     meter: { mix: Math.round(clamp(m.meter?.mix, 0, 64, 1)), gain: clamp(m.meter?.gain, 0, 8, 1.5) },
     trig: { ch: chMap[m.trig?.ch] || m.trig?.ch || channels[0]?.id || "", att: clamp(m.trig?.att, 0, 500, 5), hold: clamp(m.trig?.hold, 0, 1000, 40),
       rel: clamp(m.trig?.rel, 1, 3000, 250), vel: m.trig?.vel !== false },
+    wind: { input: String(m.wind?.input || "").slice(0, 24), strength: clamp(m.wind?.strength, 0, 1, 0.5), gust: clamp(m.wind?.gust, 0, 1, 0.4) },
     wires: (Array.isArray(m.wires) ? m.wires : []).filter(w => w?.to).slice(0, 64).map(w => ({ to: fixAddr(w.to), amt: clamp(w.amt, -1, 1, 0.5) })),
   }));
+  // педали: эффекты вне микшера (вход ch:<канал> | mix:<инсерт>, выход mix:<инсерт>)
+  const ref = r => { const [k, id] = String(r || "").split(":"); return k === "ch" ? "ch:" + (chMap[id] || id) : k === "mix" ? "mix:" + Math.max(0, Math.round(+id || 0)) : null; };
+  const pedals = (Array.isArray(raw.pedals) ? raw.pedals : []).filter(d => FX[d?.type]).slice(0, 32).map((d, i) => {
+    const { id, type, on, in: inp, out, ...pp } = d;
+    return { id: String(id || "pd" + i).slice(0, 24), type, on: on !== false, in: ref(inp) || "mix:1", out: ref(out) || "mix:0", p: { ...fxDefaults(type), ...(pp.p || pp) } };
+  });
   const P = { name: String(raw.name || "Трек").slice(0, 60), bpm: clamp(raw.bpm, 40, 300, 128), swing: clamp(raw.swing, 0, 0.6, 0), mods, live: !!raw.live,
     mode: raw.mode === "song" ? "song" : "pat", channels, patterns, playlist, tracks: 16, mixer,
-    cur: patMap[raw.current] || patterns[0].id, songStart: 0, layout: raw.layout && typeof raw.layout === "object" ? raw.layout : {} };
+    cur: patMap[raw.current] || patterns[0].id, songStart: 0, pedals, layout: raw.layout && typeof raw.layout === "object" ? raw.layout : {} };
   for (const c of playlist) if (!c.l) c.l = patLen(P, c.p);
   return P;
 }

@@ -1098,3 +1098,16 @@ html.fx-lite .glass { backdrop-filter: none !important; -webkit-backdrop-filter:
 html.fx-lite [data-theme="light"] .glass, html[data-theme="light"].fx-lite .glass { background-color: rgba(250, 248, 255, 0.92); }
 .fx-offer { display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
 .fx-offer-btns { display: flex; gap: 6px; justify-content: flex-end; }
+.dw-promo { position: fixed; right: 18px; bottom: 90px; z-index: 9500; max-width: 360px; padding: 14px 16px; border-radius: 16px;
+  display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.4; transition: opacity .9s; }
+.dw-promo-t { font-weight: 700; font-size: 14px; }
+.dw-promo-b { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.dw-promo-fade { opacity: 0; }
+.dw-visits { font: 10px/1 system-ui, sans-serif; opacity: .45; margin-left: auto; white-space: nowrap; cursor: default; }
+.dw-pedal-list { display: flex; flex-direction: column; gap: 8px; overflow: auto; flex: 1; min-height: 0; padding: 6px; }
+.dw-pedal-io { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 2px 0 4px; }
+.dw-fx-text { display: flex; flex-direction: column; gap: 3px; flex: 1 1 100%; min-width: 200px; }
+.dw-code { font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; background: rgba(0,0,0,.35); color: inherit; border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px; padding: 6px 8px; width: 100%; box-sizing: border-box; }
+.dw-code.multi { min-height: 96px; resize: vertical; }
+.dw-pedal { flex: none; }

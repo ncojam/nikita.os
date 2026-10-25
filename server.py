@@ -524,6 +524,41 @@ async def api_posts_image_del(request):
     return json_response({"error": err}, 403) if err else json_response({"ok": True})
 
 
+# ---- DAWN: общие проекты и счётчик ----
+async def api_dawn_save(request):
+    body = await _json_body(request)
+    path, err = request.app["projects"].save(request, body.get("dir"), body.get("name"), body.get("data"))
+    if err == "login":
+        return json_response({"error": "нужно войти в чат", "login": True}, 401)
+    return json_response({"error": err}, 400) if err else json_response({"path": path})
+
+
+async def api_dawn_delete(request):
+    body = await _json_body(request)
+    err = request.app["projects"].delete(request, "/" + str(body.get("path") or "").strip("/"))
+    return json_response({"error": err}, 403) if err else json_response({"ok": True})
+
+
+async def api_dawn_mine(request):
+    import dawnstore
+    u = request.app["chat"].user_by_token(request)
+    if not u:
+        return json_response({"user": None, "projects": [], "max": dawnstore.MAX_PROJECTS, "maxBytes": dawnstore.MAX_BYTES})
+    return json_response({"user": u[1], "max": dawnstore.MAX_PROJECTS, "maxBytes": dawnstore.MAX_BYTES,
+                          "projects": [{"path": v, **{k: e[k] for k in ("size", "t")}} for v, e in request.app["projects"].mine(u[0])]})
+
+
+async def api_visit(request):
+    body = await _json_body(request)
+    app_id = re.sub(r"[^a-z0-9_-]", "", str(body.get("app") or ""))[:24]
+    if not app_id:
+        return json_response({"error": "app?"}, 400)
+    v = request.app["visits"]
+    res = v.hit(app_id, str(body.get("id") or "")[:64]) if body.get("hit") else v.get(app_id)
+    v.flush()
+    return json_response(res)
+
+
 # ---- пользовательские папки (/ufs) ----
 async def api_folders_create(request):
     import userfs
@@ -702,7 +737,7 @@ async def on_cleanup(app):
 
 
 def make_app():
-    app = web.Application(client_max_size=256 * 1024)  # тела маленькие; потолок — под сжатые картинки записей
+    app = web.Application(client_max_size=2560 * 1024)  # потолок — под проект DAWN (≤ 2 МБ) и сжатые картинки записей
     app["plays"] = Plays(DATA_DIR / "plays.json")
     app.on_response_prepare.append(add_headers)
     app.on_startup.append(on_startup)
@@ -721,12 +756,21 @@ def make_app():
     app["posts"] = Posts(UFS_ROOT, app["chat"].user_by_token, client_ip, old_dir=DATA_DIR)
     app["folders"] = Folders(UFS_ROOT, app["chat"].user_by_token, app["posts"].purge_dir)
     app["posts"].dir_ok = lambda v: unified_dir_exists(app, v)   # запись — только в общей папке
+    from dawnstore import Projects, Visits
+    app["projects"] = Projects(UFS_ROOT, app["chat"].user_by_token, app["folders"].real,
+                               lambda v: unified_dir_exists(app, v),
+                               lambda v: bool((lambda p: p and p.exists())(resolve_inside(FS_ROOT, v))))
+    app["visits"] = Visits(DATA_DIR / "visits.json")
     app["chat"].posts = app["posts"]            # чату — доступ к постам (титул/проверка для комментов)
     app["posts"].on_gone = app["chat"].drop_comments  # удалили пост → снести его комнату комментов
     # аэро-арканоид — общая арена (игровой цикл спит, пока нет игроков)
     from airhockey import AirHockey
     app["air"] = AirHockey(app["chat"].user_by_token, DATA_DIR, app["chat"].nick_exists)
     app["air"].routes(app)
+    app.router.add_post("/api/dawn/save", api_dawn_save)
+    app.router.add_post("/api/dawn/delete", api_dawn_delete)
+    app.router.add_get("/api/dawn/mine", api_dawn_mine)
+    app.router.add_post("/api/visit", api_visit)
     app.router.add_post("/api/folders", api_folders_create)
     app.router.add_post("/api/folders/delete", api_folders_delete)
     app.router.add_post("/api/posts", api_posts_create)

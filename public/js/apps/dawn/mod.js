@@ -3,7 +3,7 @@ import { UIParams } from "../../core/uiparams.js";
 import { el } from "../../core/util.js";
 import { notify } from "../../ui/notify.js";
 import { Engine, PASTEL } from "./engine.js";
-import { LFO_SHAPES, LFO_SYNC, computeOver, dawnParam, dawnTargets, srcValue } from "./modcore.js";
+import { LFO_SHAPES, LFO_SYNC, computeOver, dawnParam, dawnTargets, srcValue, withSrc } from "./modcore.js";
 import { ModView, dwBtn, knob, pal, select, shell } from "./ui.js";
 
 /* ================= DAWN — модуляция: ручки, огибающие, LFO и проводки =================
@@ -15,7 +15,7 @@ import { ModView, dwBtn, knob, pal, select, shell } from "./ui.js";
  * отдаёт DAWN-цели движку (G.applyOver — непрерывные сразу, остальные — на следующих нотах),
  * а чужие (os.*) применяет через Params. Сохранённые значения модуляция не трогает: снял провод — вернулось.
  */
-const isDawn = a => a.startsWith("ch.") || a.startsWith("mix.");
+const isDawn = a => a.startsWith("ch.") || a.startsWith("mix.") || a.startsWith("pedal.");
 const uid = () => "m" + Math.random().toString(36).slice(2, 7);
 
 export const Mod = {
@@ -50,6 +50,11 @@ export const Mod = {
     for (const a of [...this.applied]) if (!seen.has(a)) { Params.resolve(a)?.restore(); this.applied.delete(a); }
     Engine.G.applyOver(dawn);
     ModView.set(over);
+  },
+  /* значение источника прямо сейчас (для метров и физики проводов) */
+  value(src) {
+    const P = Engine.project, lfoBeat = Engine.ctx ? Engine.ctx.currentTime / Engine.beatDur() : 0, pos = Engine.playing ? Math.max(0, Engine.position()) : 0;
+    return srcValue(src, src.type === "lfo" ? lfoBeat : pos, withSrc(P, pos, lfoBeat, Engine.rt()));
   },
   targetLabel(addr) {
     const P = Engine.project;
@@ -132,9 +137,53 @@ const Wires = {
     }
     list.forEach((t, i) => { const b = this.tagsBox.children[i]; b.style.left = t.x + "px"; b.style.top = t.y + "px"; });
   },
+  /* ---------- физика: провод — верёвка из точек (Verlet), концы прибиты к гнезду и цели ---------- */
+  ropes: new Map(), ends: [], last: 0,
+  rope(key, x1, y1, x2, y2) {
+    const N = 16;
+    let r = this.ropes.get(key);
+    if (!r) {
+      r = { pts: Array.from({ length: N }, (_, i) => { const k = i / (N - 1), x = x1 + (x2 - x1) * k, y = y1 + (y2 - y1) * k; return [x, y, x, y]; }), seen: 0 };
+      this.ropes.set(key, r);
+    }
+    r.seen = this.frameNo;
+    return r;
+  },
+  step(r, x1, y1, x2, y2, wind, dt) {
+    const P = r.pts, N = P.length, len = Math.hypot(x2 - x1, y2 - y1), seg = (len * 1.08 + 40) / (N - 1);   // чуть длиннее — провисает
+    const g = 1400 * dt * dt, t = performance.now() / 1000;
+    for (let i = 1; i < N - 1; i++) {
+      const p = P[i], vx = (p[0] - p[2]) * 0.985, vy = (p[1] - p[3]) * 0.985;
+      // ветер: порывы вдоль экрана, у середины провода сильнее
+      const k = Math.sin(Math.PI * i / (N - 1)), wx = wind * k * (900 + 500 * Math.sin(t * 2.1 + i * 0.4 + p[1] * 0.01)) * dt * dt;
+      const wy = wind * k * 350 * Math.sin(t * 3.3 + i * 0.7) * dt * dt;
+      p[2] = p[0]; p[3] = p[1]; p[0] += vx + wx; p[1] += vy + g + wy;
+    }
+    P[0][0] = P[0][2] = x1; P[0][1] = P[0][3] = y1; P[N - 1][0] = P[N - 1][2] = x2; P[N - 1][1] = P[N - 1][3] = y2;
+    for (let it = 0; it < 10; it++) for (let i = 0; i < N - 1; i++) {
+      const a = P[i], b = P[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1e-6, diff = (d - seg) / d;
+      const fa = i === 0 ? 0 : i + 1 === N - 1 ? 1 : 0.5, fb = 1 - fa;
+      if (i !== 0) { a[0] += dx * diff * fa; a[1] += dy * diff * fa; }
+      if (i + 1 !== N - 1) { b[0] -= dx * diff * fb; b[1] -= dy * diff * fb; }
+    }
+  },
+  ropePath(r, color, width, dash = "") {
+    const P = r.pts, p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    let d = `M${P[0][0].toFixed(1)} ${P[0][1].toFixed(1)}`;
+    for (let i = 1; i < P.length - 1; i++) { const mx = (P[i][0] + P[i + 1][0]) / 2, my = (P[i][1] + P[i + 1][1]) / 2; d += ` Q${P[i][0].toFixed(1)} ${P[i][1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`; }
+    d += ` L${P.at(-1)[0].toFixed(1)} ${P.at(-1)[1].toFixed(1)}`;
+    p.setAttribute("d", d); p.setAttribute("stroke", color); p.setAttribute("stroke-width", width); p.setAttribute("fill", "none");
+    p.setAttribute("stroke-linecap", "round"); if (dash) p.setAttribute("stroke-dasharray", dash);
+    return p;
+  },
+  frameNo: 0,
   draw() {
     const svg = this.ensure(), parts = [], hidden = [];
-    const srcs = !Engine.project ? [] : (Engine.project.mods || []).filter(s => Mod.showWires || s.id === Mod.focus);
+    const now = performance.now(), dt = Math.min(1 / 30, Math.max(1 / 240, (now - (this.last || now - 16)) / 1000)); this.last = now;
+    this.frameNo++; this.ends = [];
+    const mods = Engine.project?.mods || [];
+    const wind = Math.min(2, mods.filter(m => m.type === "wind").reduce((s, m) => s + Mod.value(m), 0));
+    const srcs = !Engine.project ? [] : mods.filter(s => Mod.showWires || s.id === Mod.focus);
     for (const src of srcs) {
       const jack = document.querySelector(`.dw-jack[data-src="${src.id}"]`);
       if (!this.visible(jack)) continue;
@@ -149,18 +198,33 @@ const Wires = {
           x2 = Math.min(innerWidth - 240, x1 + 60); y2 = Math.min(innerHeight - 30, y1 + 26 + 28 * k++);
           hidden.push({ addr: w.to, color: src.color, x: x2 + 6, y: y2 - 11 });
         }
-        parts.push(this.path(x1, y1, x2, y2, "rgba(0,0,0,0.35)", 5), this.path(x1, y1, x2, y2, src.color, 2.5, t ? "" : "4 4"));
+        const r = this.rope(src.id + "|" + w.to, x1, y1, x2, y2);
+        this.step(r, x1, y1, x2, y2, wind, dt);
+        parts.push(this.ropePath(r, "rgba(0,0,0,0.35)", 5), this.ropePath(r, src.color, 2.5, t ? "" : "4 4"));
         const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        dot.setAttribute("cx", x2); dot.setAttribute("cy", y2); dot.setAttribute("r", 4); dot.setAttribute("fill", src.color);
+        dot.setAttribute("cx", x2); dot.setAttribute("cy", y2); dot.setAttribute("r", 5); dot.setAttribute("fill", src.color);
+        dot.setAttribute("stroke", "rgba(0,0,0,.4)");
         parts.push(dot);
+        if (t) this.ends.push({ x: x2, y: y2, src, w, jack });
       }
     }
+    for (const [key, r] of this.ropes) if (r.seen !== this.frameNo) this.ropes.delete(key);
     this.tags(hidden);
     if (this.drag) parts.push(this.path(this.drag.x1, this.drag.y1, this.drag.x2, this.drag.y2, this.drag.color, 3, "6 4"));
     svg.replaceChildren(...parts);
   },
+  /* поднять провод с цели: нажал на его конец (кружок на крутилке) — провод снят и снова в руке */
+  grab(e) {
+    if (!this.raf || e.button !== 0) return;
+    const hit = this.ends.find(p => Math.hypot(p.x - e.clientX, p.y - e.clientY) < 9);
+    if (!hit) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    hit.src.wires = hit.src.wires.filter(x => x !== hit.w);
+    Engine.touch({ param: true });
+    this.start(e, hit.src, hit.jack, true);
+  },
   /* тянем провод из гнезда: отпустили над крутилкой — подключили */
-  start(e, src, jack) {
+  start(e, src, jack, lifted = false) {
     e.preventDefault();
     const [x1, y1] = this.center(jack);
     this.drag = { x1, y1, x2: e.clientX, y2: e.clientY, color: src.color };
@@ -180,6 +244,7 @@ const Wires = {
       const h = document.elementFromPoint(ev.clientX, ev.clientY), t = h?.closest("[data-path]");
       const addr = t ? t.dataset.path : UIParams.addrOf(h) || (h?.closest(".window .titlebar") && h.closest(".window").dataset.wkey ? `win.${h.closest(".window").dataset.wkey}.shake` : null);
       if (addr) Mod.connect(src, addr);
+      else if (lifted) { notify("🔌 Провод снят"); Engine.touch({ mods: true }); }
       else notify("Отпусти провод над крутилкой или ползунком любого окна (на заголовке — тряска окна) — или выбери цель списком «＋ цель»");
     };
     addEventListener("pointermove", move); addEventListener("pointerup", up);
@@ -187,6 +252,8 @@ const Wires = {
 };
 
 /* ======================= окно «Модуляция» ======================= */
+addEventListener("pointerdown", e => Wires.grab(e), true);   // раньше крутилки: схватить конец провода
+
 export const MODS = {
   title: () => "Модуляция",
   icon: "🔌", color: "#b8f59e",
@@ -202,11 +269,11 @@ export const MODS = {
     function add(type) {
       const P = Engine.project, n = (P.mods ||= []).length;
       const kick = P.channels.find(c => c.id === "kick") || P.channels[0];
-      P.mods.push({ id: uid(), type, name: { knob: "Ручка", env: "Огибающая", lfo: "LFO", meter: "Уровень", trig: "По ноте" }[type] + " " + (n + 1),
+      P.mods.push({ id: uid(), type, name: { knob: "Ручка", env: "Огибающая", lfo: "LFO", meter: "Уровень", trig: "По ноте", wind: "Ветер" }[type] + " " + (n + 1),
         meter: { mix: kick?.mix || 1, gain: 1.5 }, trig: { ch: kick?.id || "", att: 5, hold: 40, rel: 250, vel: true },
         color: PASTEL[(n + 5) % PASTEL.length], value: 0.5,
         env: { len: Math.max(4, Engine.songLength() || Engine.patLength()), loop: true, pts: [[0, 0], [Math.max(4, Engine.songLength() || Engine.patLength()), 1]] },
-        lfo: { sync: 3, shape: "sine", phase: 0 }, wires: [] });
+        lfo: { sync: 3, shape: "sine", phase: 0 }, wind: { input: "", strength: 0.5, gust: 0.4 }, wires: [] });
       Engine.touch({ mods: true });
     }
 
@@ -217,6 +284,7 @@ export const MODS = {
         dwBtn("＋ Огибающая", () => add("env"), { title: "Кривая во времени — едет вместе с песней/паттерном" }),
         dwBtn("＋ LFO", () => add("lfo"), { title: "Качание в такт" }),
         dwBtn("＋ По ноте", () => add("trig"), { title: "Огибающая, которая стартует от каждой ноты канала. Провод с минусом на громкость — сайдчейн" }),
+        dwBtn("＋ Ветер", () => add("wind"), { title: "Генератор ветра/вибрации: качает провода на экране; вход — любой источник (бочка, LFO…), выходов — сколько угодно" }),
         dwBtn("＋ Уровень", () => add("meter"), { title: "Громкость инсерта микшера как источник: бочка громче — окна трясутся" }),
         dwBtn(Mod.showWires ? "🔌 Провода: вкл" : "🔌 Провода: выкл", () => {
           Mod.showWires = !Mod.showWires; Mod.showWires || Mod.focus ? Wires.show() : Wires.hide(); build();
@@ -239,7 +307,7 @@ export const MODS = {
       meters.push({ src, meter });
       const name = el("input", { className: "dw-name dw-modname", value: src.name, maxLength: 24,
         onchange: () => { src.name = name.value.trim() || src.name; Engine.touch({ mods: true, param: true }); } });
-      const head = el("div", { className: "dw-modhead" }, el("span", { className: "dw-modtype", textContent: { knob: "🎚", env: "📈", lfo: "∿", meter: "📶", trig: "⚡" }[src.type] }),
+      const head = el("div", { className: "dw-modhead" }, el("span", { className: "dw-modtype", textContent: { knob: "🎚", env: "📈", lfo: "∿", meter: "📶", trig: "⚡", wind: "🌬" }[src.type] }),
         name, meter, jack,
         dwBtn("✕", () => { const P = Engine.project; P.mods = P.mods.filter(m => m !== src); Engine.touch({ mods: true }); }, { className: "dw-btn dw-x", title: "Удалить источник" }));
       let body;
@@ -258,6 +326,13 @@ export const MODS = {
           select(P.mixer.map((m, i) => [i, (i ? `${i} · ${m.name}` : "Master")]), src.meter.mix, v => { src.meter.mix = +v; Engine.touch({ param: true }); }, "Какой инсерт слушать"),
           knob({ spec: { min: 0, max: 8, def: 1.5, label: "Gain", curve: 2 }, color: src.color, get: () => src.meter.gain, set: v => { src.meter.gain = v; }, done: () => Engine.touch({ param: true }) }).node,
           el("span", { className: "dw-dim", textContent: "Громкость инсерта → провода" }));
+      } else if (src.type === "wind") {
+        const P = Engine.project, wd = (src.wind ||= { input: "", strength: 0.5, gust: 0.4 });
+        body = el("div", { className: "dw-modbody" },
+          select([["", "вход: постоянный"], ...P.mods.filter(m => m !== src && m.type !== "wind").map(m => [m.id, "вход: " + m.name])], wd.input, v => { wd.input = v; Engine.touch({ param: true }); }, "Что раздувает ветер"),
+          knob({ spec: { min: 0, max: 1, def: 0.5, label: "Сила" }, color: src.color, get: () => wd.strength, set: v => { wd.strength = v; }, done: () => Engine.touch({ param: true }) }).node,
+          knob({ spec: { min: 0, max: 1, def: 0.4, label: "Порывы" }, color: src.color, get: () => wd.gust, set: v => { wd.gust = v; }, done: () => Engine.touch({ param: true }) }).node,
+          el("span", { className: "dw-dim", textContent: "Качает провода; его провода — как у любого источника" }));
       } else if (src.type === "trig") {
         const P = Engine.project, tr = src.trig;
         const k = (key, label, min, max, def) => knob({ spec: { min, max, def, label, curve: 2 }, color: src.color, get: () => tr[key], set: v => { tr[key] = v; }, done: () => Engine.touch({ param: true }) }).node;

@@ -1,4 +1,5 @@
 import { el, store } from "../../core/util.js";
+import { t } from "../../core/i18n.js";
 import "../../i18n/dawn.js";   // языковой пакет DAWN
 import { VFS } from "../../core/vfs.js";
 import { notify } from "../../ui/notify.js";
@@ -58,6 +59,17 @@ export const Dawn = {
 
   /* ---------- своя панель задач: окна DAWN живут не на панели ОС, а в доке сверху ---------- */
   _dock: null,
+  /* неприметный счётчик: уникальные посетители · все открытия (засчитывается раз на запуск DAWN) */
+  visits() {
+    const s = el("span", { className: "dw-visits no-i18n", title: "" });
+    let id = store.get("visitor", null);
+    if (!id) { id = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set("visitor", id); }
+    const hit = !this._counted; this._counted = true;
+    fetch("/api/visit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app: "dawn", id, hit }) })
+      .then(r => r.json()).then(d => { if (d.total == null) return; s.textContent = `👁 ${d.unique} · ${d.total}`; s.title = t("Уникальных посетителей: {0} · открытий DAWN: {1}", d.unique, d.total); })
+      .catch(() => {});
+    return s;
+  },
   dock() {
     if (this._dock?.node.isConnected) return this._dock;
     const list = el("div", { className: "dw-dock-list" });
@@ -66,7 +78,7 @@ export const Dawn = {
     const allMin = el("button", { className: "dw-dock-btn", textContent: "▁", title: "Свернуть все окна DAWN", onclick: () => { for (const w of this.wins.values()) if (!w.minimized) WM.minimize(w); } });
     const allUp = el("button", { className: "dw-dock-btn", textContent: "▣", title: "Показать все окна DAWN", onclick: () => { for (const w of this.wins.values()) WM.restore(w); } });
     const node = el("div", { className: "dw-dock glass wm-reserve-top" },
-      el("span", { className: "dw-dock-logo", textContent: "🌸 DAWN" }), play, pos, list, allUp, allMin);
+      el("span", { className: "dw-dock-logo", textContent: "🌸 DAWN" }), play, pos, list, allUp, allMin, this.visits());
     document.body.append(node);
     let raf = 0;
     const tick = () => {
@@ -116,24 +128,64 @@ export const Dawn = {
     return lay;
   },
 
+  /* Сохранение. Вошёл через чат — проект ложится на сервер в выбранную папку (виден всем, до 10 штук, ≤ 2 МБ).
+   * Не вошёл — файл только в браузере (пользовательский слой) и плашка-памятка про регистрацию. */
+  async me() {
+    try { const r = await fetch("/api/dawn/mine", { cache: "no-store" }); return await r.json(); } catch { return { user: null }; }
+  },
   async save(as = false) {
     const p = Engine.project;
     p.layout = this.layoutNow();
+    const me = await this.me();
     let path = Engine.path;
-    if (!path || as) {
+    const dirOf = x => x.slice(0, x.lastIndexOf("/")) || "/";
+    if (!path || as || (me.user && !me.projects.some(x => x.path === path))) {   // свой серверный проект — пересохраняем молча
       const name = prompt("Сохранить проект как:", p.name || "Мой трек");
       if (!name) return;
       p.name = name.replace(/[/\\\x00]/g, "").trim() || "Мой трек";
-      path = "/home/nikita/Desktop/" + p.name + ".dawn";
+      let dir = path ? dirOf(path) : "/home/nikita/Projects";
+      if (me.user) {
+        const { pickFolder } = await import("../explorer.js");
+        dir = await pickFolder(dir, "Куда сохранить проект (его увидят все)");
+        if (!dir) return;
+      } else dir = "/home/nikita/Desktop";
+      path = dir.replace(/\/$/, "") + "/" + p.name + ".dawn";
+    }
+    const data = Engine.serialize();
+    if (me.user) {
+      try {
+        const r = await fetch("/api/dawn/save", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dir: dirOf(path), name: path.split("/").pop(), data }) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || r.statusText);
+        Engine.path = d.path; Engine.shared = true; Engine.dirty = false;
+        try { localStorage.removeItem(AUTOSAVE); } catch {}
+        this.retitle();
+        return notify(`☁ Сохранено на сервере: ${d.path} (${me.projects.length + (me.projects.some(x => x.path === d.path) ? 0 : 1)}/${me.max})`, 3200);
+      } catch (e) { notify("⚠ На сервер не сохранилось: " + e.message + " — сохраняю у вас в браузере", 4000); }
     }
     try {
       await VFS.remove([path]).catch(() => {});        // upload не перезаписывает файл с тем же именем
-      await VFS.writeFile(path, Engine.serialize(), "application/json");
-      Engine.path = path; Engine.dirty = false;
+      await VFS.writeFile(path, data, "application/json");
+      Engine.path = path; Engine.shared = false; Engine.dirty = false;
       try { localStorage.removeItem(AUTOSAVE); } catch {}
       this.retitle();
       notify("Сохранено: " + path.split("/").pop() + " — файл только у вас в браузере");
+      if (!me.user) this.promo();
     } catch (e) { notify("⚠ Не сохранилось: " + e.message); }
+  },
+  /* памятка: с аккаунтом чата проекты сохраняются на сервере */
+  promo() {
+    document.querySelector(".dw-promo")?.remove();
+    const n = el("div", { className: "dw-promo glass" },
+      el("div", { className: "dw-promo-t", textContent: "☁ Сохраняй проекты на сервере" }),
+      el("div", { textContent: "Войди в чат nikita.os (ник + пароль, регистрация в одно действие) — и до 10 проектов будут храниться на сервере в любой папке: их можно открыть с любого устройства и показать друзьям." }),
+      el("div", { className: "dw-promo-b" },
+        el("button", { className: "btn", textContent: "💬 Войти / зарегистрироваться", onclick: async () => { n.remove(); (await import("../chat.js")).openChat(); } }),
+        el("button", { className: "btn", textContent: "Позже", onclick: () => n.remove() })));
+    document.body.append(n);
+    setTimeout(() => n.isConnected && n.classList.add("dw-promo-fade"), 14000);
+    setTimeout(() => n.remove(), 15000);
   },
 
   /* автосохранение в браузер (окна закрыли без сохранения — проект не пропадёт) */
