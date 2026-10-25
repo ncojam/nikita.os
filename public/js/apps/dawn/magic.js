@@ -434,24 +434,27 @@ export function compose(opt) {
     return mkPat("✨ Break", A, U, notes, "#ffd59e");
   });
   // синт каждого дропа: первый — исходный вуб, дальше — изменённые клоны (сила — «переделывание», «крутость»)
-  const dropSynth = d => once("syn" + d, () => {
-    if (!A.wub || d === 0) return A.wub?.ch || null;   // каждый следующий дроп — со своим синтом, даже при малом «переделывании»
-    const c = cloneWub(Engine, A.wub.ch, `Wub D${d + 1} ✨`), got = [];
+  // v — смена синта внутри дропа (каждые 2–4 паттерна); у каждого дропа и каждой смены — свой звук из семейства
+  const dropSynth = (d, v = 0) => once("syn" + d + "_" + v, () => {
+    if (!A.wub || (d === 0 && v === 0)) return A.wub?.ch || null;   // каждый следующий дроп — со своим синтом, даже при малом «переделывании»
+    const c = cloneWub(Engine, A.wub.ch, `Wub D${d + 1}${v ? "." + (v + 1) : ""} ✨`), got = [];
     // по отзывам: основа — семейство Metal Crush (бас + нарастающий металл); чем дальше дроп и выше «крутость», тем злее
     const fam = c.type === "osc3" ? METAL_OSC3 : RIDDIM_GF, k = Math.min(fam.length - 1, Math.floor((d / Math.max(1, drops - 1)) * 0.5 * fam.length + rnd() * fam.length * 0.5 * (0.5 + lv.cool)));
-    applyPreset(Engine, c, fam[Math.max(1, k)] || fam[1]); got.push(`звук «${c.preset}»`);
+    let pr = fam[Math.max(1, k)] || fam[1];
+    if (v) { const prev = dropSynth(d, 0)?.preset; for (let i = 0; i < 6 && pr === prev; i++) pr = fam[Math.floor(rnd() * fam.length)]; }
+    applyPreset(Engine, c, pr); got.push(`звук «${c.preset}»`);
     if (rnd() < lv.drama * 0.4) enhance(Engine, c, "revatt", got);
     c.params.fit = true;
-    said.push(`дроп ${d + 1} — новый синт «${c.name}»: ` + got.map(s => s.split(":")[0]).join(", "));
+    said.push(`дроп ${d + 1}${v ? ` (смена ${v + 1})` : ""} — синт «${c.name}»: ` + got.map(s => s.split(":")[0]).join(", "));
     return c;
   });
   // паттерны дропа d: основа (вуб на синте дропа, саб на поздних), вариация, медленный вуб, дыры, брейки
-  const dropPats = d => once("dp" + d, () => {
-    const syn = dropSynth(d), Ad = syn && A.wub ? { ...A, wub: { ...A.wub, ch: syn } } : A;
+  const dropPats = (d, v = 0) => once("dp" + d + "_" + v, () => {
+    const syn = dropSynth(d, v), Ad = syn && A.wub ? { ...A, wub: { ...A.wub, ch: syn } } : A;
     let baseN = syn && A.wub && syn !== A.wub.ch ? moveNotes(A, A.pat.notes, syn) : clone(A.pat.notes);
     const deep = lv.drama * (d + 1) / Math.max(1, drops) > 0.45 && d > 0;
     if (deep) baseN = withSub(A, baseN, subCh());
-    const tag = drops > 1 ? ` D${d + 1}` : "", out = { base: mkPat(`✨ Drop${tag}`, A, U, baseN, PASTEL[(d * 2) % PASTEL.length]) };
+    const tag = (drops > 1 ? ` D${d + 1}` : "") + (v ? `.${v + 1}` : ""), out = { base: mkPat(`✨ Drop${tag}`, A, U, baseN, PASTEL[(d * 2) % PASTEL.length]) };
     const vn = clone(baseN), kick = A.drums.kick;
     if (kick) { const p = Engine.defaultPitch(kick); (vn[kick.id] ||= []).push(N(0.75, 0.2, p, 0.6)); }
     if (A.bass && vn[A.bass.ch.id]?.length > 2 && rnd() < 0.5 + lv.remake / 2) { const n = pick(vn[A.bass.ch.id].slice(1, -1)); n.n += A.bass.ch.edo || 12; }
@@ -482,9 +485,12 @@ export function compose(opt) {
     at += buildLen;
   };
   const doDrop = (d, n) => {
-    const dp = dropPats(d), pFill = 0.08 + lv.holes * 0.5, pHole = lv.holes * 0.35;
+    // синт сменяется по ходу дропа: сколько звуков — от «переделывания», менять — на границе фразы
+    const nv = Math.max(1, Math.min(3, 1 + Math.round(lv.remake * 2.4))), every = n >= 8 ? 4 : 2;
+    const dp0 = dropPats(d), pFill = 0.08 + lv.holes * 0.5, pHole = lv.holes * 0.35;
     for (let k = 0; k < n; k++) {
       let p;
+      const dp = nv > 1 ? dropPats(d, Math.floor(k / every) % nv) : dp0;
       const phraseEnd = k % 4 === 3, r = rnd();
       if ((phraseEnd && opt.fills !== false) || r < pFill * (d + 1) / Math.max(1, drops)) p = pick(dp.fills);
       else if (rnd() < pHole) p = dp.holes;
