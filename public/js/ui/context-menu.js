@@ -5,7 +5,7 @@ import { baseName, el, fsUrl, parentOf } from "../core/util.js";
 import { DESKTOP, Desktop } from "../desktop.js";
 import { openAbout, openPath } from "../open.js";
 import { createPost, reportPostByPath } from "../apps/post.js";
-import { createServerFolder, deleteServerFolder } from "../remote/userfolders.js";
+import { createServerFolder, deleteServerFolder, deleteServerProject } from "../remote/userfolders.js";
 import { GitHub } from "../remote/github.js";
 import { VFS } from "../core/vfs.js";
 import { canTouch, deleteIcons, newFolder, pickAndUpload, renameIcon } from "./fs-dnd.js";
@@ -92,6 +92,7 @@ const fileMenu = icons => {
     one?.kind === "flash" && { label: "Играть", icon: "⚡", run: () => icons[0].open() },
     one?.kind === "post" && one.path && { label: "Пожаловаться (NSFW)", icon: "🚩", run: () => reportPostByPath(one.path) },
     one?.ufs && one.type === "dir" && { label: "Удалить папку (общая)", icon: "🗑", run: () => deleteServerFolder(one.path, one.name) },
+    one?.ufs && one.type === "file" && /\.dawn$/i.test(one.name || "") && { label: "Удалить мой проект (с сервера)", icon: "🗑", run: () => deleteServerProject(one.path, one.name) },
     "-",
     files.length && { label: files.length > 1 ? `Скачать (${files.length})` : "Скачать", icon: "⬇",
       run: () => files.forEach((m, k) => setTimeout(() => download(m.path), k * 300)) },

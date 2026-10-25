@@ -159,6 +159,7 @@ export const Dawn = {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || r.statusText);
         Engine.path = d.path; Engine.shared = true; Engine.dirty = false;
+        Engine.emit("change", { saved: true, param: true });
         try { localStorage.removeItem(AUTOSAVE); } catch {}
         this.retitle();
         return notify(`☁ Сохранено на сервере: ${d.path} (${me.projects.length + (me.projects.some(x => x.path === d.path) ? 0 : 1)}/${me.max})`, 3200);

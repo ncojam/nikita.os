@@ -78,7 +78,7 @@ export const KITS = [
 ];
 
 /* ступени лада канала → номер ноты: deg(k, octShift) с переходом через октаву */
-function degreeFn(ch) {
+export function degreeFn(ch) {
   const E = ch.edo || 12, sc = ch.scale || { root: 0, mode: "chromatic" };
   let mode = sc.mode, root = sc.root || 0;
   if (mode === "chromatic") mode = scalesOf(E).minor ? "minor" : scalesOf(E).major ? "major" : "chromatic";
@@ -90,7 +90,7 @@ function degreeFn(ch) {
   };
 }
 
-function ensureDrum(role) {
+export function ensureDrum(role) {
   const P = Engine.project, name = BUILTIN[ROLES[role]];
   let ch = P.channels.find(c => c.id === role) || P.channels.find(c => c.type === "sampler" && c.params.path === "builtin:" + ROLES[role]);
   if (!ch) { ch = Engine.addChannel("sampler", name, { path: "builtin:" + ROLES[role] }); Engine.setSample(ch, "builtin:" + ROLES[role]); }

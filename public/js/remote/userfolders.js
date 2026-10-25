@@ -29,4 +29,15 @@ async function deleteServerFolder(path, name) {
   changed(parentOf(path));
 }
 
-export { createServerFolder, deleteServerFolder };
+/* свой проект DAWN, сохранённый на сервер (удалить может только автор — проверяет сервер) */
+async function deleteServerProject(path, name) {
+  if (!confirm(`Удалить проект «${name || path}» с сервера?\n\nОн пропадёт у всех.`)) return false;
+  const r = await fetch("/api/dawn/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { notify(d.error || "Не вышло удалить"); return false; }
+  notify("Проект удалён");
+  changed(parentOf(path));
+  return true;
+}
+
+export { createServerFolder, deleteServerFolder, deleteServerProject };

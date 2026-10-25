@@ -5,6 +5,7 @@ import { fromFile } from "./format.js";
 import { aiPackage, aiDoc } from "./schema.js";
 import { GF_PRESETS, GF_SPECS, GF_WAVES, MOD_KEYS, gfDefaults } from "./grapefruit.js";
 import { MODS } from "./mod.js";
+import { MAGIC } from "./magic.js";
 import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
 import { applyPreset, presetsFor } from "./presets.js";
 import { SPECS } from "./instruments.js";
@@ -84,12 +85,14 @@ const transport = {
         mod("🎛 Стойка", "rack", "Стойка каналов"), mod("🎹 Пиано ролл", "piano", "Ноты канала"),
         mod("🎞 Плейлист", "playlist", "Общий таймлайн"), mod("🎚 Микшер", "mixer", "Микшер и эффекты"),
         mod("🔌 Модуляция", "mods", "Ручки, огибающие и LFO на проводках"),
+        mod("✨ Магия", "magic", "Достроить композицию, ударные по стилю, брейки"),
         mod("🎛 Педали", "pedals", "Эффекты-педали: любой вход, любой выход, формула и свой код"),
         mod("📚 Библиотека", "lib", "Готовые грувы и паттерны в ладу"),
         mod("📂 Сэмплы", "browser", "Сэмплы из файловой системы"), mod("🤖", "ai", "Проект как текст — для нейросети")),
       el("div", { className: "dw-file" },
         dwBtn("💾", () => Dawn.save(), { title: "Сохранить (Ctrl+S)" }),
         dwBtn("💾…", () => Dawn.save(true), { title: "Сохранить как (Ctrl+Shift+S)" }),
+        dwBtn("☁", () => Dawn.open("cloud"), { title: "Мои проекты на сервере" }),
         dwBtn("✚", () => {
           if (Engine.dirty && !confirm("Начать новый проект? Несохранённые изменения останутся черновиком в браузере.")) return;
           for (const k of [...Dawn.wins.keys()]) if (k.startsWith("inst:")) Dawn.close(...k.split(":"));
@@ -683,6 +686,33 @@ const pedals = {
   },
 };
 
+/* ======================= мои проекты на сервере ======================= */
+const cloud = {
+  title: () => "Мои проекты",
+  icon: "☁", color: "#9fd3ff",
+  size: () => [420, 420, Math.max(12, innerWidth - 440), 160],
+  render(c, win, _a, Dawn) {
+    const root = shell(c, "dw-cloud", "#9fd3ff"), body = el("div", { className: "dw-tree" });
+    root.append(body);
+    async function build() {
+      const me = await Dawn.me();
+      if (!me.user) {
+        body.replaceChildren(el("div", { className: "dw-dim dw-empty", textContent: "Войди в чат nikita.os — и проекты будут сохраняться на сервере (до 10 штук, в любой папке)." }),
+          dwBtn("💬 Войти / зарегистрироваться", async () => (await import("../chat.js")).openChat()));
+        return;
+      }
+      body.replaceChildren(el("div", { className: "dw-dim", textContent: `${me.user} · ${me.projects.length} / ${me.max}` }),
+        ...(me.projects.length ? me.projects.map(pr => el("div", { className: "dw-libcard" },
+          el("div", {}, el("b", { className: "no-i18n", textContent: pr.path.split("/").pop() }), el("div", { className: "dw-dim no-i18n", textContent: pr.path + " · " + Math.ceil(pr.size / 1024) + " KB" })),
+          dwBtn("📂", async () => (await import("./index.js")).openDawn(pr.path), { title: "Открыть" }),
+          dwBtn("🗑", async () => { if (await (await import("../../remote/userfolders.js")).deleteServerProject(pr.path, pr.path.split("/").pop())) build(); }, { title: "Удалить с сервера", className: "dw-btn dw-x" })))
+          : [el("div", { className: "dw-dim dw-empty", textContent: "Пока пусто — нажми 💾, и проект ляжет сюда." })]));
+    }
+    build();
+    return Engine.on("change", w => { if (w?.saved) build(); });
+  },
+};
+
 const lib = {
   title: () => "Библиотека",
   icon: "📚", color: "#ffb3b3",
@@ -722,4 +752,4 @@ const lib = {
   },
 };
 
-export const MODULES = { transport, rack, piano: PIANO, playlist: PLAYLIST, mixer, inst, browser, ai, mods: MODS, lib, pedals };
+export const MODULES = { transport, rack, piano: PIANO, playlist: PLAYLIST, mixer, inst, browser, ai, mods: MODS, lib, pedals, cloud, magic: MAGIC };

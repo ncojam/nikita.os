@@ -1120,3 +1120,10 @@ html.dw-wiring .dk, html.dw-wiring .dk[data-path] { border-radius: 50%; }
 html.dw-wiring .window .titlebar { outline: 1px dashed rgba(184, 245, 158, .35); outline-offset: -3px; }
 html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !important; animation: none; }
 @keyframes dw-wire-pulse { from { outline-color: rgba(184, 245, 158, .35); } to { outline-color: rgba(184, 245, 158, .95); } }
+.dw-magic-body { overflow: auto; flex: 1; min-height: 0; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
+.dw-magic-card { border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,.05); display: flex; flex-direction: column; gap: 6px; flex: none; }
+.dw-magic-card h4 { margin: 0 0 2px; font-size: 13px; }
+.dw-magic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 10px; }
+.dw-magic-sec { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.dw-magic-chk { display: flex; gap: 6px; align-items: center; font-size: 12px; cursor: pointer; }
+.dw-magic-report ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.5; }

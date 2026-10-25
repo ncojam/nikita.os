@@ -358,4 +358,7 @@ addPack({
   "Удалить общую папку «{0}»?\n\nНавсегда и для всех — вместе со всем, что внутри (включая чужие записи).": ["Delete shared folder “{0}”?\n\nForever and for everyone — with everything inside (including other people's posts).", "共有フォルダー「{0}」を削除しますか？\n\n全員から永久に削除され、中身（他人の投稿を含む）もすべて消えます。"],
   "Не вышло удалить": ["Couldn't delete", "削除できませんでした"],
   "Папка удалена": ["Folder deleted", "フォルダーを削除しました"],
+  "Удалить мой проект (с сервера)": ["Delete my project (from server)", "自分のプロジェクトを削除（サーバー）"],
+  "Удалить проект «{0}» с сервера?\n\nОн пропадёт у всех.": ["Delete project “{0}” from the server?\n\nIt will disappear for everyone.", "プロジェクト「{0}」をサーバーから削除しますか？\n\n全員から消えます。"],
+  "Проект удалён": ["Project deleted", "プロジェクトを削除しました"],
 });
