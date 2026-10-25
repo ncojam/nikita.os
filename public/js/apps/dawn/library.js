@@ -26,9 +26,9 @@ export const DRUMS = [
     kick: [h(0, 1), h(0.75, 0.6), h(2.5, 0.9), h(4, 1), h(6.25, 0.8)],
     snare: [h(1, 1), h(1.75, 0.3), h(3, 1), h(3.5, 0.35), h(5, 1), h(5.75, 0.4), h(6.5, 0.7), h(7, 1), h(7.75, 0.5)],
     hat: hats16(8), ohat: [h(2, 0.35), h(6, 0.35)] } },
-  { id: "riddim44", name: "Riddim halftime", sig: "4/4", len: 4, tags: "140 BPM", notes: {
+  { id: "riddim44", name: "Riddim halftime", sig: "4/4", len: 4, tags: "140 BPM", riddim: true, notes: {
     kick: [h(0, 1), h(0.75, 0.6)], snare: [h(2, 1)], clap: [h(2, 0.8)], hat: [0.5, 1, 1.5, 2.5, 3, 3.5].map(s => h(s, s % 1 ? 0.35 : 0.5)) } },
-  { id: "riddim74", name: "Riddim в 7/4 (4+3)", sig: "7/4", len: 7, tags: "odd · halftime", notes: {
+  { id: "riddim74", name: "Riddim в 7/4 (4+3)", sig: "7/4", len: 7, tags: "odd · halftime", riddim: true, notes: {
     kick: [h(0, 1), h(0.75, 0.7), h(4, 1), h(6.75, 0.6)], snare: [h(2, 1), h(5.5, 1)], clap: [h(2, 0.8), h(5.5, 0.8)],
     hat: [0.5, 1, 1.5, 2.5, 3, 3.5, 4.5, 5, 6, 6.5].map(s => h(s, s % 1 ? 0.35 : 0.55)), ohat: [h(3.5, 0.4)] } },
   { id: "break54", name: "Breakbeat в 5/4 (3+2)", sig: "5/4", len: 5, tags: "odd", notes: {
@@ -65,14 +65,16 @@ export const MELODIC = [
 
 /* готовые связки «звук + рифф»: создают свои каналы с пресетами (в ладу и строе выбранного канала) */
 export const KITS = [
-  { id: "crushriddim", name: "Crush-риддим (медленная + быстрая атака)", tags: "cojam · 2 баса",
+  { id: "crushriddim", name: "Crush-риддим (медленная + быстрая атака)", tags: "cojam · 2 баса", riddim: true,
     parts: [
       { name: "Crush Slow", preset: "Crush Bass Slow", make: deg => [[0, 1, deg(0, -1)], [1, 1, deg(0, -1)], [2, 1, deg(0, -1)]] },
       { name: "Crush Snap", preset: "Crush Bass Snap", make: deg => [[3, 0.5, deg.semi(-1, -1)], [3.5, 0.5, deg.semi(-1, -1)]] }] },
-  { id: "crushriddim2", name: "Crush-риддим: вариация с октавой", tags: "cojam · 2 баса",
+  { id: "crushriddim2", name: "Crush-риддим: вариация с октавой", tags: "cojam · 2 баса", riddim: true,
     parts: [
       { name: "Crush Slow", preset: "Crush Bass Slow", make: deg => [[0, 0.75, deg(0, -1)], [0.75, 0.25, deg(0, -1), 0.7], [1, 0.5, deg(0, -1)], [1.5, 0.5, deg(0, 0), 0.8], [2, 1, deg(0, -1)]] },
       { name: "Crush Snap", preset: "Crush Bass Snap", make: deg => [[3, 0.25, deg.semi(-1, -1)], [3.25, 0.25, deg.semi(-1, -1), 0.7], [3.5, 0.5, deg.semi(-3, -1)]] }] },
+  { id: "metal", name: "Metal Crush: C… B", tags: "cojam · металл, Tone дышит по нотам", riddim: true, sig: [4, 4], len: 8,
+    parts: [{ name: "Metal Crush", preset: "Metal Crush", make: deg => [0, 1, 2, 3, 4].map(s => [s, 1, deg(0, -1)]).concat([5, 6, 7].map(s => [s, 1, deg.semi(-1, -1)])) }] },
 ];
 
 /* ступени лада канала → номер ноты: deg(k, octShift) с переходом через октаву */
@@ -95,26 +97,21 @@ function ensureDrum(role) {
   return ch;
 }
 
-/* добавить элемент библиотеки в проект → id нового паттерна */
-export function instantiate(id, Dawn) {
+/* что даёт элемент библиотеки: { name, kind: "drums" | "synth", sig?, len?, notes: { channelId: [нота] } } (каналы создаются здесь) */
+function build(id, Dawn) {
   const P = Engine.project;
   const d = DRUMS.find(x => x.id === id);
   if (d) {
-    const pat = Engine.addPattern(d.name);
-    const [n, den] = d.sig.split("/").map(Number);
-    pat.sig = [n, den]; pat.len = d.len;
+    const notes = {};
     for (const [role, list] of Object.entries(d.notes)) {
       const ch = ensureDrum(role), pitch = Engine.defaultPitch(ch);
-      pat.notes[ch.id] = list.map(([s, l, , v]) => ({ s, l, n: pitch, v }));
+      notes[ch.id] = list.map(([s, l, , v]) => ({ s, l, n: pitch, v }));
     }
-    Engine.touch({ patterns: true, notes: true, channels: true });
-    return pat.id;
+    return { name: d.name, kind: "drums", sig: d.sig.split("/").map(Number), len: d.len, notes };
   }
   const kit = KITS.find(x => x.id === id);
   if (kit) {
-    const ref = Engine.chan(Dawn?.pianoCh);
-    const pat = Engine.addPattern(kit.name.split(" (")[0].split(":")[0]);
-    pat.sig = [8, 8]; pat.color = PASTEL[(P.patterns.length + 4) % PASTEL.length];
+    const ref = Engine.chan(Dawn?.pianoCh), notes = {};
     for (const part of kit.parts) {
       // канал с этим пресетом уже есть — переиспользуем, иначе новый (лад и строй — как у выбранного канала)
       let ch = P.channels.find(c => c.preset === part.preset);
@@ -125,24 +122,49 @@ export function instantiate(id, Dawn) {
         applyPreset(Engine, ch, part.preset);
       }
       const deg = degreeFn(ch), E = ch.edo || 12;
-      deg.semi = (s, oct = 0) => deg(0, oct) + Math.round(s * E / 12);   // рифф держится на полутоне под тоникой (F → E), как в оригинале
-      pat.notes[ch.id] = part.make(deg).map(([s, l, n, v = 0.85]) => ({ s, l, n, v }));
+      deg.semi = (s, oct = 0) => deg(0, oct) + Math.round(s * E / 12);   // рифф от полутонов над тоникой (F → E — как в оригинале)
+      notes[ch.id] = part.make(deg).map(([s, l, n, v = 0.85]) => ({ s, l, n, v }));
     }
-    Engine.touch({ patterns: true, notes: true, channels: true });
-    return pat.id;
+    return { name: kit.name.split(" (")[0].split(":")[0], kind: "synth", sig: kit.sig || [8, 8], len: kit.len, notes };
   }
   const m = MELODIC.find(x => x.id === id);
   if (m) {
     let ch = Engine.chan(Dawn?.pianoCh);
     if (!ch || ch.type === "sampler") ch = P.channels.find(c => c.type !== "sampler") || Engine.addChannel("osc3");
-    const cur = Engine.pat(), bar = Math.max(2, Engine.barLen(cur));
-    const pat = Engine.addPattern(`${m.name.split(":")[0]} · ${ch.name}`);
-    pat.sig = [...cur.sig]; pat.color = PASTEL[(P.patterns.length + 2) % PASTEL.length];
-    const deg = degreeFn(ch);
-    pat.notes[ch.id] = m.make(deg, bar).map(([s, l, nn, v]) => ({ s, l, n: nn, v }));
+    const bar = Math.max(2, Engine.barLen(Engine.pat()));
     if (Dawn) Dawn.pianoCh = ch.id;
-    Engine.touch({ patterns: true, notes: true });
-    return pat.id;
+    return { name: `${m.name.split(":")[0]} · ${ch.name}`, kind: "synth", notes: { [ch.id]: m.make(degreeFn(ch), bar).map(([s, l, nn, v]) => ({ s, l, n: nn, v })) } };
   }
   return null;
+}
+
+/* добавить элемент библиотеки → id паттерна.
+ * into — id паттерна, в который вписать: ноты той же категории (ударные или синты) заменяются, остальное остаётся.
+ * Без into — новый паттерн (так работает перетаскивание на плейлист). */
+export function instantiate(id, Dawn, into = null) {
+  const P = Engine.project, b = build(id, Dawn);
+  if (!b) return null;
+  let pat = into && Engine.pat(into);
+  if (!pat) {
+    pat = Engine.addPattern(b.name);
+    pat.color = PASTEL[(P.patterns.length + 2) % PASTEL.length];
+    pat.sig = b.sig ? [...b.sig] : [...Engine.pat().sig];
+    if (b.len) pat.len = b.len;
+    Object.assign(pat.notes, b.notes);
+  } else {
+    const isDrum = chId => Engine.chan(chId)?.type === "sampler";
+    const same = chId => (b.kind === "drums") === isDrum(chId);
+    const others = Object.entries(pat.notes).some(([c, L]) => L.length && !same(c));
+    for (const c of Object.keys(pat.notes)) if (same(c)) pat.notes[c] = [];
+    if (!others && b.sig) { pat.sig = [...b.sig]; pat.len = b.len || null; }
+    // в паттерне уже есть другая категория — его длину не трогаем, новое повторяем/обрезаем по ней
+    const L = Engine.patLength(pat.id), span = b.len || L;
+    for (const [c, list] of Object.entries(b.notes)) {
+      const out = [];
+      for (let k = 0; k < L - 1e-9; k += span) for (const n of list) if (n.s + k < L - 1e-9) out.push({ ...n, s: +(n.s + k).toFixed(4) });
+      pat.notes[c] = out;
+    }
+  }
+  Engine.touch({ patterns: true, notes: true, channels: true });
+  return pat.id;
 }

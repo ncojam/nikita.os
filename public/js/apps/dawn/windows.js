@@ -185,7 +185,10 @@ const rack = {
       header();
       const steps = Math.round(len * 4), group = Math.max(1, 16 / pat.sig[1]), barSteps = Math.round(Engine.barLen(pat) * 4);
       cols = Array.from({ length: steps }, () => []);
-      body.replaceChildren(...P.channels.map(ch => row(ch, steps, group, barSteps)));
+      // стойка по категориям: ударные (сэмплы) и синты
+      const drums = P.channels.filter(c => c.type === "sampler"), synths = P.channels.filter(c => c.type !== "sampler");
+      const sec = (t, list) => list.length ? [el("div", { className: "dw-rack-sec", textContent: t }), ...list.map(ch => row(ch, steps, group, barSteps))] : [];
+      body.replaceChildren(...sec("🥁 Ударные", drums), ...sec("🎹 Синты", synths));
       foot.replaceChildren(
         dwBtn("＋ 3XOSC", () => { const ch = Engine.addChannel("osc3"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }),
         dwBtn("📚 Библиотека", () => Dawn.open("lib"), { title: "Готовые грувы и паттерны в ладу — одной кнопкой" }),
@@ -634,12 +637,12 @@ const lib = {
   render(c, win, _a, Dawn) {
     const root = shell(c, "dw-lib", "#ffb3b3");
     const body = el("div", { className: "dw-tree dw-lib-list" });
-    root.append(el("div", { className: "dw-dim dw-hint", textContent: "＋ — добавить паттерн; тащи карточку на плейлист — сразу клип. Мелодии строятся в ладу и строе выбранного канала." }), body);
+    root.append(el("div", { className: "dw-dim dw-hint", textContent: "＋ — вписать в текущий паттерн: ударные заменяют ударные, синты — синты, остальное остаётся. Тащи карточку на плейлист — отдельный паттерн-клип. Мелодии строятся в ладу и строе выбранного канала." }), body);
     const card = (item, sub) => {
-      const add = () => { const id = instantiate(item.id, Dawn); if (id) { Engine.selectPattern(id); notify("Паттерн «" + Engine.pat(id).name + "» добавлен"); } };
+      const add = () => { const id = instantiate(item.id, Dawn, Engine.project.cur); if (id) notify(`«${item.name}» → паттерн «${Engine.pat(id).name}»`); };
       const r = el("div", { className: "dw-libcard", draggable: true },
         el("div", {}, el("b", { textContent: item.name }), el("div", { className: "dw-dim", textContent: sub })),
-        dwBtn("＋", add, { title: "Добавить в проект" }));
+        dwBtn("＋", add, { title: "Вписать в текущий паттерн" }));
       r.ondragstart = e => { e.dataTransfer.setData(LIB_MIME, item.id); e.dataTransfer.effectAllowed = "copy"; };
       r.ondblclick = add;
       return r;
@@ -647,10 +650,13 @@ const lib = {
     function build() {
       const ch = Engine.chan(Dawn.pianoCh), tgt = ch && ch.type !== "sampler" ? ch : Engine.project.channels.find(x => x.type !== "sampler");
       body.replaceChildren(
+        el("div", { className: "dw-dir-row open", textContent: "🔥 Риддим" }),
+        ...DRUMS.filter(d => d.riddim).map(d => card(d, `🥁 ${d.sig} · ${d.tags}`)),
+        ...KITS.filter(k => k.riddim).map(k => card(k, "🎹 " + k.tags + " · лад выбранного канала")),
         el("div", { className: "dw-dir-row open", textContent: "🥁 Ударные грувы" }),
-        ...DRUMS.map(d => card(d, `${d.sig} · ${d.tags}`)),
-        el("div", { className: "dw-dir-row open", textContent: "🔊 Звук + рифф" }),
-        ...KITS.map(k => card(k, k.tags + " · лад выбранного канала")),
+        ...DRUMS.filter(d => !d.riddim).map(d => card(d, `${d.sig} · ${d.tags}`)),
+        ...(KITS.some(k => !k.riddim) ? [el("div", { className: "dw-dir-row open", textContent: "🔊 Звук + рифф" }),
+          ...KITS.filter(k => !k.riddim).map(k => card(k, k.tags + " · лад выбранного канала"))] : []),
         el("div", { className: "dw-dir-row open", textContent: "🎼 В ладу канала" }),
         el("div", { className: "dw-dim dw-lib-tgt" }, "Для: ",
           select(Engine.project.channels.filter(x => x.type !== "sampler").map(x => [x.id, x.name + ((x.edo || 12) !== 12 ? ` · ${x.edo}-EDO` : "")]), tgt?.id || "",

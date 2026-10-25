@@ -32,6 +32,10 @@ export const OSC3_PRESETS = {
     fx: [fx("dist", { drive: 0.7964, shape: 3, tone: 616, mix: 1, out: 0.95 })] },
   "Crush Bass Snap": { params: { oscs: [o("sawtooth", 0, 0, -6, -0.2), o("sine", 0.8944, -12, 6, 0.2), o("square", 0.0884, -12)], att: 0.1876, dec: 0.1628, sus: 0, rel: 0.01, cut: 1249, res: 1.2, uni: 1, udet: 20, uspr: 0.93 },
     fx: [fx("dist", { drive: 0.7964, shape: 3, tone: 616, mix: 1, out: 0.95 })] },
+  // от cojam: металлический — crush на Tone 500, а огибающая «по ноте» на каждой ноте приоткрывает Tone
+  "Metal Crush": { params: { oscs: [o("sawtooth", 0, 0, -6, -0.2), o("sine", 0.8944, -12, 6, 0.2), o("square", 0.0884, -12)], att: 0.2926, dec: 0.22, sus: 1, rel: 0.01, cut: 1249, res: 1.2, uni: 1, udet: 20, uspr: 0.93 },
+    fx: [fx("dist", { drive: 0.8744, shape: 3, tone: 500, mix: 1, out: 1.2386 })],
+    mods: [{ type: "trig", name: "Metal tone", trig: { att: 72.5, hold: 77.3, rel: 250, vel: true }, wires: [{ to: "fx.0.tone", amt: 0.5 }] }] },
   "Noise Riser": { params: { oscs: [o("noise", 0.7), o("sawtooth", 0.15, 12, 7), o("sine", 0)], att: 4, dec: 0.5, sus: 1, rel: 0.4, cut: 600, res: 6, uni: 1 },
     fx: [fx("reverb", { decay: 4, mix: 0.4 })] },
 };
@@ -71,5 +75,13 @@ export function applyPreset(Engine, ch, name) {
     P.mixer[i].fx = JSON.parse(JSON.stringify(fxChain));
     Engine.G.rebuildFx(i);
   }
-  Engine.touch({ channels: true, mixer: true });
+  // модуляция пресета: старая (от прошлого пресета этого канала) уходит; «fx.N.x» — эффект на инсерте канала, «ch.x» — сам канал
+  P.mods = (P.mods || []).filter(m => m.presetOf !== ch.id);
+  const mods = ch.type === "osc3" ? OSC3_PRESETS[name].mods : null;
+  if (mods && alone) for (const [k, m] of mods.entries()) {
+    P.mods.push({ id: `p${ch.id}${k}`.slice(0, 24), presetOf: ch.id, type: m.type, name: m.name, color: ch.color, value: 0.5,
+      trig: { ch: ch.id, ...m.trig }, meter: { mix: i, gain: 1.5 }, env: { len: 16, loop: true, pts: [[0, 0], [16, 1]] }, lfo: { sync: 3, shape: "sine", phase: 0 },
+      wires: m.wires.map(w => ({ to: w.to.replace(/^fx\./, `mix.${i}.`).replace(/^ch\./, `ch.${ch.id}.`), amt: w.amt })) });
+  }
+  Engine.touch({ channels: true, mixer: true, mods: true });
 }
