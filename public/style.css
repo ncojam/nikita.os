@@ -1111,3 +1111,12 @@ html.fx-lite [data-theme="light"] .glass, html[data-theme="light"].fx-lite .glas
   border-radius: 8px; padding: 6px 8px; width: 100%; box-sizing: border-box; }
 .dw-code.multi { min-height: 96px; resize: vertical; }
 .dw-pedal { flex: none; }
+/* тянем провод: подсвечиваем всё, куда его можно воткнуть (крутилки, ползунки, поля, заголовки окон — тряска) */
+html.dw-wiring [data-path], html.dw-wiring .dk,
+html.dw-wiring .window input[type=range], html.dw-wiring .window input[type=number] {
+  outline: 2px dashed rgba(184, 245, 158, .75); outline-offset: 2px; animation: dw-wire-pulse 1s ease-in-out infinite alternate;
+}
+html.dw-wiring .dk, html.dw-wiring .dk[data-path] { border-radius: 50%; }
+html.dw-wiring .window .titlebar { outline: 1px dashed rgba(184, 245, 158, .35); outline-offset: -3px; }
+html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !important; animation: none; }
+@keyframes dw-wire-pulse { from { outline-color: rgba(184, 245, 158, .35); } to { outline-color: rgba(184, 245, 158, .95); } }
