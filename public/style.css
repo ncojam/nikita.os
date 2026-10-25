@@ -1092,3 +1092,9 @@ html.dw-wiring, html.dw-wiring * { cursor: crosshair !important; }
 .set-wrap > .settings { flex: 1; min-height: 0; overflow: auto; }
 .lang-row .btn.on { outline: 2px solid var(--accent, #9ecbff); }
 .dw-rack-sec { font: 600 11px/1 system-ui, sans-serif; letter-spacing: .04em; opacity: .7; padding: 8px 6px 4px; text-transform: uppercase; }
+
+/* экономный режим живого фона: стекло без размытия (backdrop-filter — самое дорогое при движущемся фоне) */
+html.fx-lite .glass { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: rgba(18, 16, 30, 0.88); }
+html.fx-lite [data-theme="light"] .glass, html[data-theme="light"].fx-lite .glass { background-color: rgba(250, 248, 255, 0.92); }
+.fx-offer { display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
+.fx-offer-btns { display: flex; gap: 6px; justify-content: flex-end; }

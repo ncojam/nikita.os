@@ -20,10 +20,22 @@ const SPEC = {
 };
 const BASE_HUES = [265, 190, 320, 160, 30, 220];
 
+/* Качество подстраивается само. Светяшки размыты, так что маленький холст, растянутый браузером, выглядит почти
+ * так же. Дороже всего не сам холст, а стекло окон: пока фон за ним двигается, backdrop-filter пересчитывается
+ * каждый кадр — поэтому на нижних ступенях стекло перестаёт размывать (класс fx-lite на <html>).
+ * Мерило — интервалы requestAnimationFrame: если браузер не успевает, они растягиваются, чьей бы ни была нагрузка. */
+const LEVELS = [
+  { scale: 0.5, fps: 60 },
+  { scale: 0.33, fps: 30 },
+  { scale: 0.25, fps: 24, lite: true },
+  { scale: 0.18, fps: 15, lite: true },
+];
+
 export const Glow = {
   cfg: { ...DEF, ...store.get("bg.lights", {}) },
   over: {},                // временные значения от модуляции
   orbs: [], flashes: [], cv: null, raf: 0, t: 0,
+  level: 0, auto: true, offered: false, perf: { n: 0, sum: 0, best: 1000, t0: 0 },
   get(k) { return this.over[k] ?? this.cfg[k]; },
   set(k, v) { this.cfg[k] = v; store.set("bg.lights", this.cfg); this.sync(); },
 
@@ -32,14 +44,65 @@ export const Glow = {
     $("#wallpaper").after(this.cv);
     addEventListener("resize", () => this.fit());
     addEventListener("nos-pulse", e => this.pulse(e.detail || {}));
+    const q = store.get("bg.quality", null);   // { auto, level, offered } — запоминаем ступень для этого устройства
+    const coarse = matchMedia("(pointer: coarse)").matches, calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.auto = q?.auto ?? true; this.offered = !!q?.offered;
+    this.level = q ? Math.min(LEVELS.length - 1, q.level | 0) : coarse ? 2 : 0;   // телефон — сразу экономно
+    if (!q && calm) this.cfg.on = false;                                          // «уменьшить движение» в системе
     this.fit(); this.sync();
   },
-  fit() { if (!this.cv) return; const d = Math.min(devicePixelRatio || 1, 1.5); this.cv.width = innerWidth * d; this.cv.height = innerHeight * d; },
+  fit() {
+    if (!this.cv) return;
+    const s = LEVELS[this.level].scale;
+    this.cv.width = Math.max(32, Math.round(innerWidth * s)); this.cv.height = Math.max(32, Math.round(innerHeight * s));
+    document.documentElement.classList.toggle("fx-lite", !!LEVELS[this.level].lite && this.cfg.on);
+  },
+  saveQ() { store.set("bg.quality", { auto: this.auto, level: this.level, offered: this.offered }); },
+  setLevel(l, save = true) {
+    this.level = Math.max(0, Math.min(LEVELS.length - 1, l));
+    this.perf = { n: 0, sum: 0, best: this.perf.best, t0: 0 };
+    this.fit(); if (save) this.saveQ();
+  },
+  /* замер: средний интервал кадров за ~3 с против лучшего (частота экрана); тормозит — ступень ниже */
+  measure(dt, now) {
+    if (!this.auto || dt > 250) return;          // вкладка была скрыта — не в счёт
+    const p = this.perf;
+    p.best = Math.min(p.best, Math.max(4, dt));
+    if (!p.t0) p.t0 = now;
+    p.n++; p.sum += dt;
+    if (now - p.t0 < 3000 || p.n < 30) return;
+    const avg = p.sum / p.n, slow = avg > p.best * 1.6 && avg > 22;
+    p.n = 0; p.sum = 0; p.t0 = now;
+    if (!slow) return;
+    if (this.level < LEVELS.length - 1) { this.setLevel(this.level + 1); return; }
+    if (!this.offered) this.offer();
+  },
+  /* совсем не вывозит — предлагаем выключить (один раз) */
+  offer() {
+    this.offered = true; this.saveQ();
+    const box = document.querySelector("#notify") || document.body.appendChild(el("div", { id: "notify" }));
+    const n = el("div", { className: "note glass fx-offer" },
+      el("div", { textContent: "Живой фон тормозит на этом устройстве. Выключить его? Включить обратно — Настройки → Живой фон." }),
+      el("div", { className: "fx-offer-btns" },
+        el("button", { className: "btn", textContent: "Выключить", onclick: () => { this.set("on", false); n.remove(); } }),
+        el("button", { className: "btn", textContent: "Оставить", onclick: () => n.remove() })));
+    box.append(n);
+  },
   sync() {
     const on = this.cfg.on;
     this.cv.hidden = !on;
-    if (!on) { cancelAnimationFrame(this.raf); this.raf = 0; return; }
-    if (!this.raf) { let last = performance.now(); const f = now => { this.frame((now - last) / 1000); last = now; this.raf = requestAnimationFrame(f); }; this.raf = requestAnimationFrame(f); }
+    if (!on) { cancelAnimationFrame(this.raf); this.raf = 0; document.documentElement.classList.remove("fx-lite"); return; }
+    this.fit();
+    if (!this.raf) {
+      let last = performance.now(), prev = last;
+      const f = now => {
+        this.measure(now - prev, now); prev = now;
+        this.raf = requestAnimationFrame(f);
+        if (now - last < 1000 / LEVELS[this.level].fps - 2) return;   // меньше кадров на нижних ступенях
+        this.frame(Math.min(0.1, (now - last) / 1000)); last = now;
+      };
+      this.raf = requestAnimationFrame(f);
+    }
   },
   orb(i) {
     return { x: Math.random(), y: Math.random(), r: 0.12 + Math.random() * 0.18, hue: BASE_HUES[i % BASE_HUES.length] + Math.random() * 30 - 15,
@@ -111,4 +174,4 @@ Params.addProvider({
 });
 
 export function init_ui_glow() { Glow.init(); }
-export { SPEC as GLOW_SPEC };
+export { SPEC as GLOW_SPEC, LEVELS as GLOW_LEVELS };

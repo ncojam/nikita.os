@@ -8,6 +8,19 @@ import { LANGS, lang, setLang } from "../core/i18n.js";
 
 /* ================= настройки ================= */
 /* живой фон: светяшки поверх обоев, вспышки от музыки DAWN */
+/* качество: авто (само снижает, если тормозит) или вручную 1..4 */
+function qualityRow() {
+  const names = ["Высокое", "Среднее", "Низкое", "Минимальное"];
+  const sel = el("select", { className: "btn", onchange: () => {
+    if (sel.value === "auto") { Glow.auto = true; Glow.offered = false; Glow.setLevel(0); }
+    else { Glow.auto = false; Glow.setLevel(+sel.value); }
+  } }, el("option", { value: "auto", textContent: "Авто" }), ...names.map((n, i) => el("option", { value: i, textContent: n })));
+  sel.value = Glow.auto ? "auto" : String(Glow.level);
+  const now = el("span", { className: "lbl" });
+  const upd = () => { now.textContent = Glow.auto ? "сейчас: " + names[Glow.level].toLowerCase() : ""; };
+  upd(); const iv = setInterval(() => sel.isConnected ? upd() : clearInterval(iv), 1500);
+  return el("div", { className: "row" }, el("span", { className: "lbl", textContent: "Качество" }), sel, now);
+}
 function glowSection() {
   const chk = (key, text) => { const c = el("input", { type: "checkbox", checked: Glow.cfg[key], onchange: () => Glow.set(key, c.checked) });
     return el("label", { className: "row check" }, c, el("span", { textContent: text })); };
@@ -21,6 +34,7 @@ function glowSection() {
     chk("on", "Светяшки поверх обоев"),
     chk("react", "Вспыхивать от музыки в DAWN (цвет вспышки — ✦ у канала в стойке)"),
     slider("count"), slider("hue"), slider("speed"), slider("glow"), slider("size"), slider("flash"),
+    qualityRow(),
     el("div", { className: "hint", textContent: "Всё это можно крутить и проводками из DAWN: цели «Живой фон» в окне Модуляция." }));
 }
 /* разделы: вкладки сверху, каждая показывает свои секции; последняя открытая запоминается */
