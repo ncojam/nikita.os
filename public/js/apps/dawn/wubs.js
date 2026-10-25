@@ -53,7 +53,9 @@ function insertOf(Engine, ch) {
   const shared = k => k <= 0 || P.channels.some(c => c !== ch && (c.mix || 0) === k);
   if (shared(i)) {   // эффекты нужны своему инсерту
     const free = P.mixer.findIndex((m, k) => k > 0 && !P.channels.some(c => c !== ch && c.mix === k));
-    if (free > 0) { ch.mix = free; P.mixer[free].name = ch.name.slice(0, 20); Engine.G.refresh(); i = free; } else return -1;
+    const k = free > 0 ? free : Engine.addInsert();   // свободных нет — добавляем инсерт (до 16)
+    if (k == null || k <= 0) return -1;
+    ch.mix = k; P.mixer[k].name = ch.name.slice(0, 20); Engine.G.refresh(); i = k;
   }
   return i;
 }
@@ -64,8 +66,41 @@ function addMod(Engine, ch, m) {
     trig: { ch: ch.id, att: 5, hold: 40, rel: 250, vel: true }, ...m });
 }
 export const ENHANCE = { metal: "＋ Металл", bass: "＋ Бас", mod: "＋ Модуляция", revatt: "⟲ Реверс атаки", fit: "⇔ Атака под длину ноты", random: "🎲 Случайный риддим-вуб" };
+/* Grapefruit: те же идеи на FM — металл (негармоничные ratio, больше модуляции), бас, LFO, реверс атаки, случайный */
+function enhanceGF(Engine, ch, kind, said) {
+  const p = ch.params, ops = p.ops, P = Engine.project;
+  p.mod ||= {};
+  if (kind === "metal") {
+    const mod = ops.findIndex((o, k) => k > 0 && o.out < 0.2) + 1 || 4;
+    ops[mod - 1].ratio = pick([3.5, 5.19, 7.13, 2.41, 6.73]); ops[mod - 1].harmonic = false;
+    p.mod["m" + mod + "1"] = Math.min(1, (p.mod["m" + mod + "1"] || 0) + 0.35);
+    const i = insertOf(Engine, ch);
+    if (i > 0 && P.mixer[i].fx.length < 4 && !P.mixer[i].fx.some(f => f.type === "dist")) { P.mixer[i].fx.unshift({ type: "dist", on: true, p: { ...fxDefaults("dist"), shape: 3, drive: 0.7, tone: 900 } }); Engine.G.rebuildFx(i); }
+    said.push(`металл: оператор ${mod} с негармоничным ratio ${ops[mod - 1].ratio} сильнее бьёт по первому` + (i > 0 ? ", crush" : ""));
+  } else if (kind === "bass") {
+    const o = ops.reduce((a, b) => (b.out > a.out ? b : a));
+    o.ratio = Math.min(o.ratio, 0.5); o.oct = Math.min(o.oct || 0, 0); p.cut = Math.min(p.cut ?? 9000, 2500);
+    said.push("бас: главный оператор на октаву ниже, фильтр ниже");
+  } else if (kind === "mod") {
+    const wires = [{ to: `ch.${ch.id}.cut`, amt: 0.25 }, { to: `ch.${ch.id}.m21`, amt: 0.3 }];
+    addMod(Engine, ch, { type: "lfo", name: "Wub LFO", lfo: { sync: pick([0, 1, 2, 3]), shape: pick(["sine", "triangle", "square", "saw"]), phase: 0 }, wires });
+    p.mod.m21 = Math.max(p.mod.m21 || 0, 0.2); p.res = Math.max(p.res ?? 1, 3 + rnd() * 5);
+    said.push("модуляция: LFO в такт на фильтр и глубину FM 2→1");
+  } else if (kind === "revatt") {
+    ops.forEach(o => Object.assign(o, { att: 0.2 + rnd() * 0.2, dec: 0.02, sus: 1, rel: 0.01 })); p.fit = true;
+    said.push("реверс атаки: все операторы нарастают и обрываются");
+  } else if (kind === "random") {
+    ops.forEach((o, k) => Object.assign(o, { wave: pick(["sine", "square", "sawtooth", "pulse", "organ"]), ratio: k === 0 ? pick([0.5, 1]) : pick([1, 2, 3, 0.5, 3.5, 5.19]),
+      att: pick([0.002, 0.05, 0.2]), level: 0.6 + rnd() * 0.4, out: k === 0 ? 1 : rnd() < 0.3 ? 0.3 : 0 }));
+    for (const key of Object.keys(p.mod)) p.mod[key] = rnd() < 0.35 ? +(rnd() * 0.8).toFixed(2) : 0;
+    p.fit = true;
+    said.unshift("случайный FM-вуб: новые волны, ratio и матрица");
+  }
+}
 export function enhance(Engine, ch, kind, said = []) {
   const p = ch.params, P = Engine.project;
+  if (ch.type === "grapefruit") { if (kind === "fit") p.fit = !p.fit; else enhanceGF(Engine, ch, kind, said); ch.preset = undefined; Engine.touch({ channels: true, mixer: true, mods: true }); return said; }
+  if (ch.type !== "osc3") return said;
   if (kind === "metal") {
     // металл: квадрат на октаву выше с расстройкой + crush с низким Tone, который приоткрывает каждая нота
     const o = p.oscs.reduce((a, b) => (b.o_vol < a.o_vol ? b : a));
@@ -124,6 +159,7 @@ export function cloneWub(Engine, ch, name) {
   const P = Engine.project, c = Engine.cloneChannel(ch.id);
   if (!c) return null;
   c.name = name.slice(0, 24); c.color = PASTEL[(P.channels.length + 5) % PASTEL.length];
+  if (!c.mix && (ch.mix || 0) > 0) { const k = Engine.addInsert(); if (k) { c.mix = k; Engine.G.refresh(); } }   // клону — свой инсерт, иначе эффекты не скопировать
   const i = c.mix || 0, src = ch.mix || 0;
   if (i > 0 && src > 0) { P.mixer[i].fx = deep(P.mixer[src].fx); P.mixer[i].name = c.name.slice(0, 20); P.mixer[i].vol = P.mixer[src].vol; Engine.G.rebuildFx(i); }
   return c;

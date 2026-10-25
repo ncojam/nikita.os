@@ -461,7 +461,7 @@ export function compose(opt) {
     at += units(n);
   }
   const dropAt = [];
-  for (let d = 0; d < drops; d++) {
+  for (let d = 0; d < drops; d++) try {
     if (S.build) doBuild(d);
     else if (d > 0 && !S.break) { const f = dropPats(d - 1).fills[0]; clip(f, T.main, at); at += units(1); }   // без нарастаний и брейков — хотя бы брейк на стыке
     dropAt.push(at);
@@ -471,6 +471,9 @@ export function compose(opt) {
       for (let k = 0; k < n; k++) { if (opt.pad !== false) clip(padPat(), T.pad, at + units(k)); clip(breakPat(), T.main, at + units(k)); if (lv.melody > 0.3) clip(arpPat(), T.mel, at + units(k)); }
       at += units(n);
     }
+  } catch (e) {   // один дроп не собрался — остальные всё равно собираем, а причину пишем в отчёт
+    console.error("magic drop", d + 1, e);
+    said.push(`⚠ дроп ${d + 1} не собрался: ${e.message}`);
   }
   if (S.outro) {
     const n = Math.max(2, Math.round(size / 2));

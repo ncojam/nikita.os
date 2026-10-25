@@ -559,7 +559,7 @@ const inst = {
         }, "Готовый звук (вместе с эффектами на инсерте)") : "",
         ch.type !== "sampler" ? dwBtn("⇔", e => { ch.params.fit = !ch.params.fit; e.target.classList.toggle("on", ch.params.fit); Engine.touch({ param: true }); },
           { className: "dw-btn" + (ch.params.fit ? " on" : ""), title: "Огибающая под длину ноты: атака, спад и релиз ужимаются на коротких нотах — частые вубы слышны" }) : "",
-        ch.type === "osc3" ? select([["", "🪄 Улучшить…"], ...Object.entries(ENHANCE).filter(([k]) => k !== "fit").map(([k, l]) => [k, l])], "", v => {
+        ch.type === "osc3" || ch.type === "grapefruit" ? select([["", "🪄 Улучшить…"], ...Object.entries(ENHANCE).filter(([k]) => k !== "fit").map(([k, l]) => [k, l])], "", v => {
           if (!v) return;
           const said = enhance(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
           if (said.length) notify("🪄 " + said.join(" · "), 4500);
