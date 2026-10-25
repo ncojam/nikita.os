@@ -50,6 +50,67 @@ export const DRUMS = [
     hat: range(0, 6, 0.5).map((s, i) => h(s, [0, 2, 4, 5, 7, 9, 11].includes(i) ? 0.6 : 0.25)) } },
 ];
 
+/* ---------- пак грувов по жанрам (genre: riddim | trap | dnb | electro | odd) ---------- */
+const at = (list, v = 0.9) => list.map(s => h(s, v));
+const tri = (from, to, v) => range(from, to, 1 / 3).map(s => h(+s.toFixed(4), v));
+DRUMS.push(
+  // риддим / дабстеп — 140 halftime
+  { id: "rd-bounce", genre: "riddim", name: "Riddim · бочка с отскоком", sig: "4/4", len: 4, tags: "140 · halftime", notes: {
+    kick: [h(0, 1), h(0.75, 0.7), h(3.25, 0.65)], snare: [h(2, 1)], clap: [h(2, 0.7)], hat: at([0.5, 1, 1.5, 2.5, 3, 3.5], 0.45), ohat: [h(3.5, 0.35)] } },
+  { id: "rd-heavy", genre: "riddim", name: "Riddim · тяжёлый шаг", sig: "4/4", len: 8, tags: "140 · 2 такта", notes: {
+    kick: [h(0, 1), h(1.5, 0.8), h(4, 1), h(5.75, 0.7), h(6.5, 0.8)], snare: [h(2, 1), h(6, 1)], clap: [h(2, 0.7), h(6, 0.75)],
+    hat: at([1, 3, 5, 7], 0.4), ohat: [h(3.5, 0.45), h(7.5, 0.5)], tom: [h(7.25, 0.5), h(7.5, 0.6), h(7.75, 0.7)] } },
+  { id: "rd-ghost", genre: "riddim", name: "Riddim · призрачные малые", sig: "4/4", len: 4, tags: "140 · грязно", notes: {
+    kick: [h(0, 1), h(2.75, 0.6)], snare: [h(2, 1), h(1.25, 0.2), h(1.75, 0.25), h(3.25, 0.2), h(3.75, 0.3)], clap: [h(2, 0.75)], hat: hats16(4).map(n => [n[0], n[1], n[2], n[3] * 0.7]) } },
+  { id: "rd-trip", genre: "riddim", name: "Riddim · триоли хэтов", sig: "4/4", len: 4, tags: "140 · качает", notes: {
+    kick: [h(0, 1), h(1.33, 0.6)], snare: [h(2, 1)], clap: [h(2, 0.7)], hat: tri(0, 4, 0.4), ohat: [h(3.67, 0.35)] } },
+  { id: "rd-brostep", genre: "riddim", name: "Brostep · крэш и ломка", sig: "4/4", len: 8, tags: "140 · 2 такта", notes: {
+    kick: [h(0, 1), h(0.5, 0.7), h(3, 0.8), h(4, 1), h(4.5, 0.7), h(6.75, 0.8), h(7.25, 0.8)], snare: [h(2, 1), h(6, 1), h(7.5, 0.7), h(7.75, 0.85)], clap: [h(2, 0.8), h(6, 0.8)],
+    hat: at([1, 1.5, 3.5, 5, 5.5], 0.4), ohat: [h(0, 0.6), h(4, 0.5)] } },
+  // трэп / дрилл / фонк
+  { id: "tr-trip", genre: "trap", name: "Trap · триольные роллы", sig: "4/4", len: 8, tags: "140 · 2 такта", notes: {
+    kick: [h(0, 1), h(0.75, 0.7), h(2.5, 0.9), h(4, 1), h(5.5, 0.8), h(6.25, 0.8)], snare: [h(2, 1), h(6, 1)], clap: [h(2, 0.6), h(6, 0.6)],
+    hat: [...range(0, 1.5, 0.5).map(s => h(s, 0.5)), ...tri(1.5, 2, 0.4), ...range(2, 5.5, 0.5).map(s => h(s, 0.5)), ...range(5.5, 6, 0.125).map(s => h(s, 0.35)), ...range(6, 7, 0.5).map(s => h(s, 0.5)), ...tri(7, 8, 0.4)], ohat: [h(3.5, 0.3)] } },
+  { id: "tr-drill", genre: "trap", name: "UK Drill · скользящий", sig: "4/4", len: 8, tags: "142 · 2 такта", notes: {
+    kick: [h(0, 1), h(2.75, 0.8), h(4.5, 0.9), h(6.25, 0.7)], snare: [h(2, 1), h(3.5, 0.8), h(6, 1), h(7.75, 0.6)], clap: [h(2, 0.6), h(6, 0.6)],
+    hat: [...tri(0, 2, 0.4), ...at([2.5, 3, 3.75], 0.45), ...tri(4, 6, 0.4), ...at([6.5, 7, 7.5], 0.45)] } },
+  { id: "tr-phonk", genre: "trap", name: "Phonk · каубелл-грув", sig: "4/4", len: 4, tags: "130 · хлопки", notes: {
+    kick: [h(0, 1), h(1.5, 0.85), h(2.75, 0.7)], clap: [h(1, 0.9), h(3, 0.9)], snare: [h(3, 0.5)], hat: hats8(4, 0.6, 0.35), tom: [h(0.5, 0.5), h(2.25, 0.45), h(3.5, 0.5)] } },
+  { id: "tr-half", genre: "trap", name: "Trap · полупустой", sig: "4/4", len: 4, tags: "70/140 · воздух", notes: {
+    kick: [h(0, 1), h(2.5, 0.8)], snare: [h(2, 1)], hat: [h(0, 0.5), h(1, 0.5), h(1.5, 0.3), h(3, 0.5), ...range(3.5, 4, 1 / 6).map(s => h(+s.toFixed(4), 0.35))] } },
+  // drum'n'bass / jungle
+  { id: "dn-amen", genre: "dnb", name: "DnB · рубленый амен", sig: "4/4", len: 8, tags: "174 · 2 такта", notes: {
+    kick: [h(0, 1), h(0.5, 0.7), h(2.5, 0.9), h(4, 1), h(4.5, 0.7), h(6.25, 0.8)], snare: [h(1, 1), h(1.75, 0.4), h(3, 1), h(3.75, 0.35), h(5, 1), h(5.75, 0.45), h(6.5, 0.6), h(7, 1), h(7.5, 0.5)],
+    hat: hats8(8, 0.55, 0.35), ohat: [h(2, 0.35)] } },
+  { id: "dn-roller", genre: "dnb", name: "DnB · роллер", sig: "4/4", len: 4, tags: "174 · катит", notes: {
+    kick: [h(0, 1), h(2.5, 0.9), h(2.75, 0.5)], snare: [h(1, 1), h(3, 1)], hat: hats16(4), ohat: [h(1.5, 0.3), h(3.5, 0.35)] } },
+  { id: "dn-liquid", genre: "dnb", name: "Liquid DnB · мягкий", sig: "4/4", len: 4, tags: "172 · шафл", notes: {
+    kick: [h(0, 0.9), h(2.5, 0.8)], snare: [h(1, 0.85), h(3, 0.9), h(3.75, 0.25)], hat: range(0, 4, 0.25).map((s, i) => h(s, [0.5, 0.2, 0.35, 0.25][i % 4])), ohat: [h(1.5, 0.25)] } },
+  { id: "dn-half", genre: "dnb", name: "DnB · halftime", sig: "4/4", len: 8, tags: "174 · тяжело", notes: {
+    kick: [h(0, 1), h(0.75, 0.6), h(3.5, 0.7), h(4, 1), h(6.75, 0.7)], snare: [h(2, 1), h(6, 1)], clap: [h(2, 0.6), h(6, 0.6)], hat: hats8(8, 0.4, 0.25) } },
+  { id: "dn-neuro", genre: "dnb", name: "Neurofunk · степпер", sig: "4/4", len: 4, tags: "174 · жёстко", notes: {
+    kick: [h(0, 1), h(1.75, 0.7), h(2.5, 0.9)], snare: [h(1, 1), h(3, 1), h(3.25, 0.4)], clap: [h(1, 0.5), h(3, 0.5)], hat: at([0.5, 1.5, 2, 3.5], 0.45), tom: [h(3.75, 0.6)] } },
+  // электроника
+  { id: "el-techno", genre: "electro", name: "Techno · прямая бочка", sig: "4/4", len: 4, tags: "130", notes: {
+    kick: at([0, 1, 2, 3], 1), clap: [h(1, 0.6), h(3, 0.6)], hat: at([0.5, 1.5, 2.5, 3.5], 0.6), ohat: at([0.5, 1.5, 2.5, 3.5], 0.3), tom: [h(3.75, 0.4)] } },
+  { id: "el-ukg", genre: "electro", name: "UK Garage · 2-step", sig: "4/4", len: 4, tags: "132 · шафл", notes: {
+    kick: [h(0, 1), h(1.75, 0.6), h(2.5, 0.8)], snare: [h(1, 0.9), h(3, 0.9)], clap: [h(1, 0.5), h(3, 0.5)], hat: range(0, 4, 0.5).map((s, i) => h(s + (i % 2 ? 0.08 : 0), i % 2 ? 0.55 : 0.3)), ohat: [h(3.5, 0.35)] } },
+  { id: "el-breaks", genre: "electro", name: "Breaks · фанки", sig: "4/4", len: 8, tags: "128 · 2 такта", notes: {
+    kick: [h(0, 1), h(0.75, 0.6), h(2.5, 0.9), h(4, 1), h(5.5, 0.8), h(6.25, 0.7)], snare: [h(1, 1), h(3, 1), h(3.75, 0.3), h(5, 1), h(7, 1), h(7.5, 0.4)], hat: hats8(8, 0.55, 0.35), ohat: [h(3.5, 0.35), h(7.75, 0.3)] } },
+  { id: "el-electro", genre: "electro", name: "Electro · 808", sig: "4/4", len: 4, tags: "125 · робот", notes: {
+    kick: [h(0, 1), h(1.75, 0.8), h(2.5, 0.9)], clap: [h(1, 0.9), h(3, 0.9)], hat: hats16(4), tom: [h(3.5, 0.5), h(3.75, 0.6)] } },
+  { id: "el-hard", genre: "electro", name: "Hardstyle · реверс-бочка", sig: "4/4", len: 4, tags: "150", notes: {
+    kick: at([0, 1, 2, 3], 1), clap: [h(1, 0.7), h(3, 0.7)], hat: at([0.5, 1.5, 2.5, 3.5], 0.5), ohat: at([0.75, 1.75, 2.75, 3.75], 0.25) } },
+  { id: "el-boombap", genre: "electro", name: "Lo-fi boom bap", sig: "4/4", len: 4, tags: "86 · ленивый", notes: {
+    kick: [h(0, 0.9), h(0.75, 0.5), h(2.5, 0.8)], snare: [h(1, 0.85), h(3, 0.85)], hat: range(0, 4, 0.5).map((s, i) => h(s + (i % 2 ? 0.1 : 0), i % 2 ? 0.3 : 0.45)) } },
+  { id: "el-footwork", genre: "electro", name: "Footwork · джук", sig: "4/4", len: 4, tags: "160 · триоли", notes: {
+    kick: [h(0, 1), h(0.67, 0.7), h(1.33, 0.8), h(2.5, 0.9), h(3.17, 0.7)], clap: [h(1, 0.8), h(3, 0.8)], hat: tri(0, 4, 0.35) } },
+  { id: "el-dembow", genre: "electro", name: "Дембоу / реггетон", sig: "4/4", len: 4, tags: "95", notes: {
+    kick: at([0, 1, 2, 3], 0.95), snare: [h(0.75, 0.8), h(1.5, 0.8), h(2.75, 0.8), h(3.5, 0.8)], hat: hats8(4, 0.4, 0.3) } },
+);
+for (const d of DRUMS) d.genre ||= d.riddim ? "riddim" : /dnb|jungle/.test(d.id) ? "dnb" : d.id === "trap" ? "trap" : ["house", "afro128"].includes(d.id) ? "electro" : "odd";
+export const GENRES = { riddim: "🔥 Риддим / дабстеп", trap: "🪤 Трэп / дрилл / фонк", dnb: "⚡ Drum'n'bass / jungle", electro: "🎛 Электроника: house, techno, garage, breaks…", odd: "🌀 Нечётные размеры" };
+
 /* мелодические заготовки: degrees — ступени лада канала (0 = тоника), oct — октавный сдвиг */
 export const MELODIC = [
   { id: "bassroot", name: "Бас: тоника восьмыми с октавой", make: (deg, bar) => range(0, bar, 0.5).map((s, i) => [s, 0.4, deg(i % 4 === 3 ? 7 : 0, -1), i % 2 ? 0.7 : 0.95]) },
@@ -65,7 +126,38 @@ export const MELODIC = [
 ];
 
 /* готовые связки «звук + рифф»: создают свои каналы с пресетами (в ладу и строе выбранного канала) */
+const K = (s, l, n, v) => [s, l, n, v ?? 0.85];
 export const KITS = [
+  // риддим
+  { id: "k-growl", genre: "riddim", name: "Riddim · рык-стабы", tags: "Riddim Growl", len: 4, parts: [
+    { name: "Growl", preset: "Riddim Growl", make: d => [K(0, 0.75, d(0, -1)), K(0.75, 0.25, d(0, -1), 0.7), K(1, 0.5, d.semi(1, -1)), K(2, 1, d(0, -1)), K(3, 0.25, d(0, 0)), K(3.25, 0.25, d(0, -1)), K(3.5, 0.5, d.semi(-1, -1))] }] },
+  { id: "k-fmchop", genre: "riddim", name: "Riddim · FM-чопы", tags: "Grapefruit Riddim FM", len: 4, parts: [
+    { name: "FM chop", type: "grapefruit", preset: "Riddim FM", make: d => [0, 0.5, 1, 1.5, 2, 2.5, 3].map((s, i) => K(s, 0.45, i === 5 ? d.semi(1, -1) : d(0, -1), i % 2 ? 0.7 : 0.9)).concat([K(3.5, 0.25, d(0, 0)), K(3.75, 0.25, d.semi(-1, -1))]) }] },
+  { id: "k-wobble", genre: "riddim", name: "Дабстеп · воббл", tags: "Wobble · длинные ноты", len: 8, parts: [
+    { name: "Wobble", preset: "Wobble", make: d => [K(0, 2, d(0, -1)), K(2, 1, d(0, -1)), K(3, 1, d.semi(3, -1)), K(4, 2, d(0, -1)), K(6, 1.5, d.semi(-2, -1)), K(7.5, 0.5, d.semi(-1, -1))] }] },
+  // трэп
+  { id: "k-808", genre: "trap", name: "Trap · 808 со скольжением", tags: "Sub Bass · глайды", len: 8, parts: [
+    { name: "808", preset: "Sub Bass", make: d => [K(0, 1.5, d(0, -1), 0.95), [2.5, 1, d(0, -1), 0.85, 3], K(4, 1.5, d(5, -2), 0.95), [5.75, 0.75, d(4, -2), 0.85, -2], K(6.5, 1.5, d(0, -1), 0.9)] }] },
+  { id: "k-trapkeys", genre: "trap", name: "Trap · колокольчики", tags: "Neon Pluck · минор", len: 8, parts: [
+    { name: "Trap keys", preset: "Neon Pluck", make: d => [[0, 4], [0.75, 2], [1.5, 4], [2, 7], [3, 5], [4, 4], [4.75, 2], [5.5, 1], [6, 2], [7, 0]].map(([s, k]) => K(s, 0.5, d(k, 1), 0.75)) }] },
+  // dnb
+  { id: "k-reese", genre: "dnb", name: "DnB · рис-бас", tags: "Reese · тянется", len: 8, parts: [
+    { name: "Reese", preset: "Reese", make: d => [K(0, 3, d(0, -1)), K(3, 1, d(5, -2)), K(4, 2.5, d(6, -2)), K(6.5, 1.5, d(4, -2))] }] },
+  { id: "k-neuro", genre: "dnb", name: "Neurofunk · бас", tags: "Grapefruit Neuro Bass", len: 4, parts: [
+    { name: "Neuro", type: "grapefruit", preset: "Neuro Bass", make: d => [K(0, 0.5, d(0, -1)), K(0.75, 0.25, d(0, -1), 0.7), K(1.5, 0.5, d.semi(1, -1)), K(2.5, 0.25, d(0, 0)), K(2.75, 0.75, d(0, -1)), K(3.5, 0.5, d.semi(-1, -1))] }] },
+  { id: "k-liquid", genre: "dnb", name: "Liquid · пэд + плак", tags: "Ambient Pad + Neon Pluck", len: 8, parts: [
+    { name: "Liquid pad", preset: "Ambient Pad", make: d => [0, 2, 4].map(t => K(0, 4, d(t, 0), 0.55)).concat([5, 7, 9].map(t => K(4, 4, d(t, -1), 0.55))) },
+    { name: "Liquid pluck", preset: "Neon Pluck", make: d => [0, 0.5, 1.5, 2, 3, 4, 4.5, 5.5, 6, 7].map((s, i) => K(s, 0.4, d([4, 2, 0, 2, 4, 5, 4, 2, 0, -1][i], 1), 0.7)) }] },
+  // электроника
+  { id: "k-hoover", genre: "electro", name: "Рейв · хувер-рифф", tags: "Hoover", len: 8, parts: [
+    { name: "Hoover", preset: "Hoover", make: d => [K(0, 1.5, d(0, 0)), [1.5, 0.5, d(0, 0), 0.85, 2], K(2, 1, d(2, 0)), K(3, 1, d(0, 0)), K(4, 1.5, d(-1, 0)), K(5.5, 0.5, d(0, 0)), K(6, 2, d(-2, 0))] }] },
+  { id: "k-trance", genre: "electro", name: "Транс · суперсо-арп", tags: "Supersaw Lead · 16-е", len: 8, parts: [
+    { name: "Trance arp", preset: "Supersaw Lead", make: d => range(0, 8, 0.25).map((s, i) => K(s, 0.22, d([0, 2, 4, 7, 4, 2, 0, 4][i % 8] + (s >= 4 ? 5 : 0), 0), i % 4 ? 0.6 : 0.85)) }] },
+  { id: "k-house", genre: "electro", name: "House · аккорды на слабую", tags: "Digital Keys · стабы", len: 4, parts: [
+    { name: "House stabs", type: "grapefruit", preset: "Digital Keys", make: d => [0.5, 1.5, 2.5, 3.5].flatMap((s, i) => [0, 2, 4].map(t => K(s, 0.3, d(t + (i >= 2 ? 3 : 0), 0), 0.7))) }] },
+  { id: "k-acid", genre: "electro", name: "Techno · кислотная линия", tags: "Wobble · 16-е", len: 4, parts: [
+    { name: "Acid", preset: "Wobble", make: d => range(0, 4, 0.25).map((s, i) => K(s, 0.2, [d(0, -1), d(0, 0), d.semi(3, -1), d(0, -1), d.semi(7, -1), d(0, -1), d.semi(10, -1), d(0, 0)][i % 8], i % 3 ? 0.65 : 0.9)) }] },
+
   { id: "crushriddim", name: "Crush-риддим (медленная + быстрая атака)", tags: "cojam · 2 баса", riddim: true,
     parts: [
       { name: "Crush Slow", preset: "Crush Bass Slow", make: deg => [[0, 1, deg(0, -1)], [1, 1, deg(0, -1)], [2, 1, deg(0, -1)]] },
@@ -118,16 +210,16 @@ function build(id, Dawn) {
       // канал с этим пресетом уже есть — переиспользуем, иначе новый (лад и строй — как у выбранного канала)
       let ch = P.channels.find(c => c.preset === part.preset);
       if (!ch) {
-        ch = Engine.addChannel("osc3", part.name);
+        ch = Engine.addChannel(part.type || "osc3", part.name);
         if (ref && ref.type !== "sampler") { ch.edo = ref.edo; ch.scale = { ...ref.scale }; }
         ch.poly = 1;
         applyPreset(Engine, ch, part.preset);
       }
       const deg = degreeFn(ch), E = ch.edo || 12;
       deg.semi = (s, oct = 0) => deg(0, oct) + Math.round(s * E / 12);   // рифф от полутонов над тоникой (F → E — как в оригинале)
-      notes[ch.id] = part.make(deg).map(([s, l, n, v = 0.85]) => ({ s, l, n, v }));
+      notes[ch.id] = part.make(deg).map(([s, l, n, v = 0.85, b]) => ({ s, l, n, v, ...(b ? { b } : {}) }));
     }
-    return { name: kit.name.split(" (")[0].split(":")[0], kind: "synth", sig: kit.sig || [8, 8], len: kit.len, notes };
+    return { name: kit.name.split(" (")[0].split(":")[0], kind: "synth", sig: kit.sig || (kit.len ? [4, 4] : [8, 8]), len: kit.len, notes };
   }
   const m = MELODIC.find(x => x.id === id);
   if (m) {
@@ -196,3 +288,5 @@ export function instantiate(id, Dawn, into = null) {
   Engine.touch({ patterns: true, notes: true, channels: true });
   return pat.id;
 }
+
+for (const k of KITS) k.genre ||= k.riddim ? "riddim" : "electro";

@@ -6,7 +6,8 @@ import { aiPackage, aiDoc } from "./schema.js";
 import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults, snapRatio } from "./grapefruit.js";
 import { MODS } from "./mod.js";
 import { MAGIC } from "./magic.js";
-import { DRUMS, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
+import { DRUMS, GENRES, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
+const libClosed = new Set(["odd"]);   // свёрнутые жанры библиотеки
 import { USER, applyPreset, presetsFor } from "./presets.js";
 import { UserLib, captureSound, capturePattern } from "./userlib.js";
 import { roleOf } from "./magic.js";
@@ -860,13 +861,14 @@ const lib = {
           dwBtn("⬆", () => UserLib.import(), { title: "Импорт пресетов из файла" })),
         ...UserLib.names("patterns").map(n => { const u = UserLib.get("patterns", n);
           return card({ id: "u:" + n, name: n }, `${{ drums: "🥁", synth: "🎹", all: "🥁🎹" }[u.kind]} ${u.sig.join("/")} · ${u.len}`, () => { if (UserLib.del("patterns", n)) build(); }); }),
-        el("div", { className: "dw-dir-row open", textContent: "🔥 Риддим" }),
-        ...DRUMS.filter(d => d.riddim).map(d => card(d, `🥁 ${d.sig} · ${d.tags}`)),
-        ...KITS.filter(k => k.riddim).map(k => card(k, "🎹 " + k.tags + " · лад выбранного канала")),
-        el("div", { className: "dw-dir-row open", textContent: "🥁 Ударные грувы" }),
-        ...DRUMS.filter(d => !d.riddim).map(d => card(d, `${d.sig} · ${d.tags}`)),
-        ...(KITS.some(k => !k.riddim) ? [el("div", { className: "dw-dir-row open", textContent: "🔊 Звук + рифф" }),
-          ...KITS.filter(k => !k.riddim).map(k => card(k, k.tags + " · лад выбранного канала"))] : []),
+        // по жанрам: ударные и «звук + рифф»; раздел можно свернуть кликом по заголовку
+        ...Object.entries(GENRES).flatMap(([g, title]) => {
+          const ds = DRUMS.filter(d => d.genre === g), ks = KITS.filter(k => k.genre === g);
+          if (!ds.length && !ks.length) return [];
+          const closed = libClosed.has(g);
+          const head = el("div", { className: "dw-dir-row" + (closed ? "" : " open"), textContent: `${title} · ${ds.length + ks.length}`, onclick: () => { closed ? libClosed.delete(g) : libClosed.add(g); build(); } });
+          return closed ? [head] : [head, ...ds.map(d => card(d, `🥁 ${d.sig} · ${d.tags}`)), ...ks.map(k => card(k, "🎹 " + k.tags + " · лад выбранного канала"))];
+        }),
         el("div", { className: "dw-dir-row open", textContent: "🎼 В ладу канала" }),
         el("div", { className: "dw-dim dw-lib-tgt" }, "Для: ",
           select(Engine.project.channels.filter(x => x.type !== "sampler").map(x => [x.id, x.name + ((x.edo || 12) !== 12 ? ` · ${x.edo}-EDO` : "")]), tgt?.id || "",

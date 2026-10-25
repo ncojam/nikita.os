@@ -144,6 +144,8 @@ addPack(en({
   "это не проект DAWN": "this is not a DAWN project",
   "нет channels/patterns — это не проект DAWN": "no channels/patterns — this is not a DAWN project",
   "Трек": "Track",
+"🔥 Риддим / дабстеп": "🔥 Riddim / dubstep", "🪤 Трэп / дрилл / фонк": "🪤 Trap / drill / phonk", "🎛 Электроника: house, techno, garage, breaks…": "🎛 Electronic: house, techno, garage, breaks…", "🌀 Нечётные размеры": "🌀 Odd meters",
+
   "дропов: {0} — начинаются с тактов {1}": "drops: {0} — starting at bars {1}",
   "Прокрутка по времени (Shift+колесо)": "Scroll in time (Shift+wheel)",
   "Каждый запуск — новый вариант: структура, синты дропов и брейки зависят от ползунков и случая.": "Every run is a new variant: structure, drop synths and breaks depend on the sliders and chance.",
