@@ -20,6 +20,20 @@ const WM = {
     return b;
   },
 
+  /* появилась/исчезла панель сверху (док DAWN) или сменился размер экрана — окна подстраиваются, как под панель задач:
+   * развёрнутые — под новую рабочую область, остальные сдвигаются ниже панели (и ужимаются, если не влезают) */
+  fitReserved() {
+    const A = this.area(), top = A.top + (A.top ? 6 : 0);
+    for (const w of this.wins.values()) {
+      if (w.minimized || w.closing) continue;
+      const n = w.node;
+      if (w.maximized) { Object.assign(n.style, px(this.maxRect())); continue; }
+      if (n.offsetTop >= top) continue;
+      const h = Math.min(n.offsetHeight, Math.max(160, A.bottom - top - 6));
+      n.style.top = top + "px"; if (h < n.offsetHeight) n.style.height = h + "px";
+    }
+  },
+
   /* ---------- прилипание и раскладка ---------- */
   cfg: {
     snap: store.get("wm.snap", true),     // прилипать к краям и соседним окнам
@@ -377,12 +391,12 @@ const WM = {
         start = { ...r, left: e.clientX - r.width * ratio, top: Math.max(0, e.clientY - 20) };
         Object.assign(n.style, px(start));
       }
-      const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop;
+      const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop, rt = this.reservedTop();
       handle.setPointerCapture(e.pointerId);
       const move = ev => {
         this.breakArrange(); // окно сдвинули руками — раскладка больше не «сетка»
         const x = Math.min(Math.max(ev.clientX - sx, -n.offsetWidth + 80), innerWidth - 80);
-        const y = Math.min(Math.max(ev.clientY - sy, 0), innerHeight - 60);
+        const y = Math.min(Math.max(ev.clientY - sy, rt), innerHeight - 60);   // под верхнюю панель (док DAWN) не заезжаем
         // прилипание (Alt — двигать свободно)
         const s = ev.altKey ? { x, y } : this.snapMove(w, x, y, n.offsetWidth, n.offsetHeight);
         n.style.left = s.x + "px"; n.style.top = s.y + "px";
@@ -442,8 +456,11 @@ export function init_wm() {
   });
 
   addEventListener("resize", () => {
-    for (const w of WM.wins.values()) if (w.maximized) Object.assign(w.node.style, px(WM.maxRect()));
+    WM.fitReserved();
   });
+  // верхние панели (.wm-reserve-top) появляются и прячутся — окна подстраиваются
+  new MutationObserver(() => { const t = WM.reservedTop(); if (t !== WM._rt) { WM._rt = t; requestAnimationFrame(() => WM.fitReserved()); } })
+    .observe(document.body, { childList: true, subtree: false, attributes: true, attributeFilter: ["hidden", "class"] });
 }
 
 export { WM, wireIframe };

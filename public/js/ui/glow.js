@@ -24,11 +24,15 @@ const BASE_HUES = [265, 190, 320, 160, 30, 220];
  * так же. Дороже всего не сам холст, а стекло окон: пока фон за ним двигается, backdrop-filter пересчитывается
  * каждый кадр — поэтому на нижних ступенях стекло перестаёт размывать (класс fx-lite на <html>).
  * Мерило — интервалы requestAnimationFrame: если браузер не успевает, они растягиваются, чьей бы ни была нагрузка. */
+/* ступени: размер холста и fps светяшек → без размытия стекла (lite) → меньше светяшек → непрозрачные окна без теней (solid)
+ * → без тряски окон, переходов и анимаций (calm). Классы fx-lite / fx-solid / fx-calm — на <html>. */
 const LEVELS = [
   { scale: 0.5, fps: 60 },
   { scale: 0.33, fps: 30 },
   { scale: 0.25, fps: 24, lite: true },
-  { scale: 0.18, fps: 15, lite: true },
+  { scale: 0.18, fps: 15, lite: true, orbs: 6 },
+  { scale: 0.14, fps: 10, lite: true, orbs: 5, solid: true },
+  { scale: 0.1, fps: 8, lite: true, orbs: 4, solid: true, calm: true },
 ];
 
 export const Glow = {
@@ -55,7 +59,10 @@ export const Glow = {
     if (!this.cv) return;
     const s = LEVELS[this.level].scale;
     this.cv.width = Math.max(32, Math.round(innerWidth * s)); this.cv.height = Math.max(32, Math.round(innerHeight * s));
-    document.documentElement.classList.toggle("fx-lite", !!LEVELS[this.level].lite && this.cfg.on);
+    const L = LEVELS[this.level], h = document.documentElement.classList;
+    h.toggle("fx-lite", !!L.lite && this.cfg.on);
+    h.toggle("fx-solid", !!L.solid);
+    h.toggle("fx-calm", !!L.calm);
   },
   saveQ() { store.set("bg.quality", { auto: this.auto, level: this.level, offered: this.offered }); },
   setLevel(l, save = true) {
@@ -121,7 +128,7 @@ export const Glow = {
   },
   frame(dt) {
     const g = this.cv.getContext("2d"), W = this.cv.width, H = this.cv.height, m = Math.max(W, H);
-    const n = Math.round(this.get("count"));
+    const n = Math.min(Math.round(this.get("count")), LEVELS[this.level].orbs ?? 99);
     while (this.orbs.length < n) this.orbs.push(this.orb(this.orbs.length));
     if (this.orbs.length > n) this.orbs.length = n;
     const sp = this.get("speed"), glow = this.get("glow"), size = this.get("size"), hue = this.get("hue");

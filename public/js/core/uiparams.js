@@ -92,7 +92,8 @@ const nodes = key => key === "*" ? [...document.querySelectorAll(".window")] : [
 function paintWin(key) {
   for (const n of nodes(key)) {
     const k = n.dataset.wkey, g = e => state.get(`${k}.${e}`) ?? state.get(`*.${e}`) ?? FX[e].def;
-    const s = g("shake"), j = g("jump");
+    const calm = document.documentElement.classList.contains("fx-calm");   // минимальное качество: окна не трясём
+    const s = calm ? 0 : g("shake"), j = calm ? 0 : g("jump");
     const dx = s ? (Math.random() * 2 - 1) * s : 0, dy = (s ? (Math.random() * 2 - 1) * s : 0) - j;
     n.style.translate = dx || dy ? `${dx.toFixed(1)}px ${dy.toFixed(1)}px` : "";
     n.style.rotate = g("tilt") ? g("tilt").toFixed(2) + "deg" : "";

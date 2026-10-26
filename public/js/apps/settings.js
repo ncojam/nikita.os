@@ -10,7 +10,7 @@ import { LANGS, lang, setLang } from "../core/i18n.js";
 /* живой фон: светяшки поверх обоев, вспышки от музыки DAWN */
 /* качество: авто (само снижает, если тормозит) или вручную 1..4 */
 function qualityRow() {
-  const names = ["Высокое", "Среднее", "Низкое", "Минимальное"];
+  const names = ["Высокое", "Среднее", "Низкое", "Очень низкое", "Экономное", "Минимальное"];
   const sel = el("select", { className: "btn", onchange: () => {
     if (sel.value === "auto") { Glow.auto = true; Glow.offered = false; Glow.setLevel(0); }
     else { Glow.auto = false; Glow.setLevel(+sel.value); }

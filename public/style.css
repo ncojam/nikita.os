@@ -1096,7 +1096,11 @@ html.dw-wiring, html.dw-wiring * { cursor: crosshair !important; }
 /* экономный режим живого фона: стекло без размытия (backdrop-filter — самое дорогое при движущемся фоне) */
 html.fx-lite .glass { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: rgba(18, 16, 30, 0.88); }
 html.fx-lite [data-theme="light"] .glass, html[data-theme="light"].fx-lite .glass { background-color: rgba(250, 248, 255, 0.92); }
-.fx-offer { display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
+html.fx-solid .glass { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: rgb(22, 19, 36) !important; }
+html.fx-solid[data-theme="light"] .glass { background-color: rgb(248, 246, 255) !important; }
+html.fx-solid .window { box-shadow: none !important; }
+html.fx-calm *, html.fx-calm *::before, html.fx-calm *::after { transition-duration: 0s !important; animation-duration: 0s !important; animation-iteration-count: 1 !important; }
+.fx-offer { pointer-events: auto; display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
 .fx-offer-btns { display: flex; gap: 6px; justify-content: flex-end; }
 .dw-promo { position: fixed; right: 18px; bottom: 90px; z-index: 9500; max-width: 360px; padding: 14px 16px; border-radius: 16px;
   display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.4; transition: opacity .9s; }
