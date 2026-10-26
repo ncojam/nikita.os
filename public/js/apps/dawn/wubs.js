@@ -1,5 +1,6 @@
 import { fxDefaults } from "./fx.js";
 import { PASTEL } from "./engine.js";
+import { gfVariant } from "./sauce.js";
 
 /* ================= DAWN — вубы: подстройка огибающей, улучшайзер, клоны для вариаций =================
  * fitParams — галочка «⇔ под длину ноты»: атака/спад/релиз ужимаются, если нота короче их (частые вубы слышны),
@@ -78,7 +79,7 @@ export function addMod(Engine, ch, m) {
     meter: { mix: ch.mix || 1, gain: 1.5 }, env: { len: 4, loop: true, pts: [[0, 0], [4, 1]] }, lfo: { sync: 2, shape: "sine", phase: 0 },
     trig: { ch: ch.id, att: 5, hold: 40, rel: 250, vel: true }, ...m });
 }
-export const ENHANCE = { metal: "＋ Металл", bass: "＋ Бас", mod: "＋ Модуляция", revatt: "⟲ Реверс атаки", fit: "⇔ Атака под длину ноты", random: "🎲 Случайный риддим-вуб" };
+export const ENHANCE = { metal: "＋ Металл", bass: "＋ Бас", mod: "＋ Модуляция", revatt: "⟲ Реверс атаки", fit: "⇔ Атака под длину ноты", smart: "🧠 Умная вариация (все операторы вместе)", random: "🎲 Случайный риддим-вуб" };
 /* Grapefruit: те же идеи на FM — металл (негармоничные ratio, больше модуляции), бас, LFO, реверс атаки, случайный */
 function enhanceGF(Engine, ch, kind, said) {
   const p = ch.params, ops = p.ops, P = Engine.project;
@@ -102,6 +103,11 @@ function enhanceGF(Engine, ch, kind, said) {
   } else if (kind === "revatt") {
     ops.forEach(o => Object.assign(o, { att: 0.2 + rnd() * 0.2, dec: 0.02, sus: 1, rel: 0.01 })); p.fit = true;
     said.push("реверс атаки: все операторы нарастают и обрываются");
+  } else if (kind === "smart") {
+    // согласованно: шаблон связи 4 операторов + характер лучшего синта, который дружит с исходным
+    const v = gfVariant(p, { amount: 0.55, role: "variant", from: ch.preset });
+    Object.assign(p, v.params);
+    said.push(...v.said);
   } else if (kind === "random") {
     ops.forEach((o, k) => Object.assign(o, { wave: pick(["sine", "square", "sawtooth", "pulse", "organ"]), ratio: k === 0 ? pick([0.5, 1]) : pick([1, 2, 3, 0.5, 3.5, 5.19]),
       att: pick([0.002, 0.05, 0.2]), level: 0.6 + rnd() * 0.4, out: k === 0 ? 1 : rnd() < 0.3 ? 0.3 : 0 }));
@@ -151,6 +157,13 @@ export function enhance(Engine, ch, kind, said = []) {
     said.push("реверс атаки: звук нарастает и обрывается (с подстройкой под длину ноты)");
   } else if (kind === "fit") {
     p.fit = !p.fit;
+  } else if (kind === "smart") {
+    // 3XOSC: осцилляторы связаны интервалами (унисон / октава / квинта), расстройка симметрична, фильтр следует за яркостью
+    const set = pick([[0, 12, -12], [0, 7, -12], [0, 12, 19], [0, 0, -12]]), det = 4 + rnd() * 10;
+    p.oscs.forEach((o, k) => Object.assign(o, { o_crs: set[k % 3], o_fin: k === 0 ? -det / 2 : k === 1 ? det / 2 : 0, o_pan: k === 2 ? 0 : (k ? 0.25 : -0.25) }));
+    const bright = set.filter(x => x > 0).length;
+    p.cut = Math.round(Math.min(9000, (p.cut || 2000) * (bright ? 1.2 : 0.85))); p.res = Math.max(1, Math.min(10, (p.res || 2) * (bright ? 0.9 : 1.2)));
+    said.push(`интервалы осцилляторов ${set.join("/")}, симметричная расстройка ±${(det / 2).toFixed(1)}, фильтр под яркость`);
   } else if (kind === "random") {
     const waves = ["sawtooth", "square", "sawtooth", "square", "triangle"];
     p.oscs.forEach((o, k) => Object.assign(o, k === 1

@@ -92,6 +92,21 @@ DRUMS.push(
     kick: [h(0, 1), h(0.75, 0.6), h(3.5, 0.7), h(4, 1), h(6.75, 0.7)], snare: [h(2, 1), h(6, 1)], clap: [h(2, 0.6), h(6, 0.6)], hat: hats8(8, 0.4, 0.25) } },
   { id: "dn-neuro", genre: "dnb", name: "Neurofunk · степпер", sig: "4/4", len: 4, tags: "174 · жёстко", notes: {
     kick: [h(0, 1), h(1.75, 0.7), h(2.5, 0.9)], snare: [h(1, 1), h(3, 1), h(3.25, 0.4)], clap: [h(1, 0.5), h(3, 0.5)], hat: at([0.5, 1.5, 2, 3.5], 0.45), tom: [h(3.75, 0.6)] } },
+  { id: "dn-jump", genre: "dnb", name: "Jump-up · бодрый", sig: "4/4", len: 4, tags: "174 · прыгает", notes: {
+    kick: [h(0, 1), h(1.75, 0.65), h(2.5, 1)], snare: [h(1, 1), h(3, 1), h(3.75, 0.35)], clap: [h(1, 0.55), h(3, 0.55)],
+    hat: range(0, 4, 0.25).map((s, i) => h(s, i % 2 ? 0.25 : 0.45)), ohat: [h(0.5, 0.4), h(2.75, 0.35)] } },
+  { id: "dn-dance", genre: "dnb", name: "Dancefloor · 2 такта с заходом", sig: "4/4", len: 8, tags: "174 · танцпол", notes: {
+    kick: [h(0, 1), h(2.5, 0.95), h(4, 1), h(5.75, 0.7), h(6.5, 0.95), h(7.25, 0.6)],
+    snare: [h(1, 1), h(3, 1), h(5, 1), h(7, 1), h(7.5, 0.45), h(7.625, 0.5), h(7.75, 0.6), h(7.875, 0.7)], clap: [h(1, 0.5), h(3, 0.5), h(5, 0.5), h(7, 0.5)],
+    hat: hats8(8, 0.5, 0.3), ohat: [h(1.5, 0.35), h(3.5, 0.35), h(5.5, 0.35)], crash: [h(0, 0.5)] } },
+  { id: "dn-ghost", genre: "dnb", name: "Two-step · призрачные малые", sig: "4/4", len: 4, tags: "174 · грув", notes: {
+    kick: [h(0, 1), h(2.5, 0.9)], snare: [h(1, 1), h(1.75, 0.2), h(2.25, 0.25), h(3, 1), h(3.5, 0.2), h(3.75, 0.3)],
+    hat: range(0, 4, 0.25).map((s, i) => h(s + (i % 2 ? 0.02 : 0), [0.5, 0.18, 0.32, 0.22][i % 4])), ride: at([0, 1, 2, 3], 0.25) } },
+  { id: "dn-think", genre: "dnb", name: "Think-брейк · рубленый", sig: "4/4", len: 4, tags: "170 · брейк", notes: {
+    kick: [h(0, 1), h(0.75, 0.55), h(2.25, 0.8), h(2.5, 0.9)], snare: [h(1, 1), h(1.5, 0.35), h(3, 1), h(3.25, 0.4), h(3.75, 0.55)],
+    hat: hats8(4, 0.5, 0.3), ohat: [h(2, 0.4)], shaker: range(0, 4, 0.25).map((s, i) => h(s, i % 2 ? 0.3 : 0.15)) } },
+  { id: "dn-intro", genre: "dnb", name: "DnB интро · хэты и райд (без бочки)", sig: "4/4", len: 4, tags: "174 · вход", notes: {
+    hat: range(0, 4, 0.25).map((s, i) => h(s, i % 4 === 2 ? 0.45 : 0.22)), ride: at([0, 1, 2, 3], 0.35), snare: [h(3.75, 0.3)] } },
   // электроника
   { id: "el-techno", genre: "electro", name: "Techno · прямая бочка", sig: "4/4", len: 4, tags: "130", notes: {
     kick: at([0, 1, 2, 3], 1), clap: [h(1, 0.6), h(3, 0.6)], hat: at([0.5, 1.5, 2.5, 3.5], 0.6), ohat: at([0.5, 1.5, 2.5, 3.5], 0.3), tom: [h(3.75, 0.4)] } },
@@ -172,6 +187,17 @@ export const KITS = [
   { id: "k-liquid", genre: "dnb", name: "Liquid · пэд + плак", tags: "Ambient Pad + Neon Pluck", len: 8, parts: [
     { name: "Liquid pad", preset: "Ambient Pad", make: d => [0, 2, 4].map(t => K(0, 4, d(t, 0), 0.55)).concat([5, 7, 9].map(t => K(4, 4, d(t, -1), 0.55))) },
     { name: "Liquid pluck", preset: "Neon Pluck", make: d => [0, 0.5, 1.5, 2, 3, 4, 4.5, 5.5, 6, 7].map((s, i) => K(s, 0.4, d([4, 2, 0, 2, 4, 5, 4, 2, 0, -1][i], 1), 0.7)) }] },
+  { id: "k-jump", genre: "dnb", name: "Jump-up · прыгающий синт (октавы)", tags: "Wobble · скачет", len: 4, parts: [
+    { name: "Jump", preset: "Wobble", make: d => [K(0, 0.25, d(0, -1)), K(0.25, 0.25, d(0, 0), 0.75), K(0.75, 0.25, d(0, -1)), K(1.5, 0.25, d(0, 0), 0.8), K(1.75, 0.25, d(0, -1)),
+      K(2, 0.125, d(0, -1), 0.7), K(2.125, 0.125, d(0, -1), 0.6), K(2.25, 0.125, d(0, -1), 0.75), K(2.375, 0.125, d(0, -1), 0.65), K(2.75, 0.5, d.semi(3, -1)), K(3.5, 0.25, d(0, 0), 0.85), K(3.75, 0.25, d.semi(-2, -1))] }] },
+  { id: "k-bounce", genre: "dnb", name: "DnB · FM-плак с ответом", tags: "Grapefruit Pluck · 3/4", len: 8, parts: [
+    { name: "Bounce", type: "grapefruit", preset: "Pluck", make: d => [0, 0.75, 1.5, 2.25, 3, 3.5].map((s, i) => K(s, 0.3, d([0, 2, 4, 2, 7, 4][i], 0), i % 3 ? 0.65 : 0.9))
+      .concat([K(4, 0.3, d(5, 0)), K(4.75, 0.3, d(4, 0), 0.7), K(5.5, 0.3, d(2, 0)), K(6.25, 0.125, d(0, 1), 0.7), K(6.375, 0.125, d(0, 1), 0.6), K(6.5, 0.125, d(0, 1), 0.75), K(6.625, 0.125, d(0, 1), 0.65), K(7, 0.5, d(4, 0))]) }] },
+  { id: "k-dnbbass", genre: "dnb", name: "DnB · рис + саб (роллер)", tags: "Reese + Sub Bass", len: 4, parts: [
+    { name: "Reese roll", preset: "Reese", make: d => [K(0, 0.75, d(0, -1)), K(0.75, 0.25, d(0, -1), 0.7), K(1.5, 0.5, d(0, -1)), K(2.5, 0.5, d.semi(3, -1)), K(3, 0.25, d(0, -1), 0.7), K(3.5, 0.5, d.semi(-2, -1))] },
+    { name: "Sub roll", preset: "Sub Bass", make: d => [K(0, 1, d(0, -2), 0.95), K(1.5, 0.5, d(0, -2), 0.9), K(2.5, 0.75, d.semi(3, -2), 0.9), K(3.5, 0.5, d.semi(-2, -2), 0.9)] }] },
+  { id: "k-neurostab", genre: "dnb", name: "Neuro · стабы-ответ", tags: "Grapefruit Iron Yoi FM", len: 4, parts: [
+    { name: "Neuro stab", type: "grapefruit", preset: "Iron Yoi FM", make: d => [K(0.5, 0.25, d(0, 0)), K(1.25, 0.25, d(0, 0), 0.7), K(2, 0.125, d(0, 1), 0.8), K(2.125, 0.125, d(0, 1), 0.7), K(2.25, 0.25, d(0, 0)), K(3.25, 0.5, d.semi(-1, 0))] }] },
   // электроника
   { id: "k-hoover", genre: "electro", name: "Рейв · хувер-рифф", tags: "Hoover", len: 8, parts: [
     { name: "Hoover", preset: "Hoover", make: d => [K(0, 1.5, d(0, 0)), [1.5, 0.5, d(0, 0), 0.85, 2], K(2, 1, d(2, 0)), K(3, 1, d(0, 0)), K(4, 1.5, d(-1, 0)), K(5.5, 0.5, d(0, 0)), K(6, 2, d(-2, 0))] }] },

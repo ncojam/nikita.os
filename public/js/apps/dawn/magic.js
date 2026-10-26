@@ -3,7 +3,8 @@ import { notify } from "../../ui/notify.js";
 import { Engine, PASTEL } from "./engine.js";
 import { fxDefaults } from "./fx.js";
 import { DRUMS, ensureDrum } from "./library.js";
-import { applyPreset } from "./presets.js";
+import { OSC3_PRESETS, applyPreset } from "./presets.js";
+import { answerNotes, gfVariant, like, pickFriend, sauce } from "./sauce.js";
 import { c4, scaleSet } from "./tuning.js";
 import { dwBtn, select, shell } from "./ui.js";
 import { UserLib } from "./userlib.js";
@@ -79,6 +80,32 @@ export function analyze(patId = Engine.project.cur) {
 }
 export const STYLES = { auto: "Авто (по паттерну)", riddim: "Riddim / дабстеп halftime", dnb: "Drum'n'bass", jungle: "Jungle", house: "House", trap: "Trap", break: "Breakbeat", afro: "Afro 12/8" };
 const GROOVE = { riddim: "riddim44", dnb: "dnb44", jungle: "jungle", house: "house", trap: "trap", break: "break54", afro: "afro128" };
+/* профили стилей: грувы (выбор — по графу), синты дропа, бас/лид для «Доделать», нарастания, длина интро и нарастания, темп */
+const DNB = { bpm: 174, grooves: ["dn-jump", "dn-roller", "dn-dance", "dn-ghost", "dnb44", "dn-neuro", "dn-amen", "dn-think"],
+  osc3: ["Reese", "Hoover", "Wobble", "Grind Fifth", "Metal Crush"], gf: ["Neuro Bass", "FM Bass", "Iron Yoi FM", "Riddim Yoi", "Metal Crush FM"],
+  bass: ["Reese", "Neuro Bass", "Wobble", "FM Bass"], lead: ["Neon Pluck", "Pluck", "Hoover", "Supersaw Lead", "Metal Pluck"],
+  builds: ["roll", "riff", "wubtease", "triplet"], intros: ["filtered", "drums", "arp"], introLen: 2, buildPats: 2 };
+export const PROFILE = {
+  riddim: { bpm: 140, grooves: ["riddim44", "rd-bounce", "rd-heavy", "rd-ghost", "rd-brostep"], osc3: METAL_OSC3, gf: RIDDIM_GF,
+    bass: ["Metal Crush", "Metal Creak FM", "Iron Yoi FM", "Riddim Heavy Slow"], lead: ["Metal Pluck", "Neon Pluck", "Chip Lead"] },
+  dnb: DNB,
+  jungle: { ...DNB, bpm: 165, grooves: ["jungle", "dn-amen", "dn-think", "dn-ghost"] },
+  trap: { bpm: 140, grooves: ["trap", "tr-trip", "tr-drill", "tr-half"], osc3: ["Sub Bass", "Metal Deep"], gf: ["Sub FM", "FM Bass"], bass: ["Sub Bass"], lead: ["Neon Pluck", "Bell"] },
+};
+const prof = st => PROFILE[st] || { ...PROFILE.riddim, bpm: 0, grooves: [GROOVE[st]].filter(Boolean) };
+const synthType = name => (OSC3_PRESETS[name] ? "osc3" : "grapefruit");
+/* грув стиля длиной L (из библиотеки, по графу дружбы с синтами) → ноты по каналам ударных; null — размер не подходит */
+function grooveNotes(style, L, ctx = []) {
+  const ok = id => { const g = DRUMS.find(d => d.id === id); return g && Math.abs(L / g.len - Math.round(L / g.len)) < 1e-6 && g.len <= L; };
+  const cands = prof(style).grooves.filter(ok);
+  if (!cands.length) return null;
+  const id = pickFriend(["s:" + style, ...ctx], cands.map(c => "g:" + c), rnd).slice(2), g = DRUMS.find(d => d.id === id), out = {};
+  for (let k = 0; k < L - 1e-9; k += g.len) for (const [role, list] of Object.entries(g.notes)) {
+    const ch = ensureDrum(role);
+    for (const [s, l, , v] of list) (out[ch.id] ||= []).push(N(s + k, l, Engine.defaultPitch(ch), v * (k ? 0.92 + 0.12 * rnd() : 1)));
+  }
+  return { notes: out, id, name: g.name };
+}
 
 /* ---------- каналы, которые магия добавляет сама ---------- */
 function findOrPreset(re, preset, name, A, vol) {
@@ -166,9 +193,13 @@ function impactNotes(A) {
   add("kick", 1); add("ohat", 0.9, 1); add(A.drums.clap ? "clap" : "snare", 1);
   return notes;
 }
-/* брейк в конце паттерна: kind = roll | stutter | dropout | toms */
-export function fillNotes(A, kind, base = A.pat.notes) {
-  const notes = clone(base), L = A.L, from = L - (A.bar >= 6 ? 2 : 1);
+/* брейк в конце паттерна: kind = roll | stutter | dropout | toms | glitch | swap | tapestop | octrun
+ * x — экстремальность 0..1: длина брейка (доля → полтакта → такт → 2 такта), скорость дробления, срывы в октаву и в другой синт (alt) */
+export function fillNotes(A, kind, base = A.pat.notes, x = 0.5, alt = null) {
+  const notes = clone(base), L = A.L, one = A.bar >= 6 ? 2 : 1, mult = x <= 0.5 ? 1 : x < 0.75 ? 2 : x < 0.9 ? 4 : 8;
+  const from = Math.max(L / 4, L - Math.min(one * mult, L * 0.75)), span = L - from;
+  const synIds = Object.keys(notes).filter(c => !isDrum(Engine.chan(c)) && notes[c].length);
+  const leadId = A.wub && notes[A.wub.ch.id]?.length ? A.wub.ch.id : synIds[0];
   const drumIds = Object.keys(notes).filter(c => isDrum(Engine.chan(c)));
   const cut = ids => ids.forEach(c => { notes[c] = notes[c].filter(n => n.s < from - 1e-9); });
   if (kind === "roll") {
@@ -179,7 +210,7 @@ export function fillNotes(A, kind, base = A.pat.notes) {
   } else if (kind === "stutter") {
     const src = Object.fromEntries(Object.entries(notes).map(([c, Ls]) => [c, Ls.filter(n => n.s >= from && n.s < from + 0.25)]));
     for (const c of Object.keys(notes)) notes[c] = notes[c].filter(n => n.s < from);
-    for (let s = from, k = 0; s < L - 1e-9; s += (s - from < (L - from) / 2 ? 0.25 : 0.125), k++)
+    for (let s = from, k = 0; s < L - 1e-9; s += (s - from < span / 2 ? 0.25 : x > 0.7 && s - from > span * 0.8 ? 0.0625 : 0.125), k++)
       for (const [c, Ls] of Object.entries(src)) for (const n of Ls) notes[c].push(N(s + (n.s - from), Math.min(n.l, 0.12), n.n, n.v * (0.7 + 0.3 * rnd())));
   } else if (kind === "dropout") {
     const keep = [A.drums.snare?.id, A.drums.clap?.id].filter(Boolean);
@@ -196,10 +227,59 @@ export function fillNotes(A, kind, base = A.pat.notes) {
     let k = 0;
     for (let s = from; s < L - 1e-9; s += 0.25, k++) notes[tom.id].push(N(s, 0.22, p + steps[k % steps.length], 0.6 + 0.4 * (s - from) / (L - from)));
     const kick = A.drums.kick; if (kick) (notes[kick.id] ||= []).push(N(L - 0.25, 0.2, Engine.defaultPitch(kick), 0.9));
+  } else if (kind === "glitch") {   // полдоли перед брейком режется и крутится всё быстрее, синты иногда прыгают на октаву
+    const src = Object.fromEntries(Object.entries(notes).map(([c, Ls]) => [c, Ls.filter(n => n.s >= from - 0.5 - 1e-6 && n.s < from - 1e-6)]));
+    for (const c of Object.keys(notes)) notes[c] = notes[c].filter(n => n.s < from - 1e-6);
+    if (!Object.values(src).some(l => l.length)) return fillNotes(A, "roll", base, x, alt);
+    for (let s = from; s < L - 1e-9;) {
+      const q = (s - from) / span, st = q < 0.4 ? 0.5 : q < 0.7 ? 0.25 : x > 0.6 && q > 0.85 ? 0.0625 : 0.125, up = rnd() < x * 0.35;
+      for (const [c, Ls] of Object.entries(src)) {
+        const syn = !isDrum(Engine.chan(c)), E = Engine.chan(c)?.edo || 12;
+        for (const n of Ls) { if (rnd() < 0.12 * x) continue; const t = s + (n.s - (from - 0.5)) * (st / 0.5); if (t < L - 1e-6) notes[c].push(N(t, Math.min(n.l, st * 0.85), n.n + (syn && up ? E : 0), n.v * (0.75 + 0.25 * q))); }
+      }
+      s += st;
+    }
+  } else if (kind === "swap") {   // фраза «срывается» в другой синт: соус (октавы, рэтчеты, 3/4), ударные — ролл
+    if (leadId) {
+      const E = Engine.chan(leadId)?.edo || 12, part = notes[leadId].filter(n => n.s >= from - 1e-6), to = alt?.id || leadId;
+      notes[leadId] = notes[leadId].filter(n => n.s < from - 1e-6);
+      const moved = part.length ? part : (A.wub?.notes || []).filter(n => n.s < span).map(n => ({ ...n, s: n.s + from }));
+      const sx = sauce(moved.map(n => ({ ...n, s: n.s - from })), { bar: A.bar, L: span, E, amount: 0.45 + 0.55 * x, R: rnd, only: ["oct", "ratchet", "three"] }).notes;
+      (notes[to] ||= []);
+      for (const n of sx) if (n.s + from < L - 1e-6) notes[to].push(N(n.s + from, Math.min(n.l, L - from - n.s), n.n + (rnd() < x * 0.5 ? E : 0), n.v));
+    }
+    const sn = A.drums.snare || ensureDrum("snare"), p = Engine.defaultPitch(sn);
+    for (const c of Object.keys(notes)) if (isDrum(Engine.chan(c)) && roleOf(Engine.chan(c)) !== "kick") notes[c] = notes[c].filter(n => n.s < from + span / 2 - 1e-6);
+    for (let s = from + span / 2; s < L - 1e-9; s += 0.125) (notes[sn.id] ||= []).push(N(s, 0.1, p, 0.4 + 0.6 * (s - from) / span));
+  } else if (kind === "tapestop") {   // «остановка плёнки»: всё растягивается и съезжает вниз, ударные редеют
+    for (const c of Object.keys(notes)) {
+      const ch = Engine.chan(c), E = ch?.edo || 12;
+      notes[c] = notes[c].flatMap(n => {
+        if (n.s < from - 1e-6) return [n];
+        const q = (n.s - from) / span;
+        if (isDrum(ch) && rnd() < q * 0.9) return [];
+        const s2 = from + (n.s - from) * (1 + q * (0.4 + x * 0.6));
+        if (s2 >= L - 1e-6) return [];
+        const m = N(s2, Math.min(L - s2, n.l * (1 + q)), n.n, n.v * (1 - q * 0.5));
+        if (!isDrum(ch)) m.b = -Math.max(1, Math.round(E * (0.25 + x * 0.75) * (0.3 + q)));
+        return [m];
+      });
+    }
+  } else if (kind === "octrun") {   // пробежка нот синта шестнадцатыми, на середине — срыв на октаву (на большом экстриме — на две)
+    if (leadId) {
+      const E = Engine.chan(leadId)?.edo || 12, src = (A.wub?.notes?.length ? A.wub.notes : notes[leadId]).map(n => n.n), st = x > 0.6 ? 0.125 : 0.25;
+      notes[leadId] = notes[leadId].filter(n => n.s < from - 1e-6);
+      let k = 0;
+      for (let s = from; s < L - 1e-9; s += st, k++) { const q = (s - from) / span; notes[leadId].push(N(s, st * 0.8, src[k % src.length] + (q >= 0.5 ? E : 0) + (q >= 0.85 && x > 0.7 ? E : 0), 0.6 + 0.4 * q)); }
+    }
+    cut(drumIds.filter(c => roleOf(Engine.chan(c)) !== "kick"));
+    const sn = A.drums.snare || ensureDrum("snare"), p = Engine.defaultPitch(sn);
+    for (let s = from; s < L - 1e-9; s += (s - from < span / 2 ? 0.25 : 0.125)) (notes[sn.id] ||= []).push(N(s, 0.1, p, 0.35 + 0.65 * (s - from) / span));
   }
   return notes;
 }
-export const FILLS = { roll: "Ролл малого", stutter: "Заикание", dropout: "Провал", toms: "Томы" };
+export const FILLS = { roll: "Ролл малого", stutter: "Заикание", dropout: "Провал", toms: "Томы", glitch: "Глитч", swap: "Срыв в другой синт", tapestop: "Остановка плёнки", octrun: "Пробежка с октавой" };
+const EXTREME = ["glitch", "swap", "tapestop", "octrun"];
 /* вариация дропа: бочка с синкопой, хэты шестнадцатыми в конце, одна нота баса на октаву выше */
 function variationNotes(A) {
   const notes = clone(A.pat.notes);
@@ -263,12 +343,10 @@ export function drumsForStyle(style) {
   if (style === "auto") style = A.style;
   const out = {};
   const put = (role, s, v, l = 0.2) => { const ch = ensureDrum(role); (out[ch.id] ||= []).push(N(s, l, Engine.defaultPitch(ch), v)); };
-  const g = DRUMS.find(d => d.id === GROOVE[style]);
-  const [num, den] = A.sig;
-  if (g && g.len <= L && Math.abs(L / g.len - Math.round(L / g.len)) < 1e-6) {
-    // грув из библиотеки, повторённый на длину паттерна; во второй половине — немного живости
-    for (let k = 0; k < L - 1e-9; k += g.len) for (const [role, list] of Object.entries(g.notes))
-      for (const [s, l, , v] of list) put(role, s + k, v * (k ? 0.92 + 0.12 * rnd() : 1), l);
+  const [, den] = A.sig, gn = grooveNotes(style, L, A.synths.map(s => s.ch.preset));
+  if (gn) {
+    // грув из библиотеки (какой — по графу дружбы со стилем и синтами), повторённый на длину паттерна
+    Object.assign(out, gn.notes);
     if (rnd() < 0.7) put("snare", L - 0.25, 0.35);           // призрачная нота перед повтором
   } else {
     // размер не из библиотеки (7/8, 11/8, 5/4…) — по группам по 2 и 3 восьмых
@@ -290,7 +368,7 @@ export function drumsForStyle(style) {
   for (const c of Object.keys(pat.notes)) if (isDrum(Engine.chan(c))) pat.notes[c] = [];
   Object.assign(pat.notes, out);
   Engine.touch({ notes: true, channels: true });
-  return STYLES[style] || style;
+  return (STYLES[style] || style) + (gn ? ` · «${gn.name}»` : "");
 }
 
 /* ---------- композиция ---------- */
@@ -413,6 +491,10 @@ export function compose(opt) {
   const base = basePattern(opt.basis, opt.regionBars);
   const A = analyze(base), P = Engine.project, prevCur = P.cur, said = [], lv = { drama: 0.5, remake: 0.5, cool: 0.5, melody: 0.5, suspense: 0.5, holes: 0.4, ...(opt.levels || {}) };
   const U = A.L, size = opt.size || 8, S = opt.sections, drops = S.drop ? Math.max(1, opt.drops || 2) : 0;
+  const style = opt.style && opt.style !== "auto" ? opt.style : A.style, pr = prof(style), nodes = ["s:" + style];
+  const pace = opt.pace ?? 0.5, sz = opt.sauce ?? 0.5, ex = opt.extreme ?? 0.5, sauceUsed = new Set();
+  if (opt.style && opt.style !== "auto" && opt.tempo !== false && pr.bpm && Math.abs(P.bpm - pr.bpm) > 12) { P.bpm = pr.bpm; said.push(`темп ${pr.bpm} BPM — под стиль «${STYLES[style]}»`); }
+  const restyle = style !== A.style || !Object.keys(A.drums).length;
   if (opt.mode === "replace") P.playlist = [];
   let at = opt.mode === "replace" ? 0 : Math.ceil((Engine.songLength() || 0) / A.bar) * A.bar;
   const clip = (p, t, s, l) => P.playlist.push({ id: "c" + Math.random().toString(36).slice(2, 8), p: p.id, t, s, l: l ?? Engine.patLength(p.id) });
@@ -424,8 +506,15 @@ export function compose(opt) {
   const padPat = () => once("pad", () => { const ch = used.pad = ensurePad(A, said); said.push("пэд по басовой линии: аккорды из нот баса в каждом такте"); return mkPat("✨ Pad", A, U, { [ch.id]: padNotes(A, ch, U) }, "#c3a6ff"); });
   const arpCh = () => once("arpch", () => findOrPreset(/pluck|арп/i, "Neon Pluck", "Arp ✨", A, 0.4).ch);
   const arpPat = () => once("arp", () => { const ch = arpCh(); said.push("арпеджио по аккордам пэда (мелодичность)"); return mkPat("✨ Arp", A, U, { [ch.id]: arpNotes(A, ch, U, lv.melody) }, "#ffd59e"); });
-  const hatsPat = () => once("hats", () => mkPat("✨ Hats", A, U, only(A, ch => ["hat", "ohat", "perc"].includes(roleOf(ch))), "#b8f59e"));
-  const introKick = () => once("introk", () => mkPat("✨ Intro + kick", A, U, only(A, ch => isDrum(ch) && !["snare", "clap"].includes(roleOf(ch))), "#9fd3ff"));
+  // ударные интро/аутро: если стиль сменён — из грува стиля, а не из исходного паттерна
+  const dA = () => {
+    const g = restyle && grooveOf(0);
+    if (!g) return A;
+    const notes = Object.fromEntries(Object.entries(A.pat.notes).filter(([c]) => !isDrum(Engine.chan(c))));
+    return { ...A, pat: { ...A.pat, notes: { ...notes, ...g.notes } } };
+  };
+  const hatsPat = () => once("hats", () => mkPat("✨ Hats", A, U, only(dA(), ch => ["hat", "ohat", "perc"].includes(roleOf(ch))), "#b8f59e"));
+  const introKick = () => once("introk", () => mkPat("✨ Intro + kick", A, U, only(dA(), ch => isDrum(ch) && !["snare", "clap"].includes(roleOf(ch))), "#9fd3ff"));
   const impact = () => once("impact", () => { said.push("«удар» на первой доле дропа"); return mkPat("✨ Impact", A, 1, impactNotes(A), "#fff09e"); });
   const subCh = () => once("subch", () => { said.push("саб-бас на 1–2 октавы ниже по корню такта"); return findOrPreset(/sub|саб/i, "Sub Bass", "Sub ✨", A, 0.75).ch; });
   const breakPat = () => once("break", () => {
@@ -438,42 +527,78 @@ export function compose(opt) {
   const dropSynth = (d, v = 0) => once("syn" + d + "_" + v, () => {
     if (!A.wub || (d === 0 && v === 0)) return A.wub?.ch || null;   // каждый следующий дроп — со своим синтом, даже при малом «переделывании»
     const c = cloneWub(Engine, A.wub.ch, `Wub D${d + 1}${v ? "." + (v + 1) : ""} ✨`), got = [];
-    // по отзывам: основа — семейство Metal Crush (бас + нарастающий металл); чем дальше дроп и выше «крутость», тем злее
-    const fam = c.type === "osc3" ? METAL_OSC3 : RIDDIM_GF, k = Math.min(fam.length - 1, Math.floor((d / Math.max(1, drops - 1)) * 0.5 * fam.length + rnd() * fam.length * 0.5 * (0.5 + lv.cool)));
-    let pr = fam[Math.max(1, k)] || fam[1];
-    if (v) { const prev = dropSynth(d, 0)?.preset; for (let i = 0; i < 6 && pr === prev; i++) pr = fam[Math.floor(rnd() * fam.length)]; }
-    applyPreset(Engine, c, pr); got.push(`звук «${c.preset}»`);
+    const prev = v ? dropSynth(d, 0) : d ? dropSynth(d - 1) : null;
+    if (c.type === "grapefruit") {
+      // Grapefruit: от ТВОЕГО синта — согласованно все 4 оператора + характер лучшего синта, который с ним дружит
+      const gv = gfVariant(A.wub.ch.params, { amount: Math.min(1, 0.3 + lv.remake * 0.45 + d * 0.12 + v * 0.1), role: "drop", cool: lv.cool, from: A.wub.ch.preset, context: ["s:" + style, prev?.gfFrom], R: rnd });
+      Object.assign(c.params, gv.params); c.preset = undefined; c.gfFrom = gv.preset; nodes.push(gv.preset); got.push(...gv.said);
+    } else {
+      // 3XOSC: семейство стиля (риддим — Metal Crush, DnB — Reese/Hoover/Wobble), выбор — по графу; злее к поздним дропам
+      const fam = pr.osc3 || METAL_OSC3, early = d === 0 && lv.cool < 0.5;
+      const name = pickFriend(["s:" + style, A.wub.ch.preset, prev?.preset], early ? fam.slice(0, Math.ceil(fam.length / 2)) : fam, rnd, [A.wub.ch.preset, prev?.preset]);
+      applyPreset(Engine, c, name); nodes.push(name); got.push(`звук «${c.preset}»`);
+    }
     if (rnd() < lv.drama * 0.4) enhance(Engine, c, "revatt", got);
     c.params.fit = true;
     said.push(`дроп ${d + 1}${v ? ` (смена ${v + 1})` : ""} — синт «${c.name}»: ` + got.map(s => s.split(":")[0]).join(", "));
+    return c;
+  });
+  // ударные дропа: если стиль другой (или ударных нет) — грув стиля; на поздних дропах при быстрой смене — другой грув
+  const grooveOf = d => once("gr" + d, () => {
+    if (!restyle && !(d > 0 && rnd() < pace * 0.6)) return null;
+    const gn = grooveNotes(style, U, [A.wub?.ch.preset, d ? grooveOf(d - 1)?.id && "g:" + grooveOf(d - 1).id : null]);
+    if (gn) { nodes.push("g:" + gn.id); said.push(`ударные дропа ${d + 1}: «${gn.name}»`); }
+    return gn;
+  });
+  // синт, в который «срываются» брейки: ответ исходному (Grapefruit — умная вариация, 3XOSC — друг по графу)
+  const altSyn = () => once("alt", () => {
+    const src = A.wub?.ch;
+    if (!src) return null;
+    const c = cloneWub(Engine, src, "Swap ✨");
+    if (c.type === "grapefruit") { const gv = gfVariant(src.params, { amount: 0.8, role: "answer", cool: lv.cool, from: src.preset, context: ["s:" + style], R: rnd }); Object.assign(c.params, gv.params); c.preset = undefined; nodes.push(gv.preset); }
+    else { const name = pickFriend(["s:" + style, src.preset], (pr.lead || []).filter(n => OSC3_PRESETS[n]).concat(["Hoover", "Chip Lead"]), rnd, [src.preset]); applyPreset(Engine, c, name); nodes.push(name); }
+    c.params.fit = true;
+    said.push(`брейки срываются в другой синт «${c.name}»`);
     return c;
   });
   // паттерны дропа d: основа (вуб на синте дропа, саб на поздних), вариация, медленный вуб, дыры, брейки
   const dropPats = (d, v = 0) => once("dp" + d + "_" + v, () => {
     const syn = dropSynth(d, v), Ad = syn && A.wub ? { ...A, wub: { ...A.wub, ch: syn } } : A;
     let baseN = syn && A.wub && syn !== A.wub.ch ? moveNotes(A, A.pat.notes, syn) : clone(A.pat.notes);
+    const gr = grooveOf(d);
+    if (gr) { for (const c of Object.keys(baseN)) if (isDrum(Engine.chan(c))) delete baseN[c]; Object.assign(baseN, clone(gr.notes)); }
     const deep = lv.drama * (d + 1) / Math.max(1, drops) > 0.45 && d > 0;
     if (deep) baseN = withSub(A, baseN, subCh());
     const tag = (drops > 1 ? ` D${d + 1}` : "") + (v ? `.${v + 1}` : ""), out = { base: mkPat(`✨ Drop${tag}`, A, U, baseN, PASTEL[(d * 2) % PASTEL.length]) };
     const vn = clone(baseN), kick = A.drums.kick;
     if (kick) { const p = Engine.defaultPitch(kick); (vn[kick.id] ||= []).push(N(0.75, 0.2, p, 0.6)); }
     if (A.bass && vn[A.bass.ch.id]?.length > 2 && rnd() < 0.5 + lv.remake / 2) { const n = pick(vn[A.bass.ch.id].slice(1, -1)); n.n += A.bass.ch.edo || 12; }
-    out.var = mkPat(`✨ Drop${tag} var`, A, U, vn, "#8fe8cf");
+    const sid = syn?.id || A.wub?.ch.id, E = (syn || A.wub?.ch)?.edo || 12, spice = (notes, amount) => {
+      if (!sid || !notes[sid]?.length) return notes;
+      const r = sauce(notes[sid], { bar: A.bar, L: U, E, amount, R: rnd });
+      notes[sid] = r.notes; r.used.forEach(u => sauceUsed.add(u));
+      return notes;
+    };
+    out.var = mkPat(`✨ Drop${tag} var`, A, U, spice(vn, sz * 0.6), "#8fe8cf");
+    if (sz > 0.1) out.sauce = mkPat(`✨ Drop${tag} sauce`, A, U, spice(clone(baseN), Math.min(1, 0.25 + sz)), "#ffc6e0");
     if (A.wub && opt.slow !== false && rnd() < 0.3 + lv.drama * 0.7) {
       out.slow = mkPat(`✨ Drop${tag} slow`, A, U, slowNotes(Ad, baseN), "#c3a6ff");
       said.push("удлинённые вубы: соседние ноты сливаются («1-2» вместе, весь такт, пары) прямо на том же синте, атака растягивается во столько же раз");
     }
     out.holes = mkPat(`✨ Drop${tag} holes`, A, U, holesNotes(A, baseN, Math.max(0.3, lv.holes), syn?.id || A.wub?.ch.id), "#ffb3b3");
-    out.fills = Object.keys(FILLS).map(k => mkPat(`✨ Drop${tag} · ${FILLS[k]}`, A, U, fillNotes(Ad, k, baseN), "#fff09e"));
+    const kinds = Object.keys(FILLS).filter(k => ex >= 0.2 || !EXTREME.includes(k));
+    out.fills = kinds.map(k => mkPat(`✨ Drop${tag} · ${FILLS[k]}`, A, U, fillNotes(Ad, k, baseN, ex, k === "swap" ? altSyn() : null), "#fff09e"));
+    out.fillKinds = kinds;
     return out;
   });
   // нарастание перед дропом d: длина — от саспенса, тизер синта дропа
-  const buildLen = Math.max(A.bar, Math.round((8 + 24 * lv.suspense) / A.bar) * A.bar);
+  const bp = opt.buildPats > 0 ? opt.buildPats : pr.buildPats || 0;
+  const buildLen = bp ? Math.max(A.bar, bp * U) : Math.max(A.bar, Math.round((8 + 24 * lv.suspense) / A.bar) * A.bar);
   const sweeps = [];
   const doBuild = d => {
     const syn = dropSynth(d), teaser = syn && A.wub && syn !== A.wub.ch ? syn : null;
     let kind = opt.build || "auto";
-    if (kind === "auto") kind = teaser || A.wub ? pick(["wubtease", "riff", "siren", "roll", "stop"]) : pick(["roll", "triplet", "stop"]);
+    if (kind === "auto") kind = pr.builds ? pick(A.wub ? pr.builds : pr.builds.filter(k => !["riff", "wubtease"].includes(k))) : teaser || A.wub ? pick(["wubtease", "riff", "siren", "roll", "stop"]) : pick(["roll", "triplet", "stop"]);
     if (kind === "random") kind = pick(Object.keys(BUILDS).slice(2));
     said.push(`нарастание ${d + 1}: ${BUILDS[kind]}`);
     const riser = opt.riser !== false ? (used.riser = ensureRiser(A)) : null, notes = buildVariant(kind, A, buildLen, lv.suspense, teaser);
@@ -486,16 +611,19 @@ export function compose(opt) {
   };
   const doDrop = (d, n) => {
     // синт сменяется по ходу дропа: сколько звуков — от «переделывания», менять — на границе фразы
-    const nv = Math.max(1, Math.min(3, 1 + Math.round(lv.remake * 2.4))), every = n >= 8 ? 4 : 2;
-    const dp0 = dropPats(d), pFill = 0.08 + lv.holes * 0.5, pHole = lv.holes * 0.35;
+    // «скорость смен»: как часто меняется синт, как длинны фразы и как часто брейки
+    const nv = Math.max(1, Math.min(4, 1 + Math.round(lv.remake * 1.6 + pace * 1.6))), every = Math.max(1, Math.round((n >= 8 ? 4 : 2) * (1.5 - pace)));
+    const phrase = pace > 0.7 ? 2 : 4, dp0 = dropPats(d), pFill = 0.08 + lv.holes * 0.5, pHole = lv.holes * 0.35;
+    const fillOf = dp => { const ext = dp.fills.filter((f, i) => EXTREME.includes(dp.fillKinds[i])), norm = dp.fills.filter((f, i) => !EXTREME.includes(dp.fillKinds[i])); return pick(ext.length && rnd() < ex ? ext : norm); };
     for (let k = 0; k < n; k++) {
       let p;
       const dp = nv > 1 ? dropPats(d, Math.floor(k / every) % nv) : dp0;
-      const phraseEnd = k % 4 === 3, r = rnd();
-      if ((phraseEnd && opt.fills !== false) || r < pFill * (d + 1) / Math.max(1, drops)) p = pick(dp.fills);
-      else if (rnd() < pHole) p = dp.holes;
+      const phraseEnd = k % phrase === phrase - 1, r = rnd();
+      if (k > 0 && ((phraseEnd && opt.fills !== false) || r < pFill * (d + 1) / Math.max(1, drops))) p = fillOf(dp);
+      else if (k > 0 && rnd() < pHole) p = dp.holes;
       else if (dp.slow && rnd() < 0.15 + lv.drama * 0.25) p = dp.slow;
-      else p = rnd() < 0.25 + lv.remake * 0.5 ? dp.var : dp.base;
+      else if (dp.sauce && k > 0 && rnd() < 0.15 + sz * 0.45) p = dp.sauce;
+      else p = rnd() < 0.2 + pace * 0.3 + lv.remake * 0.3 ? dp.var : dp.base;
       clip(p, T.main, at + units(k));
       if (lv.melody > 0.4 && (d > 0 || lv.melody > 0.75) && k % 2 === 0) clip(arpPat(), T.mel, at + units(k));
     }
@@ -504,9 +632,10 @@ export function compose(opt) {
   };
   const introEnv = [];
   if (S.intro) {
-    const n = Math.max(2, Math.round(size / 2)), pad = opt.pad !== false;
+    const n = opt.introLen > 0 ? opt.introLen : pr.introLen || Math.max(2, Math.round(size / 2)), pad = opt.pad !== false;
     let kind = opt.intro || "auto";
-    const riddimy = A.wub && (A.style === "riddim" || A.wub.rel < 0);
+    const riddimy = A.wub && (style === "riddim" || A.wub.rel < 0);
+    if (kind === "auto" && pr.intros) kind = pick(pr.intros);
     if (kind === "auto") kind = riddimy ? pick(["filtered", "drums", "dark", "padhats"]) : lv.melody > 0.5 ? pick(["arp", "padhats", "atmos"]) : pick(["padhats", "atmos", "drums"]);
     if (kind === "random") kind = pick(Object.keys(INTROS).slice(2));
     if ((kind === "filtered" || kind === "dark") && !A.wub) kind = "padhats";
@@ -553,6 +682,7 @@ export function compose(opt) {
     for (let k = 0; k < n; k++) { if (opt.pad !== false) clip(padPat(), T.pad, at + units(k)); if (k < n - 1) clip(hatsPat(), T.hats, at + units(k)); }
     at += units(n);
   }
+  if (sauceUsed.size) said.push("соус в вариациях дропа: " + [...sauceUsed].join(", "));
   if (dropAt.length) said.unshift(`дропов: ${dropAt.length} — начинаются с тактов ` + dropAt.map(s => Math.floor(s / 4) + 1).join(", "));   // такты линейки плейлиста (4/4)
   // автоматизация нарастаний: одна огибающая по всей песне — 0 вне нарастаний, рост внутри, обрыв на дропе
   if (sweeps.length) {
@@ -582,17 +712,102 @@ export function compose(opt) {
   Engine.selectPattern(prevCur);
   Engine.setMode("song");
   Engine.touch({ playlist: true, patterns: true, channels: true, mixer: true, mods: true });
-  return { said: [...new Set(said)], A, bars: at / A.bar };
+  return { said: [...new Set(said)], A, bars: at / A.bar, nodes: [...new Set(nodes.filter(Boolean))] };
+}
+
+/* ---------- 🪄 «Доделать всё»: смотрит, что уже есть в паттерне, и добавляет недостающее ----------
+ * нет ударных → грув стиля; нет баса → бас (ритм стиля по корням мелодии); есть только бас → лид-арпеджио;
+ * один синт → второй, который ему ОТВЕЧАЕТ (паузы первого заполняет мотивом, Grapefruit — умная вариация 4 операторов);
+ * саб под бас, жир на ударные; потом — весь трек «Достроить» с теми же настройками. Везде — соус. */
+const BASS_RHY = {
+  dnb: [[[0, 0.75], [0.75, 0.25], [1.5, 0.5], [2.5, 0.5], [3, 0.25], [3.5, 0.5]], [[0, 1.5], [1.5, 1], [2.5, 1.5]],
+    [[0, 0.5], [0.5, 0.25, 1], [0.75, 0.25], [1.5, 0.5, 1], [2.5, 0.5], [3, 0.25, 1], [3.5, 0.5]]],
+  riddim: [[[0, 0.75], [0.75, 0.25], [1, 0.5], [2, 1], [3, 0.5], [3.5, 0.5]], [[0, 1], [1, 1], [2, 1], [3, 0.5], [3.5, 0.5]]],
+  other: [[[0, 1], [1.5, 0.5], [2, 1], [3, 1]]],
+};
+function bassLine(A, lead, style, amount) {
+  const E = lead.ch.edo || 12, low = c4(E) - 2 * E, rhy = pick(BASS_RHY[["dnb", "jungle"].includes(style) ? "dnb" : style === "riddim" ? "riddim" : "other"]), out = [];
+  for (let b = 0; b < A.L - 1e-9; b += 4) {
+    const inB = lead.notes.filter(n => n.s >= b - 1e-6 && n.s < b + 4 - 1e-6);
+    const pc = inB.length ? Math.min(...inB.map(n => n.n)) : A.key.root, n0 = low + (((pc - low) % E) + E) % E;
+    for (const [s, l, up] of rhy) if (b + s < A.L - 1e-6) out.push(N(b + s, Math.min(l, A.L - b - s), n0 + (up ? E : 0), up ? 0.8 : 0.95));
+  }
+  return sauce(out, { bar: A.bar, L: A.L, E, amount: amount * 0.6, R: rnd, only: ["oct", "ratchet", "chop"] }).notes;
+}
+function newSynth(name, label, like, vol) {
+  const ch = Engine.addChannel(synthType(name), label);
+  applyPreset(Engine, ch, name);
+  Object.assign(ch, { edo: like?.edo || 12, scale: { ...(like?.scale || {}) }, vol });
+  ch.params.fit = true;
+  return ch;
+}
+export function complete(opt = {}) {
+  let A = analyze();
+  const P = Engine.project, pat = A.pat, said = [], nodes = [], sz = opt.sauce ?? 0.5;
+  if (!A.synths.length && !Object.keys(A.drums).length) return { said: ["нарисуй хоть что-нибудь — мелодию синтом или ударные, остальное доделаю"], nodes };
+  const style = opt.style && opt.style !== "auto" ? opt.style : A.style, pr = prof(style);
+  nodes.push("s:" + style);
+  if (opt.style && opt.style !== "auto" && opt.tempo !== false && pr.bpm && Math.abs(P.bpm - pr.bpm) > 12) { P.bpm = pr.bpm; said.push(`темп ${pr.bpm} BPM`); }
+  // 1. ударные
+  if (!Object.keys(A.drums).length) {
+    const gn = grooveNotes(style, A.L, A.synths.map(x => x.ch.preset));
+    if (gn) { Object.assign(pat.notes, gn.notes); nodes.push("g:" + gn.id); said.push(`ударные: «${gn.name}»`); }
+    else said.push("ударные: " + drumsForStyle(style));
+    A = analyze();
+  }
+  const melodic = A.synths.filter(x => !/pad|пэд|sub|саб/i.test(x.ch.name) && !x.ch.subOf);
+  let first = melodic.filter(x => x !== A.bass).sort((a, b) => b.notes.length - a.notes.length)[0] || null;
+  let bassCh = A.bass?.ch || null;
+  // 2. бас по корням мелодии
+  if (!A.bass && first) {
+    const name = pickFriend(["s:" + style, first.ch.preset], pr.bass || DNB.bass, rnd, [first.ch.preset]);
+    bassCh = newSynth(name, "Bass ✨", first.ch, 0.75);
+    pat.notes[bassCh.id] = bassLine(A, first, style, sz);
+    nodes.push(name); said.push(`бас «${name}»: ритм стиля по корням мелодии`);
+  }
+  // 3. есть только бас — лид
+  if (!first && A.bass) {
+    const name = pickFriend(["s:" + style, A.bass.ch.preset], pr.lead || DNB.lead, rnd);
+    const ch = newSynth(name, "Lead ✨", A.bass.ch, 0.5), notes = sauce(arpNotes(A, ch, A.L, 0.7), { bar: A.bar, L: A.L, E: ch.edo || 12, amount: sz, R: rnd }).notes;
+    pat.notes[ch.id] = notes; first = { ch, notes };
+    nodes.push(name); said.push(`лид «${name}»: арпеджио по аккордам + соус`);
+  }
+  // 4. второй синт, который общается с первым
+  if (first && !melodic.some(x => x !== A.bass && x.ch !== first.ch)) {
+    const src = first.ch;
+    let ch;
+    if (src.type === "grapefruit") {
+      ch = cloneWub(Engine, src, (src.name.replace(/ ⇄.*$/, "") + " ⇄ ответ").slice(0, 24));
+      const gv = gfVariant(src.params, { amount: 0.75, role: "answer", cool: opt.levels?.cool ?? 0.5, from: src.preset, context: ["s:" + style], R: rnd });
+      Object.assign(ch.params, gv.params); ch.preset = undefined; ch.vol = (src.vol ?? 0.8) * 0.85;
+      nodes.push(gv.preset); said.push(`ответ «${ch.name}»: ` + gv.said.join(", "));
+    } else {
+      const name = pickFriend(["s:" + style, src.preset], (pr.lead || DNB.lead).concat(pr.osc3 || []), rnd, [src.preset]);
+      ch = newSynth(name, (src.name + " ⇄ " + name).slice(0, 24), src, (src.vol ?? 0.8) * 0.85);
+      nodes.push(name); said.push(`ответ «${name}»`);
+    }
+    const an = answerNotes(first.notes, { bar: A.bar, L: A.L, key: A.key, R: rnd, amount: sz });
+    pat.notes[ch.id] = sauce(an, { bar: A.bar, L: A.L, E: ch.edo || 12, amount: sz * 0.8, R: rnd }).notes;
+    said.push("второй синт отвечает в паузах первого (мотив на терцию/квинту/октаву) — с соусом");
+  }
+  // 5. саб под бас, жир на ударные
+  if (bassCh && !P.channels.some(c => c.subOf === bassCh.id)) addSub(bassCh, said);
+  for (const ch of P.channels) if (roleOf(ch) && pat.notes[ch.id]?.length && (ch.mix || 0) > 0 && !P.mixer[ch.mix]?.fx.length) fatten(ch, said);
+  Engine.touch({ channels: true, patterns: true, notes: true, mixer: true });
+  // 6. трек целиком
+  if (opt.track === false) return { said, nodes };
+  const r = compose({ ...opt, basis: "pattern" });
+  return { said: [...said, ...r.said], nodes: [...new Set([...nodes, ...r.nodes])], bars: r.bars };
 }
 
 /* брейки и дыры в готовом плейлисте: весь трек или участок от маркера ▼; плотность 0..1 */
-export function addBreaks(scope = "all", density = 0.4, bars = 8) {
+export function addBreaks(scope = "all", density = 0.4, bars = 8, x = 0.5) {
   const P = Engine.project, prev = P.cur, from = scope === "region" ? P.songStart || 0 : 0, to = scope === "region" ? from + bars * 4 : Infinity;
   const made = {}, variant = (pid, kind) => {
     const key = pid + "|" + kind;
     if (made[key]) return made[key];
     const A = analyze(pid);
-    const notes = kind === "holes" ? holesNotes(A, A.pat.notes, density, A.wub?.ch.id) : fillNotes(A, kind);
+    const notes = kind === "holes" ? holesNotes(A, A.pat.notes, density, A.wub?.ch.id) : fillNotes(A, kind, A.pat.notes, x);
     return made[key] = mkPat(`✨ ${A.pat.name} · ${kind === "holes" ? "дыры" : FILLS[kind]}`, A, A.L, notes, "#fff09e");
   };
   let n = 0;
@@ -602,7 +817,7 @@ export function addBreaks(scope = "all", density = 0.4, bars = 8) {
     if (!pat || /^✨ (Fill|Build|Impact|Pad|Hats|Arp)/.test(pat.name) || / · /.test(pat.name)) continue;
     if (!Object.entries(pat.notes).some(([id, L]) => L.length && isDrum(Engine.chan(id)))) continue;
     if (rnd() > density) continue;
-    const kind = rnd() < density * 0.5 ? "holes" : pick(Object.keys(FILLS));
+    const kind = rnd() < density * 0.5 ? "holes" : pick(Object.keys(FILLS).filter(k => k !== "swap" && (x >= 0.2 || !EXTREME.includes(k))));
     const v = variant(c.p, kind); c.p = v.id; c.l = Engine.patLength(v.id); n++;
   }
   Engine.selectPattern(prev);
@@ -632,8 +847,12 @@ export const MAGIC_PRESETS = {
   "Жёсткий риддим": { sections: ALL, size: 8, drops: 2, levels: LV(0.9, 0.8, 0.95, 0.15, 0.6, 0.7) },
   "Мелодичный": { sections: ALL, size: 8, drops: 2, levels: LV(0.4, 0.4, 0.3, 0.95, 0.6, 0.2) },
   "Долгий саспенс": { sections: ALL, size: 8, drops: 2, levels: LV(0.6, 0.5, 0.5, 0.5, 1, 0.3) },
+  "⚡ DnB бодрый (интро в 2 паттерна)": { sections: ALL, size: 8, drops: 2, style: "dnb", introLen: 2, buildPats: 2, pace: 0.65, sauce: 0.65, extreme: 0.6, riser: true, pad: false,
+    levels: LV(0.6, 0.6, 0.6, 0.45, 0.3, 0.45) },
+  "⚡ DnB танцпол (жёсткие брейки)": { sections: ALL, size: 8, drops: 2, style: "dnb", introLen: 2, buildPats: 1, pace: 0.8, sauce: 0.8, extreme: 0.9, riser: true, pad: false,
+    levels: LV(0.8, 0.7, 0.75, 0.3, 0.2, 0.6) },
 };
-const MAGIC_KEYS = ["intro", "build", "sections", "size", "drops", "mode", "basis", "regionBars", "levels", "pad", "riser", "impact", "fills", "slow", "style"];
+const MAGIC_KEYS = ["intro", "build", "sections", "size", "drops", "mode", "basis", "regionBars", "levels", "pad", "riser", "impact", "fills", "slow", "style", "pace", "sauce", "extreme", "introLen", "buildPats", "tempo"];
 
 /* ======================= окно «Магия» ======================= */
 export const MAGIC = {
@@ -645,13 +864,14 @@ export const MAGIC = {
     const body = el("div", { className: "dw-magic-body" });
     root.append(body);
     const opt = { sections: { ...ALL }, size: 8, drops: 2, mode: "append", basis: "pattern", regionBars: 8, levels: LV(0.5, 0.5, 0.5, 0.5, 0.5, 0.4),
-      pad: true, riser: true, impact: true, fills: true, slow: true, style: "auto", brScope: "all", brDensity: 0.4 };
+      pad: true, riser: true, impact: true, fills: true, slow: true, style: "auto", brScope: "all", brDensity: 0.4,
+      pace: 0.5, sauce: 0.5, extreme: 0.5, introLen: 0, buildPats: 0, tempo: true };
     const slider = (obj, k, label, hint, fmt = v => Math.round(v * 100) + "%") => {
       const val = el("span", { className: "dw-dim no-i18n", textContent: fmt(obj[k]) });
       const r = el("input", { type: "range", min: 0, max: 1, step: 0.05, value: obj[k], title: hint, oninput: () => { obj[k] = +r.value; val.textContent = fmt(obj[k]); } });
       return el("label", { className: "dw-magic-lv", title: hint }, el("span", { textContent: label }), r, val);
     };
-    let report = null, preset = null;
+    let report = null, preset = null, lastNodes = null;
     function build() {
       const A = analyze(), P = Engine.project;
       const keyName = `${["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][A.key.E === 12 ? A.key.root : 0] || ""}${A.key.E !== 12 ? A.key.root + "/" + A.key.E + "-EDO" : ""} ${A.key.mode}`;
@@ -677,7 +897,15 @@ export const MAGIC = {
             preset ? el("span", { className: "dw-dim no-i18n", textContent: preset }) : "",
             dwBtn("⭐", () => { const n = prompt("Имя своего набора настроек:", preset?.replace(/^★ /, "") || ""); const s = n && UserLib.put("magic", n, Object.fromEntries(MAGIC_KEYS.map(k => [k, opt[k]]))); if (s) { preset = "★ " + s; build(); } }, { title: "Сохранить эти настройки как свой пресет" }),
             preset?.startsWith("★ ") ? dwBtn("🗑", () => { if (UserLib.del("magic", preset.slice(2))) { preset = null; build(); } }, { title: "Удалить свой пресет", className: "dw-btn dw-x" }) : ""),
-          el("div", { className: "dw-magic-lvs" }, ...Object.entries(LEVELS).map(([k, [l, h]]) => slider(opt.levels, k, l, h))),
+          el("div", { className: "dw-pr-tools" },
+            select(Object.entries(STYLES), opt.style, v => { opt.style = v; }, "Стиль трека: грувы, синты дропов, длины интро и нарастаний (Авто — по паттерну)"),
+            chk(opt, "tempo", "Темп под стиль"),
+            select([[0, "Интро: авто"], [1, "Интро: 1 паттерн"], [2, "Интро: 2 паттерна"], [4, "Интро: 4 паттерна"], [8, "Интро: 8 паттернов"]], opt.introLen, v => { opt.introLen = +v; }, "Длина интро"),
+            select([[0, "Нарастание: авто"], [1, "Нарастание: 1 паттерн"], [2, "Нарастание: 2 паттерна"], [4, "Нарастание: 4 паттерна"]], opt.buildPats, v => { opt.buildPats = +v; }, "Длина нарастания с райзером")),
+          el("div", { className: "dw-magic-lvs" }, ...Object.entries(LEVELS).map(([k, [l, h]]) => slider(opt.levels, k, l, h)),
+            slider(opt, "pace", "Скорость смен", "Как часто меняются синты, грувы и вариации; короче фразы — чаще брейки"),
+            slider(opt, "sauce", "Соус", "Срывы на октаву, зацикленные ноты 1/16–1/32, укороченные и удлинённые, перегруппировка по 3/4 — всё вместе"),
+            slider(opt, "extreme", "Экстрим брейков", "Длина брейков, дробление до 1/32, глитч, остановка плёнки, срыв в другой синт")),
           el("div", { className: "dw-magic-grid" }, ...Object.entries(SECTIONS).map(([k, l]) => el("div", { className: "dw-magic-sec" }, chk(opt.sections, k, l),
             dwBtn("＋", () => run({ ...opt, sections: { [k]: true }, drops: k === "drop" ? 1 : opt.drops, mode: "append" }), { title: "Добавить только эту часть в конец плейлиста" })))),
           el("div", { className: "dw-magic-grid" }, chk(opt, "pad", "Пэд по басу (+ сайдчейн от бочки)"), chk(opt, "riser", "Райзер в нарастании"),
@@ -691,6 +919,17 @@ export const MAGIC = {
             select([["append", "В конец плейлиста"], ["replace", "Заменить плейлист"]], opt.mode, v => { opt.mode = v; }, "Куда"),
             dwBtn("✨ Достроить", () => run(opt), { className: "dw-btn on" }),
             dwBtn("🎲", () => { seed = Math.floor(Math.random() * 1e6); notify("🎲 Новое зерно — следующий вариант будет другим"); }, { title: "Другой случайный вариант" }))),
+        el("div", { className: "dw-magic-card" },
+          el("h4", { textContent: "🪄 Доделать всё" }),
+          el("div", { className: "dw-dim", textContent: "Смотрит, что уже есть в паттерне, и добавляет остальное: ударные стиля, бас по мелодии, второй синт, который отвечает первому, саб, жир — и собирает трек с интро, нарастанием, дропами и брейками (настройки — из блока выше)." }),
+          el("div", { className: "dw-pr-tools" },
+            dwBtn("🪄 Доделать всё", () => {
+              seed = (seed * 7919 + Date.now()) % 1e9;
+              const r = complete(opt);
+              lastNodes = r.nodes; report = [...(r.bars ? [`${Math.round(r.bars)} тактов в плейлисте`] : []), ...r.said];
+              notify("🪄 Доделано — смотри плейлист"); build();
+            }, { className: "dw-btn on" }),
+            dwBtn("🪄 Только паттерн", () => { seed = (seed * 7919 + Date.now()) % 1e9; const r = complete({ ...opt, track: false }); lastNodes = r.nodes; report = r.said; notify("🪄 Паттерн доделан"); build(); }, { title: "Добавить недостающие партии в текущий паттерн, без трека" }))),
         el("div", { className: "dw-magic-card" },
           el("h4", { textContent: "🚀 Продюсер — одной кнопкой" }),
           el("div", { className: "dw-dim", textContent: "Нарисуй пару нот синтом и нажми: под них лягут ударные (если их нет), саб-бас, жир на ударные, автоматизация и два паттерна с соседним синтом — перекличка и переход." }),
@@ -709,15 +948,20 @@ export const MAGIC = {
           el("div", { className: "dw-pr-tools" },
             select([["all", "Брейки: весь трек"], ["region", "Брейки: участок от маркера ▼"]], opt.brScope, v => { opt.brScope = v; }, "Где добавлять брейки"),
             slider(opt, "brDensity", "Плотность", "Чем больше — тем чаще брейки и выпадения: трек «дырявее»"),
-            dwBtn("💥 Добавить брейки", () => { const n = addBreaks(opt.brScope, opt.brDensity, opt.regionBars); notify(n ? `💥 Брейков и дыр: ${n}` : "💥 Подходящих клипов не нашлось"); }, { title: "Клипы с ударными заменяются брейками и «дырами» с выбранной плотностью" })),
+            slider(opt, "extreme", "Экстрим", "Длина и безумие брейков"),
+            dwBtn("💥 Добавить брейки", () => { const n = addBreaks(opt.brScope, opt.brDensity, opt.regionBars, opt.extreme); notify(n ? `💥 Брейков и дыр: ${n}` : "💥 Подходящих клипов не нашлось"); }, { title: "Клипы с ударными заменяются брейками и «дырами» с выбранной плотностью" })),
           el("div", { className: "dw-pr-tools" },
-            ...Object.entries(FILLS).map(([k, l]) => dwBtn("＋ " + l, () => { const A2 = analyze(), prev = P.cur; const p = mkPat("✨ Fill · " + l, A2, A2.L, fillNotes(A2, k), "#fff09e"); Engine.selectPattern(prev); Engine.touch({ patterns: true }); notify("Паттерн «" + p.name + "» добавлен"); }, { title: "Брейк паттерном (концовка текущего)" })))),
-        report ? el("div", { className: "dw-magic-card dw-magic-report" }, el("h4", { textContent: "✅ Готово — что я добавил" }), el("ul", {}, ...report.map(s => el("li", { textContent: s })))) : "");
+            ...Object.entries(FILLS).map(([k, l]) => dwBtn("＋ " + l, () => { const A2 = analyze(), prev = P.cur; const p = mkPat("✨ Fill · " + l, A2, A2.L, fillNotes(A2, k, A2.pat.notes, opt.extreme), "#fff09e"); Engine.selectPattern(prev); Engine.touch({ patterns: true }); notify("Паттерн «" + p.name + "» добавлен"); }, { title: "Брейк паттерном (концовка текущего)" })))),
+        report ? el("div", { className: "dw-magic-card dw-magic-report" }, el("h4", { textContent: "✅ Готово — что я добавил" }), el("ul", {}, ...report.map(s => el("li", { textContent: s }))),
+          lastNodes?.length > 1 ? el("div", { className: "dw-pr-tools" },
+            dwBtn("👍 Звучит — запомнить связи", () => { const n = like(lastNodes, 0.15); lastNodes = null; notify(`👍 Связей усилено между ${n} синтами/грувами — дальше буду подбирать похожее`); build(); }, { title: "Граф «что с чем дружит»: эти синты, грувы и стиль будут чаще выбираться вместе" }),
+            dwBtn("👎 Не то", () => { like(lastNodes, -0.12); lastNodes = null; notify("👎 Запомнил — такие сочетания буду брать реже"); build(); })) : "") : "");
     }
     function run(o) {
       if (!Object.values(o.sections).some(Boolean)) return notify("Выбери хотя бы одну часть");
       seed = (seed * 7919 + Date.now()) % 1e9;   // каждый запуск — свой вариант
       const r = compose(o);
+      lastNodes = r.nodes;
       report = [`${Math.round(r.bars)} тактов в плейлисте`, ...r.said];
       notify("✨ Композиция достроена — смотри плейлист");
       build();
