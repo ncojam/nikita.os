@@ -108,7 +108,7 @@ const transport = {
     const exportB = dwBtn("⬇ WAV", async () => {
       exportB.disabled = true; exportB.textContent = "⏳ рендер…";
       try {
-        const blob = await Engine.render();
+        const blob = await Engine.render(t => { exportB.textContent = "⏳ " + t; });
         const a = el("a", { href: URL.createObjectURL(blob), download: (Engine.project.name || "dawn") + ".wav" });
         document.body.append(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 30000);

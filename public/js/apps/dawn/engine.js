@@ -541,7 +541,46 @@ export const Engine = {
   },
 
   /* ---------- рендер в WAV ---------- */
+  /* offline-рендер с модуляцией ставит рендер на паузу каждый тик (suspend) — Firefox этого не умеет:
+   * тогда — запасной путь: песня играется вживую, выход записывается в WAV (ScriptProcessor, звук при этом идёт) */
   async render(onProgress) {
+    try {
+      const r = await this.renderOffline(onProgress);
+      if (r) return r;
+    } catch (e) { console.warn("offline render failed, recording live", e); }
+    return this.renderLive(onProgress);
+  },
+  async renderLive(onProgress) {
+    this.init();
+    await this.preload();
+    const P = this.project, ctx = this.ctx, song = P.playlist.length > 0;
+    if (ctx.state === "suspended") await ctx.resume();
+    if (this.playing) this.stop();
+    const sec = (song ? songLen(P) : this.patLength()) * this.beatDur();
+    const node = ctx.createScriptProcessor(4096, 2, 2), sink = ctx.createGain(), L = [], R = [];
+    sink.gain.value = 0;
+    node.onaudioprocess = e => { L.push(new Float32Array(e.inputBuffer.getChannelData(0))); R.push(new Float32Array(e.inputBuffer.getChannelData(1))); };
+    this.G.analyser.connect(node); node.connect(sink); sink.connect(ctx.destination);
+    const start = P.songStart, mode = P.mode;
+    P.songStart = 0; if (song) P.mode = "song";
+    this.play();
+    const t0 = performance.now();
+    await new Promise(res => { const iv = setInterval(() => {
+      const el = (performance.now() - t0) / 1000;
+      onProgress?.(`запись ${Math.min(100, Math.round(el / sec * 100))}%`);
+      if (el >= sec) { clearInterval(iv); res(); }
+    }, 250); });
+    this.playing = false; clearInterval(this.timer); this.timer = null; this.emit("stop");   // без глушения — хвосты дозвучат
+    await new Promise(res => setTimeout(res, 1500));
+    try { this.G.analyser.disconnect(node); } catch {}
+    node.disconnect(); sink.disconnect();
+    P.songStart = start; P.mode = mode;
+    const len = L.reduce((n, b) => n + b.length, 0), join = arr => { const out = new Float32Array(len); let o = 0; for (const b of arr) { out.set(b, o); o += b.length; } return out; };
+    const ch = [join(L), join(R)];
+    let i0 = 0; while (i0 < len && Math.abs(ch[0][i0]) < 1e-4 && Math.abs(ch[1][i0]) < 1e-4) i0++;   // тишина до первой ноты
+    return encodeWav({ numberOfChannels: 2, length: len - i0, sampleRate: ctx.sampleRate, getChannelData: c => ch[c].subarray(i0) });
+  },
+  async renderOffline(onProgress) {
     this.init();
     await this.preload();
     const P = this.project, song = P.playlist.length > 0;
@@ -554,14 +593,19 @@ export const Engine = {
     const rt = q => ({ now: q, notes: id => log[id] || [], meter: () => 0 });
     const td = this.stepDur(), mode = song ? "song" : "pat", hasMods = (P.mods || []).some(m => m.wires?.length);
     // каждый тик рендер приостанавливается: считаем модуляцию (огибающие, LFO) и ставим ноты — как вживую
+    let bad = null;
     for (let k = 0, beat = 0; beat < lenBeats - 1e-9; k++, beat += TICK) {
       const t = 0.02 + k * td, b = beat;
       if (!hasMods) { playTick(G, P, mode, b, t); continue; }
       const q = Math.floor(Math.max(0, t - 0.005) * sr / 128) * 128 / sr;   // кратно 128 сэмплам
-      oc.suspend(q).then(() => { G.applyOver(computeOver(P, b, null, b, rt(q))); playTick(G, P, mode, b, t); oc.resume(); });
+      if (bad) break;
+      try { oc.suspend(q).then(() => { G.applyOver(computeOver(P, b, null, b, rt(q))); playTick(G, P, mode, b, t); oc.resume(); }, e => { bad ||= e; }); }
+      catch (e) { bad = e; }
     }
+    if (bad) return null;
     onProgress?.("рендер…");
     const buf = await oc.startRendering();
+    if (bad) return null;   // часть пауз отклонена — ноты не встали, пишем вживую
     return encodeWav(buf);
   },
 
