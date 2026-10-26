@@ -16,7 +16,8 @@ const WM = {
   /* панели приложений сверху (класс .wm-reserve-top, напр. док DAWN) — окна под них не заезжают */
   reservedTop() {
     let b = 0;
-    for (const e of document.querySelectorAll(".wm-reserve-top")) if (!e.hidden && e.offsetParent !== null) b = Math.max(b, e.getBoundingClientRect().bottom);
+    // offsetParent у position: fixed всегда null — видимость проверяем по размерам
+    for (const e of document.querySelectorAll(".wm-reserve-top")) { const r = e.getBoundingClientRect(); if (!e.hidden && r.height > 0) b = Math.max(b, r.bottom); }
     return b;
   },
 
@@ -227,7 +228,7 @@ const WM = {
     const id = ++this.seq;
     const vw = innerWidth, vh = innerHeight - 70;
     width = Math.min(width, vw - 20);
-    height = Math.min(height, vh - 20);
+    height = Math.min(height, vh - 20 - this.reservedTop());   // новое окно — ниже верхней панели (док DAWN)
     const off = (this.wins.size % 8) * 28;
     const left = Math.max(10, (vw - width) / 2 - 100 + off);
     const top = Math.max(10 + this.reservedTop(), (vh - height) / 2 - 60 + off);
@@ -245,8 +246,9 @@ const WM = {
     const titlebar = el("div", { className: "titlebar" },
       iconEl, titleEl, el("div", { className: "controls" }, bMin, bMax, bClose));
     const content = el("div", { className: "content" });
-    const resize = el("div", { className: "resize" });
-    const node = el("div", { className: "window glass" }, titlebar, content, resize);
+    // размер тянется за любой край и угол
+    const grips = ["n", "s", "e", "w", "ne", "nw", "se", "sw"].map(d => el("div", { className: "resize rz-" + d }));
+    const node = el("div", { className: "window glass" }, titlebar, content, ...grips);
     Object.assign(node.style, px({ left, top, width, height }));
 
     const task = el("button", { className: "task", title },
@@ -275,7 +277,7 @@ const WM = {
     };
 
     this.makeDraggable(w, titlebar);
-    this.makeResizable(w, resize);
+    for (const g of grips) this.makeResizable(w, g, g.className.split("rz-")[1]);
     render?.(content, w);
     this.focus(w);
 
@@ -391,12 +393,12 @@ const WM = {
         start = { ...r, left: e.clientX - r.width * ratio, top: Math.max(0, e.clientY - 20) };
         Object.assign(n.style, px(start));
       }
-      const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop, rt = this.reservedTop();
+      const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop;
       handle.setPointerCapture(e.pointerId);
       const move = ev => {
         this.breakArrange(); // окно сдвинули руками — раскладка больше не «сетка»
         const x = Math.min(Math.max(ev.clientX - sx, -n.offsetWidth + 80), innerWidth - 80);
-        const y = Math.min(Math.max(ev.clientY - sy, rt), innerHeight - 60);   // под верхнюю панель (док DAWN) не заезжаем
+        const y = Math.min(Math.max(ev.clientY - sy, 0), innerHeight - 60);   // руками можно и под верхнюю панель; прилипание — к её краю
         // прилипание (Alt — двигать свободно)
         const s = ev.altKey ? { x, y } : this.snapMove(w, x, y, n.offsetWidth, n.offsetHeight);
         n.style.left = s.x + "px"; n.style.top = s.y + "px";
@@ -411,7 +413,7 @@ const WM = {
     });
   },
 
-  makeResizable(w, handle) {
+  makeResizable(w, handle, dir = "se") {
     handle.addEventListener("pointerdown", e => {
       e.stopPropagation();
       const n = w.node;
@@ -421,12 +423,22 @@ const WM = {
       const sx = e.clientX, sy = e.clientY, sw = n.offsetWidth, sh = n.offsetHeight;
       handle.setPointerCapture(e.pointerId);
       const x0 = n.offsetLeft, y0 = n.offsetTop;
+      const right = x0 + sw, bottom = y0 + sh;
       const move = ev => {
-        let R = x0 + Math.max(300, sw + ev.clientX - sx);
-        let B = y0 + Math.max(180, sh + ev.clientY - sy);
-        if (!ev.altKey) ({ R, B } = this.snapResize(w, x0, y0, R, B));
-        n.style.width = Math.max(300, R - x0) + "px";
-        n.style.height = Math.max(180, B - y0) + "px";
+        const dx = ev.clientX - sx, dy = ev.clientY - sy, A = this.area(), T = this.SNAP, g = +this.cfg.gap || 0;
+        let L = x0, Tp = y0, R = right, B = bottom;
+        if (dir.includes("e")) R = x0 + Math.max(300, sw + dx);
+        if (dir.includes("s")) B = y0 + Math.max(180, sh + dy);
+        if (dir.includes("w")) L = Math.min(right - 300, x0 + dx);
+        if (dir.includes("n")) Tp = Math.max(0, Math.min(bottom - 180, y0 + dy));
+        if (!ev.altKey) {
+          if (dir.includes("e") || dir.includes("s")) ({ R, B } = this.snapResize(w, L, Tp, R, B));
+          if (dir.includes("w") && Math.abs(L - A.left - g) < T) L = A.left + g;
+          if (dir.includes("n") && Math.abs(Tp - A.top - g) < T) Tp = A.top + g;
+        }
+        n.style.left = L + "px"; n.style.top = Tp + "px";
+        n.style.width = Math.max(300, R - L) + "px";
+        n.style.height = Math.max(180, B - Tp) + "px";
       };
       const up = () => {
         handle.removeEventListener("pointermove", move);
