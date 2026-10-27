@@ -1173,3 +1173,78 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .dw-hscroll { position: relative; height: 12px; margin: 3px 4px 2px 74px; border-radius: 6px; background: rgba(0,0,0,.25); cursor: pointer; flex: none; }
 .dw-hs-thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; background: var(--dw-lemon, #fff09e); opacity: .7; cursor: grab; }
 .dw-hs-thumb:hover { opacity: 1; }
+
+/* ---------- Находки (apps/finds.js) ---------- */
+.fd { --fd-bump: #7ee0a8; --fd-dump: #ff8a8a;
+  position: relative; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.fd-dim { color: var(--muted); }
+.fd-pad { padding: 14px; margin: 0; }
+.fd-sp { flex: 1; }
+.fd-top { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--glass-border);
+  overflow-x: auto; flex: none; }
+.fd-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--glass-border); font: inherit; white-space: nowrap;
+  transition: background .15s, border-color .15s; }
+.fd-chip:hover { background: rgba(255,255,255,0.11); }
+.fd-chip.on { background: rgba(138,180,255,0.22); border-color: rgba(138,180,255,0.55); }
+.fd-chip.add { padding: 6px 11px; color: var(--muted); }
+.fd-badge { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #0b0b12; }
+.fd-me { margin-left: auto; padding-left: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.fd-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--glass-border); flex: none; min-height: 46px; }
+.fd-tab { background: none; border: 0; color: var(--muted); font: inherit; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+.fd-tab:hover { color: var(--text); }
+.fd-tab.on { color: var(--text); background: rgba(255,255,255,0.08); }
+.fd-btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 11px; border-radius: 9px; cursor: pointer; text-decoration: none;
+  background: rgba(255,255,255,0.07); color: var(--text); border: 1px solid var(--glass-border); font: inherit; font-size: 13px; white-space: nowrap; }
+.fd-btn:hover { background: rgba(255,255,255,0.13); }
+.fd-btn.primary { background: rgba(138,180,255,0.25); }
+.fd-btn.primary:hover { background: rgba(138,180,255,0.38); }
+.fd-btn.danger { color: var(--fd-dump); }
+.fd-main { flex: 1; display: flex; min-height: 0; }
+.fd-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fd-player { width: 340px; flex: none; border-left: 1px solid var(--glass-border); padding: 12px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.fd-embed { width: 100%; border-radius: 12px; overflow: hidden; background: rgba(0,0,0,0.35); }
+.fd-embed.yt { aspect-ratio: 16 / 9; }
+.fd-embed.sc { height: 300px; }
+.fd-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
+.fd-noembed { padding: 16px; color: var(--muted); font-size: 13px; }
+.fd-card { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 12px; cursor: pointer;
+  border: 1px solid transparent; transition: background .15s; }
+.fd-card:hover { background: rgba(255,255,255,0.05); }
+.fd-card.playing { background: rgba(138,180,255,0.12); border-color: rgba(138,180,255,0.35); }
+.fd-thumb { position: relative; width: 96px; height: 54px; flex: none; border-radius: 8px; overflow: hidden; display: grid; place-items: center;
+  background: linear-gradient(135deg, rgba(255,80,80,.25), rgba(255,255,255,.04)); }
+.fd-thumb.sc { width: 54px; background: linear-gradient(135deg, rgba(255,140,40,.3), rgba(255,255,255,.04)); }
+.fd-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.fd-play { position: relative; font-size: 14px; color: #fff; text-shadow: 0 1px 4px #000; opacity: .85; }
+.fd-info { flex: 1; min-width: 0; }
+.fd-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; user-select: text; }
+.fd-artist-name { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.fd-meta { color: var(--muted); font-size: 11.5px; opacity: .8; }
+.fd-why { font-size: 11.5px; color: #c9b8ff; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-acts { display: flex; gap: 4px; flex: none; }
+.fd-vote { padding: 5px 9px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+  background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--glass-border); }
+.fd-vote:hover { color: var(--text); background: rgba(255,255,255,0.12); }
+.fd-vote.bump { color: var(--fd-bump); }
+.fd-vote.bump:hover { background: color-mix(in srgb, var(--fd-bump) 22%, transparent); }
+.fd-vote.dump { color: var(--fd-dump); }
+.fd-vote.dump:hover { background: color-mix(in srgb, var(--fd-dump) 22%, transparent); }
+.fd-sep { color: var(--muted); font-size: 12px; padding: 14px 8px 4px; }
+.fd-artist { color: var(--accent); font-size: 13px; padding: 4px 8px; text-decoration: none; }
+.fd-empty { margin: auto; max-width: 420px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 8px; align-items: center; padding: 20px; }
+.fd-pubhead { font-size: 15px; }
+.fd-overlay { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; background: rgba(0,0,0,0.45); }
+.fd-form { width: min(460px, calc(100% - 32px)); padding: 16px; border-radius: var(--radius); display: flex; flex-direction: column; gap: 8px; }
+.fd-form h3 { margin: 0 0 4px; font-size: 15px; }
+.fd-in { width: 100%; padding: 8px 10px; border-radius: 9px; font: inherit; resize: vertical; user-select: text;
+  background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--glass-border); outline: none; }
+.fd-in:focus { border-color: rgba(138,180,255,.6); }
+.fd-in.mono { font: 12px ui-monospace, monospace; }
+.fd-row { display: flex; gap: 6px; align-items: center; }
+@media (max-width: 720px) {
+  .fd-main { flex-direction: column-reverse; }
+  .fd-player { width: auto; border-left: 0; border-bottom: 1px solid var(--glass-border); max-height: 45%; }
+  .fd-vote.bump, .fd-vote.dump { padding: 5px 7px; }
+}

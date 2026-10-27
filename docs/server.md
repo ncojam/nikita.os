@@ -13,6 +13,7 @@
 | `forum.py` | `Forum` | `ufs/.meta/forum.json`, `.meta/forum_media/` | Форум Kursk Artists |
 | `airhockey.py` | `AirHockey` | `NOS_DATA` (таблица рекордов) | Арена «Джус» |
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
+| `finds.py` | `Finds` | `NOS_DATA/finds.db` (SQLite, WAL) | «Находки»: плейлисты по настроениям (до 6 на аккаунт), лента от домашнего воркера, bump/dump. Сам никуда не ходит |
 
 ## Эндпоинты
 
@@ -40,6 +41,13 @@
 | GET/POST | `/api/mod/reports`, `/api/mod/show/{id}?token=` | posts | Модерация, только с `NOS_ADMIN_TOKEN` (без него — 404) |
 | * | `/api/forum/...`, `/media/f/{id}` | forum | См. [browser.md](browser.md) |
 | * | маршруты `AirHockey.routes` | airhockey | WS арены, таблица рекордов |
+| GET | `/finds/...` | server | `index.html` — «Находки»; `/finds/<id>` — публичный плейлист |
+| GET | `/api/finds/mine` | finds | Кто я, мои плейлисты, лимит |
+| POST/PATCH/DELETE | `/api/finds/pl`, `/api/finds/pl/{id}` | finds | Плейлист `{name, descr, examples:[url]}` (только владелец) |
+| GET | `/api/finds/feed/{id}` | finds | Лента без голосов, до 20 (владелец) |
+| POST | `/api/finds/vote` `{pl, track, v}` | finds | 1 — bump, −1 — dump, 0 — снять |
+| GET | `/api/finds/pub/{id}` | finds | Публичный плейлист: bump-треки и примеры, без входа |
+| GET/POST | `/api/finds/w/state`, `/api/finds/w/push` | finds | Домашний воркер, заголовок `X-Finds-Token` = `NOS_FINDS_TOKEN` (без него — 404) |
 
 ## Пути и безопасность
 

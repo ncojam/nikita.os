@@ -28,3 +28,4 @@ export const createPost = lazy("./post.js", "createPost");
 export const reportPostByPath = lazy("./post.js", "reportPostByPath");
 export const openAirHockey = lazy("./airhockey.js", "openAirHockey");
 export const openDawn = lazy("./dawn/index.js", "openDawn");
+export const openFinds = lazy("./finds.js", "openFinds");

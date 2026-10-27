@@ -48,5 +48,10 @@ if (location.pathname === "/dawn" || location.pathname.startsWith("/dawn/")) {
   const p = decodeURIComponent(location.pathname.slice(5));
   import("./apps/dawn/index.js").then(m => m.openDawn(p && p !== "/" ? p : undefined));
 }
+else if (location.pathname === "/finds" || location.pathname.startsWith("/finds/")) {
+  // /finds — «Находки»; /finds/<id> — публичный плейлист
+  const id = location.pathname.slice(7).replace(/\/+$/, "");
+  import("./apps/finds.js").then(m => m.openFinds({ pub: id || undefined }));
+}
 else if (location.pathname.startsWith("/browser")) openBrowser(decodeURIComponent(location.pathname.slice(8).replace(/^\/+/, "")) + location.search);
 else openExplorer("/home/nikita/Projects");

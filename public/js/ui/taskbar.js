@@ -1,7 +1,7 @@
 import { D, EASE } from "../core/anim.js";
 import { $ } from "../core/util.js";
 import { openAbout } from "../open.js";
-import { openBrowser, openDawn, openExplorer, openSettings } from "../apps/lazy.js";
+import { openBrowser, openDawn, openExplorer, openFinds, openSettings } from "../apps/lazy.js";
 import { WM } from "../wm.js";
 
 /* ================= пуск (с анимацией) ================= */
@@ -65,6 +65,7 @@ export function init_ui_taskbar() {
     if (b.dataset.app === "settings") openSettings();
     if (b.dataset.app === "browser") openBrowser();
     if (b.dataset.app === "dawn") openDawn();
+    if (b.dataset.app === "finds") openFinds();
     toggleStart(false);
   });
 

@@ -787,8 +787,13 @@ def make_app():
     from forum import Forum
     app["forum"] = Forum(UFS_ROOT, app["chat"].user_by_token)
     app["forum"].routes(app)
+    # находки: плейлисты по настроениям + лента от домашнего воркера (NOS_FINDS_TOKEN)
+    from finds import Finds
+    app["finds"] = Finds(DATA_DIR / "finds.db", app["chat"].user_by_token, client_ip)
+    app["finds"].routes(app)
     app.router.add_get("/browser{tail:(/.*)?}", serve_browser)  # прямые ссылки -> та же ОС, браузер откроет адрес
     app.router.add_get("/dawn{tail:(/.*)?}", serve_browser)     # /dawn и /dawn/<путь к .dawn> -> ОС откроет DAWN
+    app.router.add_get("/finds{tail:(/.*)?}", serve_browser)    # /finds/<id> -> публичный плейлист находок
     app.router.add_get("/fs/{tail:.*}", serve_fs)
     app.router.add_get("/{tail:.*}", serve_public)
     return app

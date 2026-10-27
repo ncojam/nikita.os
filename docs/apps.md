@@ -14,6 +14,7 @@
 | Чат | `apps/chat.js` | `app: "chat"` |
 | Браузер | `apps/browser.js` | `app: "browser"` (`path` — стартовый адрес), см. [browser.md](browser.md) |
 | DAWN | `apps/dawn/` | `app: "dawn"`, файлы `.dawn`, `/dawn/<путь>`; каждый модуль — отдельное окно (стойка, пиано ролл, плейлист, микшер, модуляция, педали, библиотека, магия, мои проекты…), см. [dawn.md](dawn.md) |
+| Находки | `apps/finds.js`, `finds.py` | Пуск → «Находки», `app: "finds"` (`path` — id публичного плейлиста), `/finds/<id>`. Плейлисты-чипы, лента и плейлист, bump/dump, плеер YouTube/SoundCloud в `iframe credentialless` (в Firefox — ссылка на сайт) |
 | Настройки | `apps/settings.js` | вкладки: обои, живой фон (+ качество), окна, мои файлы, язык |
 | Джус (аэро-арканоид) | `apps/airhockey.js`, `airhockey.py`, `public/tg.html` | `app: "airhockey"`; также Telegram Mini App |
 | «Загрузчик» | `apps/fakedl.js`, `server.py: serve_grab` | ярлык `{app:"fakedl", file, size}` |

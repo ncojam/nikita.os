@@ -18,6 +18,7 @@ services:
     environment:
       TRUST_PROXY: "1"            # адрес посетителя берём из X-Forwarded-For от nginx/Caddy
       TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}   # токен бота для Telegram Mini App «Джус» (ники из Телеги)
+      NOS_FINDS_TOKEN: ${NOS_FINDS_TOKEN:-}   # ключ домашнего воркера «Находок» (пусто — API воркера выключен)
     volumes:
       - ./fs:/app/fs:ro           # сайт не может ничего изменить в твоих файлах
       - plays:/data
