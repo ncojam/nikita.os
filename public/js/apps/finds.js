@@ -30,10 +30,13 @@ async function api(path, opts = {}) {
 }
 
 const src = id => id.startsWith("yt:") ? "yt" : "sc";
+// enablejsapi / виджет SoundCloud — чтобы плеер присылал postMessage о конце трека (автопереход)
+const YT_ORIGIN = "https://www.youtube-nocookie.com", SC_ORIGIN = "https://w.soundcloud.com";
 const embedUrl = id => src(id) === "yt"
-  ? `https://www.youtube-nocookie.com/embed/${id.slice(3)}?autoplay=1&rel=0`
-  : `https://w.soundcloud.com/player/?url=${encodeURIComponent("https://soundcloud.com/" + id.slice(3))}` +
+  ? `${YT_ORIGIN}/embed/${id.slice(3)}?autoplay=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`
+  : `${SC_ORIGIN}/player/?url=${encodeURIComponent("https://soundcloud.com/" + id.slice(3))}` +
     "&auto_play=true&visual=true&hide_related=true&show_comments=false&show_teaser=false";
+const DRAG_TYPE = "application/x-nos-finds-track";
 const FILL_NOTE = "Ленты пополняет скрипт, который админ запускает вручную время от времени, — новые треки появляются не сразу.";
 const thumbOf = t => t.thumb || (src(t.id) === "yt" ? `https://i.ytimg.com/vi/${t.id.slice(3)}/mqdefault.jpg` : "");
 // у трека без метаданных (пример по ссылке) — хоть что-то читаемое из id
@@ -68,6 +71,10 @@ class FindsApp {
     this.player = el("div", { className: "fd-player" });
     this.root.append(this.top, this.bar, el("div", { className: "fd-main" }, this.list, this.player));
     c.append(this.root);
+    this.frame = null;            // iframe плеера — от него ждём сообщение «трек закончился»
+    this.onMsg = e => this.playerMessage(e);
+    addEventListener("message", this.onMsg);
+    w.onClose = () => { removeEventListener("message", this.onMsg); clearInterval(this.ytPing); };
     this.renderPlayer(null);
     this.load();
   }
@@ -105,6 +112,18 @@ class FindsApp {
       if (p.feed) chip.append(el("b", { className: "fd-badge", textContent: p.feed }));
       chip.onclick = () => { this.view = "mine"; this.cur = p.id; this.render(); };
       chip.oncontextmenu = e => { e.preventDefault(); this.editForm(p); };
+      // цель перетаскивания: другой свой плейлист
+      const ours = e => this.view === "mine" && p.id !== this.cur && e.dataTransfer.types.includes(DRAG_TYPE);
+      chip.ondragover = e => { if (!ours(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; chip.classList.add("drop"); };
+      chip.ondragleave = () => chip.classList.remove("drop");
+      chip.ondrop = e => {
+        chip.classList.remove("drop");
+        if (!ours(e)) return;
+        e.preventDefault();
+        this.root.classList.remove("fd-dragging");
+        this.moveTo(p, e.dataTransfer.getData(DRAG_TYPE));
+      };
+      if (this.view === "mine" && p.id !== this.cur) chip.classList.add("target");
       this.top.append(chip);
     }
     if (this.me && this.pls.length < this.max)
@@ -261,18 +280,80 @@ class FindsApp {
       node.append(acts);
     }
     node.onclick = () => this.play(t);
+    // свой трек из ленты или плейлиста можно утащить на чип другого своего плейлиста
+    if (!readonly && !example && this.view === "mine" && this.pls.length > 1) {
+      node.setAttribute("draggable", "true");   // main.js пускает «родное» перетаскивание только с draggable="true"
+      node.title = "Перетащи на другой плейлист сверху, чтобы перенести";
+      node.ondragstart = e => {
+        e.dataTransfer.setData(DRAG_TYPE, t.id);
+        e.dataTransfer.setData("text/plain", t.url || "");
+        e.dataTransfer.effectAllowed = "move";
+        this.root.classList.add("fd-dragging");
+      };
+      node.ondragend = () => this.root.classList.remove("fd-dragging");
+    }
     return node;
+  }
+
+  async moveTo(dst, tid) {
+    const p = this.pl();
+    if (!p || p.id === dst.id) return;
+    try { await api("/move", { method: "POST", body: { from: p.id, to: dst.id, track: tid } }); }
+    catch (e) { return notify("⚠ " + e.message); }
+    const i = this.items.findIndex(x => x.id === tid);
+    const t = this.items[i];
+    dst.bumps++;
+    if (i >= 0) {
+      if (this.tab === "feed" && !t.voted) p.feed = Math.max(0, p.feed - 1);
+      if (this.tab === "list" || t.voted) p.bumps = Math.max(0, p.bumps - 1);
+      this.items.splice(i, 1);
+      [...this.list.querySelectorAll(".fd-card")].find(n => n.dataset.id === tid)?.remove();
+    }
+    notify(`→ перенесено в «${dst.name}»`);    // плеер не трогаем: перенесённый трек доигрывает
+    this.renderTop(); this.renderBar();
   }
 
   /* ---------- плеер ---------- */
   play(t) {
     this.playing = t.id;
+    this.playPos = Math.max(0, this.items.findIndex(x => x.id === t.id));
     for (const n of this.list.querySelectorAll(".fd-card")) n.classList.toggle("playing", n.dataset.id === t.id);
     this.renderPlayer(t);
   }
 
+  /* сообщения от плеера: конец трека -> следующий. YouTube шлёт onStateChange/infoDelivery (0 = ended),
+   * виджет SoundCloud — ready, затем finish (подписываемся после ready). Чужие окна игнорируем. */
+  playerMessage(e) {
+    const f = this.frame;
+    if (!f || e.source !== f.contentWindow) return;
+    let d = e.data;
+    if (typeof d === "string") { try { d = JSON.parse(d); } catch { return; } }
+    if (!d || typeof d !== "object") return;
+    if (e.origin === YT_ORIGIN) {
+      clearInterval(this.ytPing);                       // плеер ответил — можно не стучаться
+      const st = d.event === "onStateChange" ? d.info : d.event === "infoDelivery" ? d.info?.playerState : undefined;
+      if (st === 0) this.ended(f);
+    } else if (e.origin === SC_ORIGIN) {
+      if (d.method === "ready") f.contentWindow.postMessage(JSON.stringify({ method: "addEventListener", value: "finish" }), SC_ORIGIN);
+      else if (d.method === "finish") this.ended(f);
+    }
+  }
+
+  ended(f) {
+    if (f.dataset.done) return;                         // YouTube может сообщить дважды
+    f.dataset.done = "1";
+    const i = this.items.findIndex(x => x.id === this.playing);
+    // трек могли перенести в другой плейлист, пока играл, — тогда следующий стоит на его бывшем месте
+    const from = i >= 0 ? i + 1 : this.playPos ?? this.items.length;
+    const skip = x => this.tab === "feed" && this.view === "mine" && x.voted;   // в ленте оценённые уже слышали
+    const next = this.items.slice(from).find(x => !skip(x));
+    if (next) this.play(next);
+  }
+
   renderPlayer(t) {
     this.player.replaceChildren();
+    clearInterval(this.ytPing);
+    this.frame = null;
     if (!t) {
       this.player.append(el("div", { className: "fd-dim fd-pad", textContent: "Нажми на трек, чтобы послушать." }));
       return;
@@ -284,6 +365,18 @@ class FindsApp {
       f.setAttribute("credentialless", "");
       f.setAttribute("allowfullscreen", "");
       box.append(f);
+      this.frame = f;
+      if (src(t.id) === "yt") {
+        // YouTube начинает слать события, когда страница «подписалась»; стучимся, пока не ответит (до 15 с)
+        const hello = () => {
+          try {
+            f.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: 1, channel: "widget" }), YT_ORIGIN);
+            f.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "addEventListener", args: ["onStateChange"], id: 1, channel: "widget" }), YT_ORIGIN);
+          } catch {}
+        };
+        let n = 0;
+        f.onload = () => { hello(); this.ytPing = setInterval(() => { if (++n > 15) clearInterval(this.ytPing); else hello(); }, 1000); };
+      }
     } else {
       // Firefox: страница ОС изолирована ради GBA — перезагружаемся в /finds/…, там изоляции нет
       const q = new URLSearchParams({ tab: this.tab, play: t.id });

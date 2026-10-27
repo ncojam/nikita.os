@@ -12,6 +12,7 @@ Bump — трек попадает в плейлист и становится �
   DELETE /api/finds/pl/{id}                                    (владелец)
   GET    /api/finds/feed/{id}               -> {tracks:[...]}  (владелец; только без голоса)
   POST   /api/finds/vote    {pl, track, v}  v: 1 bump, -1 dump, 0 снять голос
+  POST   /api/finds/move    {from, to, track}  перетащили в другой свой плейлист: там bump, тут v=2 (нейтрально)
   GET    /api/finds/pub/{id}                -> {name, descr, owner, mine, examples, tracks:[bump...]}  без входа
   GET    /api/finds/all                     -> {playlists:[{id, name, descr, owner, tracks}]}  каталог, без входа
 
@@ -53,6 +54,7 @@ TITLE_MAX = 200
 WHY_MAX = 160
 PL_EDITS_PER_HOUR = 60
 ALL_MAX = 200                                                   # плейлистов в общем каталоге
+MOVED = 2                                                       # голос «перенесён в другой плейлист» — нейтральный
 
 _PL_RE = re.compile(r"^[A-Za-z0-9_-]{8,16}$")
 _TID_RE = re.compile(r"^(yt:[A-Za-z0-9_-]{11}|sc:[a-z0-9_-]{1,64}/[a-z0-9_-]{1,160}|scu:[a-z0-9_-]{1,64})$")
@@ -339,6 +341,32 @@ class Finds:
         self.db.commit()
         return jresp({"ok": True})
 
+    async def api_move(self, request):
+        """Перетащили трек в другой свой плейлист: там — bump, в исходном — «перенесён» (v=2).
+        v=2 нейтральный: трек уходит из ленты и плейлиста-источника, но не считается ни bump, ни dump."""
+        b = await body_of(request)
+        if b is None:
+            return err("Плохой запрос")
+        u, src = self.own_pl(request, str(b.get("from") or ""))
+        _, dst = self.own_pl(request, str(b.get("to") or ""))
+        if not u:
+            return err("Сначала войди в аккаунт", 401)
+        if not src or not dst or src[0] == dst[0]:
+            return err("Нет такого плейлиста", 404)
+        tid = str(b.get("track") or "")
+        if not _TID_RE.match(tid) or tid.startswith("scu:"):
+            return err("Плохой трек")
+        if self._limited(self.vote_times[u[0]], 86400, VOTES_PER_DAY):
+            return err("На сегодня голосов хватит 🙂", 429)
+        now, ip = int(time.time()), self.client_ip(request)
+        self.q("INSERT OR IGNORE INTO tracks(id, updated) VALUES(?, ?)", tid, now)
+        up = ("INSERT INTO votes VALUES(?,?,?,?,?) ON CONFLICT(pl, track) DO UPDATE SET v = excluded.v, "
+              "ip = excluded.ip, at = excluded.at")
+        self.q(up, dst[0], tid, 1, ip, now)
+        self.q(up, src[0], tid, MOVED, ip, now)
+        self.db.commit()
+        return jresp({"ok": True})
+
     async def api_pub(self, request):
         pid = request.match_info["id"]
         if not _PL_RE.match(pid):
@@ -434,6 +462,7 @@ class Finds:
         r.add_delete("/api/finds/pl/{id}", self.api_delete)
         r.add_get("/api/finds/feed/{id}", self.api_feed)
         r.add_post("/api/finds/vote", self.api_vote)
+        r.add_post("/api/finds/move", self.api_move)
         r.add_get("/api/finds/pub/{id}", self.api_pub)
         r.add_get("/api/finds/all", self.api_all)
         r.add_get("/api/finds/w/state", self.api_w_state)

@@ -1232,6 +1232,9 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .fd-vote.dump { color: var(--fd-dump); }
 .fd-artist-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 8px; }
 .fd-card.voted { opacity: .7; }
+.fd-card[draggable="true"] { cursor: grab; }
+.fd-dragging .fd-chip.target { border-style: dashed; border-color: rgba(126,224,168,.55); }
+.fd-chip.drop { background: rgba(126,224,168,.22); border-color: var(--fd-bump); border-style: solid; }
 .fd-card.voted.playing { opacity: 1; }
 .fd-done { color: var(--fd-bump); font-size: 12px; font-weight: 600; white-space: nowrap; padding: 0 6px; }
 .fd-hint { color: var(--muted); font-size: 11.5px; padding: 2px 8px 6px; }

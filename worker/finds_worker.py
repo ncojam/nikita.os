@@ -458,6 +458,8 @@ class Run:
             t.add(m, +1)
             self._seed_source(m, seeds_yt_channels, seeds_sc_artists)
         for v in pl.get("votes", []):
+            if v["v"] not in (1, -1):            # 2 — «перенесён в другой плейлист»: не повторяем, но и не учимся
+                continue
             m = self.cache.get(v["track"])       # голоса — только из кэша: эти треки мы уже разбирали
             if m:
                 t.add(m, v["v"])
