@@ -47,6 +47,7 @@
 | GET | `/api/finds/feed/{id}` | finds | Лента без голосов, до 20 (владелец) |
 | POST | `/api/finds/vote` `{pl, track, v}` | finds | 1 — bump, −1 — dump, 0 — снять |
 | GET | `/api/finds/pub/{id}` | finds | Публичный плейлист: bump-треки и примеры, без входа |
+| GET | `/api/finds/all` | finds | Каталог плейлистов всех пользователей (до 200), без входа |
 | GET/POST | `/api/finds/w/state`, `/api/finds/w/push` | finds | Домашний воркер, заголовок `X-Finds-Token` = `NOS_FINDS_TOKEN` (без него — 404) |
 
 ## Пути и безопасность

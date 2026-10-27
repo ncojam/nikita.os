@@ -34,6 +34,7 @@ const embedUrl = id => src(id) === "yt"
   ? `https://www.youtube-nocookie.com/embed/${id.slice(3)}?autoplay=1&rel=0`
   : `https://w.soundcloud.com/player/?url=${encodeURIComponent("https://soundcloud.com/" + id.slice(3))}` +
     "&auto_play=true&visual=true&hide_related=true&show_comments=false&show_teaser=false";
+const FILL_NOTE = "Ленты пополняет скрипт, который админ запускает вручную время от времени, — новые треки появляются не сразу.";
 const thumbOf = t => t.thumb || (src(t.id) === "yt" ? `https://i.ytimg.com/vi/${t.id.slice(3)}/mqdefault.jpg` : "");
 // у трека без метаданных (пример по ссылке) — хоть что-то читаемое из id
 const titleOf = t => t.title || (src(t.id) === "yt" ? "YouTube · " + t.id.slice(3) : t.id.slice(3).split("/").pop().replace(/-/g, " "));
@@ -76,35 +77,51 @@ class FindsApp {
       const m = await api("/mine");
       this.me = m.user; this.max = m.max; this.pls = m.playlists;
     } catch (e) { notify("⚠ " + e.message); }
-    if (this.pubId && !this.pls.some(p => p.id === this.pubId)) return this.showPublic();
-    if (this.pubId) { this.cur = this.pubId; this.tab = this.startTab || "list"; this.pubId = null; }
+    // вид: mine — свои плейлисты, all — каталог всех, pub — чужой плейлист (смотреть и слушать)
+    if (this.pubId) {
+      const id = this.pubId; this.pubId = null;
+      if (this.pls.some(p => p.id === id)) { this.view = "mine"; this.cur = id; this.tab = this.startTab || "list"; }
+      else { this.view = "pub"; this.pubView = id; }
+    } else if (!this.view) this.view = this.me ? "mine" : "all";
+    if (this.view === "mine" && !this.me) this.view = "all";
     if (!this.cur || !this.pls.some(p => p.id === this.cur)) this.cur = this.pls[0]?.id || null;
     this.render();
   }
 
   pl() { return this.pls.find(p => p.id === this.cur); }
 
-  /* ---------- шапка: плейлисты ---------- */
+  openPl(id) {
+    if (this.pls.some(p => p.id === id)) { this.view = "mine"; this.cur = id; this.tab = "list"; }
+    else { this.view = "pub"; this.pubView = id; }
+    this.render();
+  }
+
+  /* ---------- шапка: свои плейлисты + каталог ---------- */
   renderTop() {
     this.top.replaceChildren();
     for (const p of this.pls) {
-      const chip = el("button", { className: "fd-chip" + (p.id === this.cur ? " on" : ""), title: p.descr || p.name },
+      const chip = el("button", { className: "fd-chip" + (this.view === "mine" && p.id === this.cur ? " on" : ""), title: p.descr || p.name },
         el("span", { textContent: p.name }));
       if (p.feed) chip.append(el("b", { className: "fd-badge", textContent: p.feed }));
-      chip.onclick = () => { this.cur = p.id; this.render(); };
+      chip.onclick = () => { this.view = "mine"; this.cur = p.id; this.render(); };
       chip.oncontextmenu = e => { e.preventDefault(); this.editForm(p); };
       this.top.append(chip);
     }
     if (this.me && this.pls.length < this.max)
       this.top.append(el("button", { className: "fd-chip add", textContent: "＋", title: "Новый плейлист", onclick: () => this.editForm(null) }));
-    this.top.append(el("div", { className: "fd-me" },
-      this.me ? el("span", { textContent: this.me }) : el("span", { className: "fd-dim", textContent: "не вошёл" })));
+    this.top.append(el("button", { className: "fd-chip" + (this.view !== "mine" ? " on" : ""), textContent: "🌐 Все плейлисты",
+      title: "Плейлисты всех пользователей", onclick: () => { this.view = "all"; this.render(); } }));
+    this.top.append(el("div", { className: "fd-me" }, this.me ? el("span", { textContent: this.me }) :
+      el("span", {},
+        el("button", { className: "fd-btn", textContent: "💬 Войти", title: "Аккаунт общий с чатом — нужен, чтобы завести свои плейлисты", onclick: () => openChat() }),
+        el("button", { className: "fd-btn", textContent: "↻", title: "Я вошёл — обновить", onclick: () => this.load() }))));
   }
 
   /* ---------- вкладки и действия ---------- */
   renderBar() {
     const p = this.pl();
     this.bar.replaceChildren();
+    this.bar.title = "";
     if (!p) return;
     const tab = (k, text) => el("button", { className: "fd-tab" + (this.tab === k ? " on" : ""), textContent: text,
       onclick: () => { this.tab = k; this.render(); } });
@@ -119,25 +136,51 @@ class FindsApp {
   }
 
   async render() {
-    this.renderTop(); this.renderBar();
+    this.renderTop();
+    if (this.view === "all") return this.showAll();
+    if (this.view === "pub") return this.showPublic();
+    this.w.setTitle("Находки");
+    this.renderBar();
     const p = this.pl();
-    if (!this.me) return this.empty("Войди в аккаунт, чтобы завести плейлисты (до 6). Аккаунт общий с чатом.",
-      el("button", { className: "fd-btn primary", textContent: "💬 Войти через чат", onclick: () => openChat() }),
-      el("button", { className: "fd-btn", textContent: "Я вошёл — обновить", onclick: () => this.load() }));
-    if (!p) return this.empty("Плейлистов пока нет. Создай первый — например, «riddim dubstep» или «melancholic electro».",
+    if (!p) return this.empty("У тебя пока нет плейлистов. Создай первый — например, «riddim dubstep» или «melancholic electro». " + FILL_NOTE,
       el("button", { className: "fd-btn primary", textContent: "＋ Новый плейлист", onclick: () => this.editForm(null) }));
     this.list.replaceChildren(el("div", { className: "fd-dim fd-pad", textContent: "Загрузка…" }));
+    this.updated = 0;
     try {
       if (this.tab === "feed") {
-        this.items = (await api("/feed/" + p.id)).tracks;
-        if (!this.items.length) return this.empty("Лента пуста. Её наполняет воркер — после прогона тут появится до 20 свежих треков." +
-          (p.examples.length ? "" : " Добавь пару ссылок-примеров (✎) — с ними первый прогон точнее."));
+        const r = await api("/feed/" + p.id);
+        this.items = r.tracks; this.updated = r.updated || 0;
+        if (!this.items.length) return this.empty("Лента пуста. Её пополняет скрипт, который админ запускает вручную время от времени, — " +
+          "свежие треки появятся после следующего запуска." +
+          (p.examples.length ? "" : " Добавь пару ссылок-примеров (✎) — с ними подборка точнее."));
       } else {
         this.items = (await api("/pub/" + p.id)).tracks;
       }
     } catch (e) { return this.empty("⚠ " + e.message); }
     this.renderList(this.tab === "list" ? p.examples : []);
     this.playStart();
+  }
+
+  /* ---------- каталог: плейлисты всех пользователей, без входа ---------- */
+  async showAll() {
+    this.w.setTitle("Находки");
+    this.bar.replaceChildren(el("span", { className: "fd-dim", textContent: "Плейлисты всех пользователей — открой и слушай" }));
+    this.list.replaceChildren(el("div", { className: "fd-dim fd-pad", textContent: "Загрузка…" }));
+    let pls;
+    try { pls = (await api("/all")).playlists; }
+    catch (e) { return this.empty("⚠ " + e.message); }
+    if (!pls.length) return this.empty("Пока никто не завёл плейлист." + (this.me ? "" : " Войди, чтобы завести свой."));
+    this.items = [];
+    this.list.replaceChildren();
+    for (const p of pls) {
+      const row = el("button", { className: "fd-plrow" },
+        el("div", { className: "fd-title", textContent: p.name }),
+        el("div", { className: "fd-artist-name", textContent: [p.owner, `${p.tracks} ${plural(p.tracks, "трек", "трека", "треков")}`].filter(Boolean).join(" · ") }));
+      if (p.descr) row.append(el("div", { className: "fd-meta", textContent: p.descr }));
+      row.onclick = () => this.openPl(p.id);
+      this.list.append(row);
+    }
+    this.list.append(el("p", { className: "fd-dim fd-note", textContent: FILL_NOTE }));
   }
 
   // трек из ?play= после перезагрузки в режим плеера
@@ -154,6 +197,9 @@ class FindsApp {
 
   renderList(examples = []) {
     this.list.replaceChildren();
+    if (this.tab === "feed" && this.items.length)
+      this.list.append(el("div", { className: "fd-hint", textContent:
+        (this.updated ? "Лента обновлена " + ago(this.updated) + " · " : "") + "пополняет админ вручную, время от времени" }));
     if (this.tab === "list" && !this.items.length)
       this.list.append(el("p", { className: "fd-dim fd-pad", textContent: "Здесь будут треки, которым ты поставил bump." }));
     for (const t of this.items) this.list.append(this.card(t));
@@ -241,7 +287,7 @@ class FindsApp {
     } else {
       // Firefox: страница ОС изолирована ради GBA — перезагружаемся в /finds/…, там изоляции нет
       const q = new URLSearchParams({ tab: this.tab, play: t.id });
-      const go = "/finds/" + (this.pubView || this.cur || "") + "?" + q;
+      const go = "/finds/" + ((this.view === "pub" ? this.pubView : this.view === "mine" ? this.cur : "") || "") + "?" + q;
       box.append(el("div", { className: "fd-noembed" },
         el("p", { textContent: "Плеер в этой вкладке не встроится: главная страница ОС защищена ради эмулятора GBA. " +
           "Режим плеера перезагрузит вкладку и откроет «Находки» на этом треке (GBA в нём не запустится)." }),
@@ -265,13 +311,18 @@ class FindsApp {
     if (v === 1 && (this.tab === "feed" || !inList)) p.bumps++;
     if (v !== 1 && this.tab === "list" && inList) p.bumps = Math.max(0, p.bumps - 1);
     notify(v === 1 ? "▲ bump — в плейлисте" : v === -1 ? "▼ dump — учту" : "Убрано");
-    if (inList) {
+    const node = [...this.list.querySelectorAll(".fd-card")].find(n => n.dataset.id === t.id);
+    if (inList && this.tab === "feed" && v === 1) {
+      // bump в ленте: карточка остаётся отмеченной, плеер не трогаем — трек играет дальше
+      t.voted = true;
+      node?.classList.add("voted");
+      node?.querySelector(".fd-acts")?.replaceChildren(el("span", { className: "fd-done", textContent: "✓ в плейлисте" }));
+    } else if (inList) {
       this.items.splice(was, 1);
-      const node = [...this.list.querySelectorAll(".fd-card")].find(n => n.dataset.id === t.id);
       node?.remove();
-      // слушал и оценил — сразу следующий
+      // dump того, что играет, — сразу следующий неоценённый
       if (this.playing === t.id && this.tab === "feed") {
-        const next = this.items[was] || this.items[was - 1];
+        const next = this.items.slice(was).find(x => !x.voted) || this.items.slice(0, was).reverse().find(x => !x.voted);
         next ? this.play(next) : (this.playing = null, this.renderPlayer(null));
       }
       if (!this.items.length && this.tab === "feed") this.render();
@@ -305,6 +356,7 @@ class FindsApp {
       el("div", { className: "fd-form glass" },
         el("h3", { textContent: p ? "Плейлист" : "Новый плейлист" }),
         name, descr, ex,
+        el("p", { className: "fd-dim fd-note", textContent: "Плейлист виден всем по ссылке и в каталоге. " + FILL_NOTE }),
         el("div", { className: "fd-row" },
           p ? el("button", { className: "fd-btn danger", textContent: "Удалить", onclick: del }) : "",
           el("div", { className: "fd-sp" }),
@@ -315,20 +367,24 @@ class FindsApp {
     name.focus();
   }
 
-  /* ---------- чужой плейлист по ссылке ---------- */
+  /* ---------- чужой плейлист: смотреть и слушать ---------- */
   async showPublic() {
+    this.bar.replaceChildren();
+    this.list.replaceChildren(el("div", { className: "fd-dim fd-pad", textContent: "Загрузка…" }));
     let d;
-    try { d = await api("/pub/" + this.pubId); }
+    try { d = await api("/pub/" + this.pubView); }
     catch (e) { return this.empty("⚠ " + e.message); }
+    if (d.mine && this.pls.some(p => p.id === d.id)) return this.openPl(d.id);   // свой — с кнопками
     this.w.setTitle("Находки — " + d.name);
-    this.top.replaceChildren(el("div", { className: "fd-pubhead" },
-      el("b", { textContent: d.name }),
-      el("span", { className: "fd-dim", textContent: d.owner ? " — плейлист " + d.owner : "" })));
     this.bar.replaceChildren(
-      el("span", { className: "fd-dim", textContent: d.descr || `${d.tracks.length} ${plural(d.tracks.length, "трек", "трека", "треков")}` }),
+      el("button", { className: "fd-btn", textContent: "← Все", onclick: () => { this.view = "all"; this.render(); } }),
+      el("div", { className: "fd-pubhead" },
+        el("b", { textContent: d.name }),
+        el("span", { className: "fd-dim", textContent: (d.owner ? " — " + d.owner : "") +
+          ` · ${d.tracks.length} ${plural(d.tracks.length, "трек", "трека", "треков")}` })),
       el("div", { className: "fd-sp" }),
       el("button", { className: "fd-btn", textContent: "🔗 Ссылка", onclick: () => copyText(location.origin + "/finds/" + d.id, "Ссылка скопирована") }));
-    this.pubView = d.id;
+    this.bar.title = d.descr || "";
     this.items = d.tracks;
     this.list.replaceChildren();
     if (!d.tracks.length) this.list.append(el("p", { className: "fd-dim fd-pad", textContent: "Тут пока пусто." }));

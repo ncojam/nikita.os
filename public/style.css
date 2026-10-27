@@ -1231,6 +1231,16 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .fd-vote.bump:hover { background: color-mix(in srgb, var(--fd-bump) 22%, transparent); }
 .fd-vote.dump { color: var(--fd-dump); }
 .fd-artist-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 8px; }
+.fd-card.voted { opacity: .7; }
+.fd-card.voted.playing { opacity: 1; }
+.fd-done { color: var(--fd-bump); font-size: 12px; font-weight: 600; white-space: nowrap; padding: 0 6px; }
+.fd-hint { color: var(--muted); font-size: 11.5px; padding: 2px 8px 6px; }
+.fd-note { font-size: 12px; margin: 4px 0 0; }
+.fd-list > .fd-note { padding: 10px 8px; }
+.fd-plrow { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; cursor: pointer;
+  padding: 9px 12px; border-radius: 12px; border: 1px solid transparent; background: transparent; color: var(--text); font: inherit; }
+.fd-plrow:hover { background: rgba(255,255,255,0.05); border-color: var(--glass-border); }
+.fd-me span { display: inline-flex; gap: 4px; align-items: center; }
 .fd-vote.dump:hover { background: color-mix(in srgb, var(--fd-dump) 22%, transparent); }
 .fd-sep { color: var(--muted); font-size: 12px; padding: 14px 8px 4px; }
 .fd-artist { color: var(--accent); font-size: 13px; padding: 4px 8px; text-decoration: none; }

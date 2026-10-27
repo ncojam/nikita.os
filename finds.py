@@ -13,6 +13,7 @@ Bump — трек попадает в плейлист и становится �
   GET    /api/finds/feed/{id}               -> {tracks:[...]}  (владелец; только без голоса)
   POST   /api/finds/vote    {pl, track, v}  v: 1 bump, -1 dump, 0 снять голос
   GET    /api/finds/pub/{id}                -> {name, descr, owner, mine, examples, tracks:[bump...]}  без входа
+  GET    /api/finds/all                     -> {playlists:[{id, name, descr, owner, tracks}]}  каталог, без входа
 
 Воркер — по заголовку X-Finds-Token == NOS_FINDS_TOKEN (без токена на сервере — 404):
   GET    /api/finds/w/state                 -> все плейлисты, примеры, голоса, текущая лента
@@ -51,6 +52,7 @@ PUSH_TRACKS_MAX = 2000                                          # треков �
 TITLE_MAX = 200
 WHY_MAX = 160
 PL_EDITS_PER_HOUR = 60
+ALL_MAX = 200                                                   # плейлистов в общем каталоге
 
 _PL_RE = re.compile(r"^[A-Za-z0-9_-]{8,16}$")
 _TID_RE = re.compile(r"^(yt:[A-Za-z0-9_-]{11}|sc:[a-z0-9_-]{1,64}/[a-z0-9_-]{1,160}|scu:[a-z0-9_-]{1,64})$")
@@ -301,7 +303,17 @@ class Finds:
             "FROM feed f JOIN tracks t ON t.id = f.track WHERE f.pl = ? AND NOT EXISTS "
             "(SELECT 1 FROM votes v WHERE v.pl = f.pl AND v.track = f.track) ORDER BY f.score DESC LIMIT ?",
             row[0], FEED_MAX)
-        return jresp({"tracks": tracks})
+        updated = self.q("SELECT MAX(added) FROM feed WHERE pl = ?", row[0]).fetchone()[0] or 0
+        return jresp({"tracks": tracks, "updated": updated})
+
+    async def api_all(self, request):
+        """Каталог плейлистов всех пользователей — без входа. Сверху те, где больше bump."""
+        rows = self.q(
+            "SELECT p.id, p.name, p.descr, p.owner, "
+            "(SELECT COUNT(*) FROM votes v WHERE v.pl = p.id AND v.v = 1) AS n, p.updated "
+            "FROM playlists p ORDER BY n DESC, p.updated DESC LIMIT ?", ALL_MAX).fetchall()
+        return jresp({"playlists": [{"id": r[0], "name": r[1], "descr": r[2] or "", "owner": r[3] or "", "tracks": r[4]}
+                                    for r in rows]})
 
     async def api_vote(self, request):
         b = await body_of(request)
@@ -423,5 +435,6 @@ class Finds:
         r.add_get("/api/finds/feed/{id}", self.api_feed)
         r.add_post("/api/finds/vote", self.api_vote)
         r.add_get("/api/finds/pub/{id}", self.api_pub)
+        r.add_get("/api/finds/all", self.api_all)
         r.add_get("/api/finds/w/state", self.api_w_state)
         r.add_post("/api/finds/w/push", self.api_w_push)
