@@ -58,6 +58,7 @@ DEFAULTS = {
     "per_owner": 150,            # … на владельца
     "insecure": False,           # True — не проверять сертификат сайта (самоподписанный)
     "sleep": 1.0,                # пауза между запросами к YouTube/SoundCloud, сек
+    "proxy": "",                 # прокси до YouTube/SoundCloud, если они доступны только через VPN-клиент
 }
 
 MIN_DUR, MAX_DUR = 90, 8 * 60    # короче — сниппеты, длиннее — миксы и часовые подборки
@@ -229,11 +230,13 @@ def slim(tid, info):
 class Source:
     """Всё общение с YouTube/SoundCloud. В --selftest подменяется заглушкой."""
 
-    def __init__(self, sleep):
+    def __init__(self, sleep, proxy=""):
         import yt_dlp
         base = {"quiet": True, "no_warnings": True, "skip_download": True, "socket_timeout": 15,
                 "sleep_interval_requests": sleep, "extractor_retries": 1, "noplaylist": True,
                 "logger": _QuietLog()}
+        if proxy:
+            base["proxy"] = proxy        # только для YouTube/SoundCloud; к сайту ходим напрямую
         self.full = yt_dlp.YoutubeDL({**base})
         self.flat = yt_dlp.YoutubeDL({**base, "extract_flat": "in_playlist", "noplaylist": False})
         self.sleep = sleep
@@ -246,6 +249,10 @@ class Source:
         log.debug("%s %s: %s", what, url, msg)
         # ид видео/трека в тексте ошибки разные — сводим одинаковые причины вместе
         self.errors[re.sub(r"\[[^\]]+\]\s*[\w-]+:\s*", "", msg)[:220]] += 1
+        # сеть до YouTube/SoundCloud не работает вообще — не ждём таймаутов все 30 минут
+        if self.ok == 0 and sum(self.errors.values()) >= 4:
+            report_errors(self)
+            raise SystemExit("\nОстановился: подряд 4 неудачных запроса, ни одного удачного.")
 
     def info(self, url):
         """Полные метаданные одного трека или None."""
@@ -601,11 +608,15 @@ def main(argv=None):
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO, format="%(message)s")
     if a.check:
-        return check(a.check)
+        proxy = ""
+        if a.config.exists():
+            with open(a.config, "rb") as f:
+                proxy = tomllib.load(f).get("proxy", "")
+        return check(a.check, proxy)
     cfg = load_config(a.config)
     minutes = TEST_MINUTES if a.test else (a.minutes or cfg["minutes"])
     budget = Budget(minutes)
-    run = Run(cfg, Site(cfg), Source(cfg["sleep"]), Cache(CACHE / "meta.db"), budget, test=a.test, dry=a.dry)
+    run = Run(cfg, Site(cfg), Source(cfg["sleep"], cfg["proxy"]), Cache(CACHE / "meta.db"), budget, test=a.test, dry=a.dry)
     log.info("Находки: %s, лимит %d мин%s", cfg["site"], minutes, " (пробный прогон)" if a.test else "")
     rep = run.go()
     log.info("\nИтог за %.1f мин: плейлистов %d, примеров %d, кандидатов %d, разобрано новых %d, "
@@ -630,19 +641,26 @@ def report_errors(src):
         log.info("→ yt-dlp нужен JavaScript-движок для YouTube: sudo pacman -S deno")
     if "sign in" in text or "not a bot" in text or "429" in text:
         log.info("→ YouTube притормаживает этот IP: подожди час и увеличь sleep в конфиге")
-    if "unsupported url" in text:
-        log.info("→ Обнови yt-dlp: uv run --upgrade worker/finds_worker.py --check <ссылка>")
+    if any(k in text for k in ("timed out", "timeout", "unable to download webpage", "connection", "network is unreachable",
+                               "name or service not known", "temporary failure in name resolution")):
+        log.info("→ Нет связи с YouTube/SoundCloud из терминала. Если они открываются только через VPN-клиент,\n"
+                 "  впиши в ~/.config/nos-finds/config.toml его локальный прокси, например\n"
+                 '  proxy = "socks5://127.0.0.1:2080"  (порт смотри в настройках клиента), или включи в клиенте режим TUN')
     if src.ok == 0:
         log.info("→ Ни один запрос не прошёл. Проверь одну ссылку: finds --check <ссылка на трек>")
+    if "unsupported url" in text:
+        log.info("→ Обнови yt-dlp: uv run --upgrade worker/finds_worker.py --check <ссылка>")
 
 
-def check(url):
+def check(url, proxy=""):
     """Диагностика одной ссылки: что видит yt-dlp, без глушения его сообщений."""
     import yt_dlp
-    print("yt-dlp", yt_dlp.version.__version__)
+    print("yt-dlp", yt_dlp.version.__version__, "· прокси:", proxy or "нет")
     tid = url_to_id(url)
     print("id:", tid or "— ссылка не распознана (нужен трек YouTube/SoundCloud)")
-    opts = {"skip_download": True, "noplaylist": True}
+    opts = {"skip_download": True, "noplaylist": True, "socket_timeout": 15}
+    if proxy:
+        opts["proxy"] = proxy
     try:
         info = yt_dlp.YoutubeDL(opts).extract_info(url, download=False, process=False)
     except Exception as e:
