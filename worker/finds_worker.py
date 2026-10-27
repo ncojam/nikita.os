@@ -584,6 +584,63 @@ class Run:
         return self.report
 
 
+# ================= системный прокси =================
+def _hostport(v, scheme):
+    """KDE пишет «http://127.0.0.1 12334» (порт через пробел), GNOME — хост и порт отдельно."""
+    v = v.strip().strip("'\"")
+    if not v:
+        return ""
+    v = re.sub(r"\s+(\d+)$", r":\1", v)
+    v = re.sub(r"^[a-z0-9]+://", "", v)
+    return f"{scheme}://{v}" if re.match(r"^[\w.\-\[\]:]+:\d+$", v) else ""
+
+
+def system_proxy():
+    """Прокси из окружения, настроек KDE или GNOME. Терминальные программы сами их не видят."""
+    import os
+    for k in ("ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        if os.environ.get(k):
+            return os.environ[k], "переменная " + k
+    kde = Path.home() / ".config" / "kioslaverc"
+    if kde.exists():
+        sec, vals = None, {}
+        for ln in kde.read_text(errors="replace").splitlines():
+            ln = ln.strip()
+            if ln.startswith("["):
+                sec = ln
+            elif sec == "[Proxy Settings]" and "=" in ln:
+                k, v = ln.split("=", 1)
+                vals[k.strip()] = v.strip()
+        if vals.get("ProxyType") == "1":           # 1 — прокси задан вручную
+            for key, scheme in (("socksProxy", "socks5"), ("httpsProxy", "http"), ("httpProxy", "http")):
+                p = _hostport(vals.get(key, ""), scheme)
+                if p:
+                    return p, "настройки KDE"
+    import shutil
+    import subprocess
+    if shutil.which("gsettings"):
+        def g(*a):
+            try:
+                return subprocess.run(["gsettings", "get", *a], capture_output=True, text=True, timeout=3).stdout.strip()
+            except Exception:
+                return ""
+        if g("org.gnome.system.proxy", "mode") == "'manual'":
+            for sch, scheme in (("socks", "socks5"), ("https", "http"), ("http", "http")):
+                host, port = g(f"org.gnome.system.proxy.{sch}", "host"), g(f"org.gnome.system.proxy.{sch}", "port")
+                if host.strip("'") and port not in ("", "0"):
+                    return _hostport(f"{host.strip(chr(39))} {port}", scheme), "настройки GNOME"
+    return "", ""
+
+
+def pick_proxy(configured):
+    """proxy из конфига > системный; proxy = "none" — принудительно без прокси."""
+    if configured == "none":
+        return "", "отключён в конфиге"
+    if configured:
+        return configured, "из конфига"
+    return system_proxy()
+
+
 # ================= запуск =================
 def load_config(path):
     cfg = dict(DEFAULTS)
@@ -612,12 +669,16 @@ def main(argv=None):
         if a.config.exists():
             with open(a.config, "rb") as f:
                 proxy = tomllib.load(f).get("proxy", "")
+        proxy, where = pick_proxy(proxy)
+        print("прокси:", f"{proxy} ({where})" if proxy else "нет")
         return check(a.check, proxy)
     cfg = load_config(a.config)
     minutes = TEST_MINUTES if a.test else (a.minutes or cfg["minutes"])
     budget = Budget(minutes)
-    run = Run(cfg, Site(cfg), Source(cfg["sleep"], cfg["proxy"]), Cache(CACHE / "meta.db"), budget, test=a.test, dry=a.dry)
+    proxy, where = pick_proxy(cfg["proxy"])
+    run = Run(cfg, Site(cfg), Source(cfg["sleep"], proxy), Cache(CACHE / "meta.db"), budget, test=a.test, dry=a.dry)
     log.info("Находки: %s, лимит %d мин%s", cfg["site"], minutes, " (пробный прогон)" if a.test else "")
+    log.info("Прокси до YouTube/SoundCloud: %s", f"{proxy} ({where})" if proxy else "нет")
     rep = run.go()
     log.info("\nИтог за %.1f мин: плейлистов %d, примеров %d, кандидатов %d, разобрано новых %d, "
              "запросов к сайтам %d, отправлено в ленты %d%s",
