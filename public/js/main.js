@@ -49,9 +49,10 @@ if (location.pathname === "/dawn" || location.pathname.startsWith("/dawn/")) {
   import("./apps/dawn/index.js").then(m => m.openDawn(p && p !== "/" ? p : undefined));
 }
 else if (location.pathname === "/finds" || location.pathname.startsWith("/finds/")) {
-  // /finds — «Находки»; /finds/<id> — публичный плейлист
+  // /finds — «Находки»; /finds/<id> — публичный плейлист. Вкладка без изоляции: плееры встраиваются везде
   const id = location.pathname.slice(7).replace(/\/+$/, "");
-  import("./apps/finds.js").then(m => m.openFinds({ pub: id || undefined }));
+  const q = new URLSearchParams(location.search);
+  import("./apps/finds.js").then(m => m.openFinds({ pub: id || undefined, tab: q.get("tab"), play: q.get("play") }));
 }
 else if (location.pathname.startsWith("/browser")) openBrowser(decodeURIComponent(location.pathname.slice(8).replace(/^\/+/, "")) + location.search);
 else openExplorer("/home/nikita/Projects");

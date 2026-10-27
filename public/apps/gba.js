@@ -112,6 +112,9 @@ async function boot() {
   document.title = romName || "GBA";
   if (!romPath && !romUrl) return fail("Не указан ROM.");
   if (!crossOriginIsolated) {
+    let top = ""; try { top = parent.location.pathname; } catch {}
+    if (top === "/finds" || top.startsWith("/finds/"))   // вкладка «Находок» нарочно без изоляции — ради плееров
+      return fail("Эта вкладка открыта в режиме плеера «Находок», здесь эмулятор не запускается.\nОткрой сайт с главной страницы — там GBA работает.");
     return fail("Браузер не дал включить многопоточность (cross-origin isolation).\nПерезапусти сервер — в server.py добавились нужные заголовки.");
   }
   try {

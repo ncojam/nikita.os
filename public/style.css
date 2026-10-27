@@ -1230,6 +1230,7 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .fd-vote.bump { color: var(--fd-bump); }
 .fd-vote.bump:hover { background: color-mix(in srgb, var(--fd-bump) 22%, transparent); }
 .fd-vote.dump { color: var(--fd-dump); }
+.fd-artist-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 8px; }
 .fd-vote.dump:hover { background: color-mix(in srgb, var(--fd-dump) 22%, transparent); }
 .fd-sep { color: var(--muted); font-size: 12px; padding: 14px 8px 4px; }
 .fd-artist { color: var(--accent); font-size: 13px; padding: 4px 8px; text-decoration: none; }

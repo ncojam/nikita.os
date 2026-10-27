@@ -15,7 +15,9 @@ import { openChat } from "./lazy.js";
  */
 
 const API = "/api/finds";
-const CAN_EMBED = "credentialless" in HTMLIFrameElement.prototype;
+// встроить чужой плеер можно, если страница без изоляции (/finds… сервер так и отдаёт)
+// или браузер умеет iframe credentialless (Chrome/Edge)
+const canEmbed = () => !self.crossOriginIsolated || "credentialless" in HTMLIFrameElement.prototype;
 
 async function api(path, opts = {}) {
   const r = await fetch(API + path, {
@@ -49,11 +51,13 @@ function ago(sec) {
 }
 
 class FindsApp {
-  constructor(c, w, pub) {
+  constructor(c, w, { pub, tab, play } = {}) {
     this.w = w;
     this.pubId = pub || null;     // открыт по публичной ссылке
+    this.startTab = tab === "feed" || tab === "list" ? tab : null;
+    this.autoplay = play || null; // после перезагрузки в режим плеера — сразу включить этот трек
     this.me = null; this.max = 6; this.pls = [];
-    this.cur = null; this.tab = "feed";
+    this.cur = null; this.tab = this.startTab || "feed";
     this.items = [];              // что сейчас в списке (лента или плейлист)
     this.playing = null;          // id трека в плеере
     this.root = el("div", { className: "fd" });
@@ -73,7 +77,7 @@ class FindsApp {
       this.me = m.user; this.max = m.max; this.pls = m.playlists;
     } catch (e) { notify("⚠ " + e.message); }
     if (this.pubId && !this.pls.some(p => p.id === this.pubId)) return this.showPublic();
-    if (this.pubId) { this.cur = this.pubId; this.tab = "list"; this.pubId = null; }
+    if (this.pubId) { this.cur = this.pubId; this.tab = this.startTab || "list"; this.pubId = null; }
     if (!this.cur || !this.pls.some(p => p.id === this.cur)) this.cur = this.pls[0]?.id || null;
     this.render();
   }
@@ -133,6 +137,14 @@ class FindsApp {
       }
     } catch (e) { return this.empty("⚠ " + e.message); }
     this.renderList(this.tab === "list" ? p.examples : []);
+    this.playStart();
+  }
+
+  // трек из ?play= после перезагрузки в режим плеера
+  playStart() {
+    const id = this.autoplay; this.autoplay = null;
+    if (id && /^(yt:[A-Za-z0-9_-]{11}|sc:[a-z0-9_-]{1,64}\/[a-z0-9_-]{1,160})$/.test(id))
+      this.play(this.items.find(x => x.id === id) || { id });
   }
 
   empty(text, ...btns) {
@@ -149,9 +161,21 @@ class FindsApp {
       this.list.append(el("div", { className: "fd-sep", textContent: "Примеры (подсказки для воркера)" }));
       for (const x of examples) if (!x.id.startsWith("scu:")) this.list.append(this.card({ id: x.id }, { example: true }));
       for (const x of examples) if (x.id.startsWith("scu:"))
-        this.list.append(el("a", { className: "fd-artist", href: x.url, target: "_blank", rel: "noopener noreferrer",
-          textContent: "☁ артист: " + x.id.slice(4) }));
+        this.list.append(el("div", { className: "fd-artist-row" },
+          el("a", { className: "fd-artist", href: x.url, target: "_blank", rel: "noopener noreferrer", textContent: "☁ артист: " + x.id.slice(4) }),
+          el("button", { className: "fd-vote", textContent: "✕", title: "Убрать из примеров", onclick: () => this.dropExample(x.id) })));
     }
+  }
+
+  async dropExample(id) {
+    const p = this.pl(); if (!p) return;
+    const examples = p.examples.filter(x => x.id !== id).map(x => x.url);
+    try {
+      const r = await api("/pl/" + p.id, { method: "PATCH", body: { examples } });
+      Object.assign(p, r.playlist);
+      notify("Пример убран");
+    } catch (e) { return notify("⚠ " + e.message); }
+    this.render();
   }
 
   /* ---------- карточка трека ---------- */
@@ -181,6 +205,8 @@ class FindsApp {
         acts.append(
           el("button", { className: "fd-vote bump", textContent: "▲ bump", title: "В плейлист и как пример «нравится»", onclick: e => { e.stopPropagation(); this.vote(t, 1); } }),
           el("button", { className: "fd-vote dump", textContent: "▼ dump", title: "Не то — антипример", onclick: e => { e.stopPropagation(); this.vote(t, -1); } }));
+        if (example) acts.append(el("button", { className: "fd-vote", textContent: "✕", title: "Убрать из примеров",
+          onclick: e => { e.stopPropagation(); this.dropExample(t.id); } }));
       } else {
         acts.append(
           el("button", { className: "fd-vote dump", textContent: "▼", title: "Перенести в dump (антипример)", onclick: e => { e.stopPropagation(); this.vote(t, -1); } }),
@@ -207,14 +233,19 @@ class FindsApp {
     }
     const url = t.url || (src(t.id) === "yt" ? "https://www.youtube.com/watch?v=" + t.id.slice(3) : "https://soundcloud.com/" + t.id.slice(3));
     const box = el("div", { className: "fd-embed " + src(t.id) });
-    if (CAN_EMBED) {
+    if (canEmbed()) {
       const f = el("iframe", { src: embedUrl(t.id), allow: "autoplay; encrypted-media; picture-in-picture", referrerPolicy: "strict-origin-when-cross-origin" });
       f.setAttribute("credentialless", "");
       f.setAttribute("allowfullscreen", "");
       box.append(f);
     } else {
+      // Firefox: страница ОС изолирована ради GBA — перезагружаемся в /finds/…, там изоляции нет
+      const q = new URLSearchParams({ tab: this.tab, play: t.id });
+      const go = "/finds/" + (this.pubView || this.cur || "") + "?" + q;
       box.append(el("div", { className: "fd-noembed" },
-        el("p", { textContent: "Этот браузер не умеет встраивать плеер внутри nikita.os — открой трек на сайте." })));
+        el("p", { textContent: "Плеер в этой вкладке не встроится: главная страница ОС защищена ради эмулятора GBA. " +
+          "Режим плеера перезагрузит вкладку и откроет «Находки» на этом треке (GBA в нём не запустится)." }),
+        el("button", { className: "fd-btn primary", textContent: "▶ Включить плеер", onclick: () => { location.href = go; } })));
     }
     this.player.append(box,
       el("div", { className: "fd-title", textContent: titleOf(t) }),
@@ -296,15 +327,18 @@ class FindsApp {
     this.bar.replaceChildren(
       el("span", { className: "fd-dim", textContent: d.descr || `${d.tracks.length} ${plural(d.tracks.length, "трек", "трека", "треков")}` }),
       el("div", { className: "fd-sp" }),
-      el("button", { className: "fd-btn", textContent: "🔗 Ссылка", onclick: () => copyText(location.href.split("?")[0], "Ссылка скопирована") }));
+      el("button", { className: "fd-btn", textContent: "🔗 Ссылка", onclick: () => copyText(location.origin + "/finds/" + d.id, "Ссылка скопирована") }));
+    this.pubView = d.id;
     this.items = d.tracks;
     this.list.replaceChildren();
     if (!d.tracks.length) this.list.append(el("p", { className: "fd-dim fd-pad", textContent: "Тут пока пусто." }));
     for (const t of d.tracks) this.list.append(this.card(t, { readonly: true }));
+    this.playStart();
   }
 }
 
-export function openFinds({ pub } = {}) {
+// pub — id публичного плейлиста; tab, play — из адреса /finds/<id>?tab=&play= (возврат в режим плеера)
+export function openFinds({ pub, tab, play } = {}) {
   return WM.open({ title: "Находки", icon: "🎧", width: 940, height: 620, key: pub ? "finds:" + pub : "finds",
-    render(c, w) { new FindsApp(c, w, pub); } });
+    render(c, w) { new FindsApp(c, w, { pub, tab, play }); } });
 }

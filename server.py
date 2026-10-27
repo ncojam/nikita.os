@@ -663,8 +663,11 @@ async def serve_browser(request):
 
 async def add_headers(request, response):
     h = response.headers
-    # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки)
-    if request.path != "/tg.html":   # Telegram Mini App: грузит telegram.org, живёт в чужом окне
+    # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки).
+    # Без неё: /tg.html (Telegram Mini App грузит telegram.org) и /finds… — «Находки» встраивают
+    # плееры YouTube/SoundCloud, а Firefox не умеет iframe credentialless. GBA в такой вкладке не стартует.
+    p = request.path
+    if p != "/tg.html" and p != "/finds" and not p.startswith("/finds/"):
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Cross-Origin-Embedder-Policy"] = "require-corp"
     h["Cross-Origin-Resource-Policy"] = "same-origin"

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["yt-dlp>=2026.1.1"]
+# dependencies = ["yt-dlp[default]>=2026.1.1"]
 # ///
 """
 Домашний воркер «Находок» nikita.os.
@@ -238,14 +238,24 @@ class Source:
         self.flat = yt_dlp.YoutubeDL({**base, "extract_flat": "in_playlist", "noplaylist": False})
         self.sleep = sleep
         self.calls = 0
+        self.errors = Counter()          # текст ошибки -> сколько раз (в итог прогона)
+        self.ok = 0
+
+    def fail(self, what, url, e):
+        msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "").strip()
+        log.debug("%s %s: %s", what, url, msg)
+        # ид видео/трека в тексте ошибки разные — сводим одинаковые причины вместе
+        self.errors[re.sub(r"\[[^\]]+\]\s*[\w-]+:\s*", "", msg)[:220]] += 1
 
     def info(self, url):
         """Полные метаданные одного трека или None."""
         self.calls += 1
         try:
-            return self.full.extract_info(url, download=False, process=False)
+            r = self.full.extract_info(url, download=False, process=False)
+            self.ok += 1
+            return r
         except Exception as e:
-            log.debug("нет метаданных %s: %s", url, e)
+            self.fail("нет метаданных", url, e)
             return None
 
     def listing(self, url, n):
@@ -253,8 +263,9 @@ class Source:
         self.calls += 1
         try:
             r = self.flat.extract_info(url, download=False)
+            self.ok += 1
         except Exception as e:
-            log.debug("не получился список %s: %s", url, e)
+            self.fail("не получился список", url, e)
             return []
         out = []
         for e in (r or {}).get("entries") or []:
@@ -414,6 +425,8 @@ class Run:
         t.seed_ids = set()               # треки из треклистов миксов-примеров: в ленту не предлагаем
         seeds_yt_channels, seeds_sc_artists = [], []
         examples = [x["id"] for x in pl.get("examples", [])]
+        t.ex_total = sum(1 for x in examples if not x.startswith("scu:"))
+        t.ex_ok = 0
         for tid in examples:
             if self.budget.over(60):
                 break
@@ -425,6 +438,7 @@ class Run:
             if not m:
                 continue
             self.report["examples"] += 1
+            t.ex_ok += 1
             if m["duration"] > 15 * 60:          # микс: его треки — примеры, сам микс — нет
                 for line in tracklist(m)[: (5 if self.test else MIX_TRACKS)]:
                     for fid in self.search(line):
@@ -498,6 +512,7 @@ class Run:
     def playlist(self, pl, quota):
         taste, ytc, sca = self.taste(pl)
         cands = self.candidates(pl, taste, ytc, sca)
+        self.last = f"примеры {taste.ex_ok}/{taste.ex_total}, кандидатов {len(cands)}"
         # предфильтр по тому, что известно без разбора: слова в названии
         rnd = random.Random(pl["id"] + str(int(time.time() // 86400)))
         for c in cands:
@@ -552,7 +567,7 @@ class Run:
             feed, n = self.playlist(pl, quota)
             used[pl["uid"]] += n
             self.report["playlists"] += 1
-            log.info("«%s» (%s): %d в ленте, разобрано %d, %.0f с", pl["name"], pl["owner"], len(feed), n, time.monotonic() - t0)
+            log.info("«%s» (%s): %s, разобрано %d, в ленте %d, %.0f с", pl["name"], pl["owner"], self.last, n, len(feed), time.monotonic() - t0)
             for s, why, m in feed[:5]:
                 log.info("   %.2f  %s — %s%s", s, m["artist"], m["title"], f"  [{why}]" if why else "")
             if feed and not self.dry:
@@ -581,9 +596,12 @@ def main(argv=None):
     ap.add_argument("--dry", action="store_true", help="ничего не отправлять на сайт")
     ap.add_argument("--minutes", type=float, help="лимит времени (иначе из конфига)")
     ap.add_argument("--config", type=Path, default=CONFIG)
+    ap.add_argument("--check", metavar="URL", help="проверить одну ссылку: что о ней видит yt-dlp")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO, format="%(message)s")
+    if a.check:
+        return check(a.check)
     cfg = load_config(a.config)
     minutes = TEST_MINUTES if a.test else (a.minutes or cfg["minutes"])
     budget = Budget(minutes)
@@ -596,6 +614,51 @@ def main(argv=None):
              run.src.calls, rep["pushed"], " (dry — ничего не отправлено)" if a.dry else "")
     if rep["skipped_time"]:
         log.info("Не успели разобрать %d кандидатов — доберём в следующий раз.", rep["skipped_time"])
+    report_errors(run.src)
+
+
+def report_errors(src):
+    """Что не получилось у yt-dlp — сводкой, с подсказкой по известным причинам."""
+    if not src.errors:
+        return
+    total = sum(src.errors.values())
+    log.info("\n⚠ Неудачных запросов: %d из %d. Частые причины:", total, total + src.ok)
+    for msg, n in src.errors.most_common(5):
+        log.info("  ×%d  %s", n, msg)
+    text = " ".join(src.errors).lower()
+    if "javascript" in text or "js runtime" in text or "challenge" in text or "deno" in text:
+        log.info("→ yt-dlp нужен JavaScript-движок для YouTube: sudo pacman -S deno")
+    if "sign in" in text or "not a bot" in text or "429" in text:
+        log.info("→ YouTube притормаживает этот IP: подожди час и увеличь sleep в конфиге")
+    if "unsupported url" in text:
+        log.info("→ Обнови yt-dlp: uv run --upgrade worker/finds_worker.py --check <ссылка>")
+    if src.ok == 0:
+        log.info("→ Ни один запрос не прошёл. Проверь одну ссылку: finds --check <ссылка на трек>")
+
+
+def check(url):
+    """Диагностика одной ссылки: что видит yt-dlp, без глушения его сообщений."""
+    import yt_dlp
+    print("yt-dlp", yt_dlp.version.__version__)
+    tid = url_to_id(url)
+    print("id:", tid or "— ссылка не распознана (нужен трек YouTube/SoundCloud)")
+    opts = {"skip_download": True, "noplaylist": True}
+    try:
+        info = yt_dlp.YoutubeDL(opts).extract_info(url, download=False, process=False)
+    except Exception as e:
+        print("\nОШИБКА:", e)
+        src = type("S", (), {})(); src.errors = Counter({str(e): 1}); src.ok = 0
+        report_errors(src)
+        return
+    if tid and not tid.startswith("scu:"):
+        m = slim(tid, info)
+        print(json.dumps({k: m[k] for k in ("title", "artist", "akey", "duration", "published", "tags", "views", "likes")},
+                         ensure_ascii=False, indent=1))
+        if m["duration"] > 15 * 60:
+            print("микс, треклист:", tracklist(m) or "не найден")
+    with yt_dlp.YoutubeDL({**opts, "extract_flat": "in_playlist", "noplaylist": False, "playlistend": 3}) as y:
+        r = y.extract_info("ytsearchdate3:riddim", download=False)
+        print("\nпоиск ytsearchdate3:riddim ->", [e.get("title") for e in (r.get("entries") or [])])
 
 
 if __name__ == "__main__":
