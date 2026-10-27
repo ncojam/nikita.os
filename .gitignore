@@ -6,3 +6,4 @@ server.log
 .server.pid
 __pycache__/
 /public/tmp-test/
+.env
