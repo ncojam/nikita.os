@@ -13,7 +13,7 @@
 | `forum.py` | `Forum` | `ufs/.meta/forum.json`, `.meta/forum_media/` | Форум Kursk Artists |
 | `airhockey.py` | `AirHockey` | `NOS_DATA` (таблица рекордов) | Арена «Джус» |
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
-| `finds.py` | `Finds` | `NOS_DATA/finds.db` (SQLite, WAL) | «Находки»: плейлисты по настроениям (до 6 на аккаунт), лента от домашнего воркера, bump/dump. Сам никуда не ходит |
+| `finds.py` | `Finds` | `NOS_DATA/finds.db` (SQLite, WAL) | «Находки»: плейлисты по настроениям (до 6 на аккаунт), лента от домашнего воркера ([worker/README.md](../worker/README.md)), bump/dump. Сам никуда не ходит |
 
 ## Эндпоинты
 
