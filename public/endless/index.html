@@ -62,6 +62,25 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #email::placeholder{color:#ffffff22}
 #email.ok{border-color:#5dff9a33}
 #email.err{border-color:#ff8a8a33}
+#cube.locked{cursor:wait}
+#choice{position:absolute;left:4%;top:calc(20% + 220px);display:flex;gap:12px;z-index:3}
+#choice[hidden]{display:none}
+#choice button{background:#0005;color:#e7d6ff;border:1px solid #c9a6ff66;padding:10px 16px;font:600 14px inherit;font-family:inherit;cursor:pointer;
+  letter-spacing:.06em;transition:background .2s,border-color .2s}
+#choice button:hover{background:#c9a6ff22;border-color:#c9a6ff}
+#counters{position:absolute;left:4%;bottom:70px;display:flex;flex-direction:column;gap:14px;z-index:2}
+.ctr[hidden]{display:none}
+.ctr .lbl{font:10px "Courier New",monospace;letter-spacing:.3em;color:#8a7aa8;margin-bottom:5px}
+.seg{display:flex;gap:6px;padding:8px 10px;background:#05020a;border:1px solid #2a1846;border-radius:4px;box-shadow:inset 0 0 12px #000}
+.dg{position:relative;width:18px;height:32px}
+.dg i{position:absolute;background:var(--c);opacity:.07;border-radius:2px;transition:opacity .08s}
+.dg i.on{opacity:1;box-shadow:0 0 6px var(--c)}
+.dg i:nth-child(1){left:3px;top:0;width:12px;height:3px}.dg i:nth-child(2){right:0;top:3px;width:3px;height:12px}
+.dg i:nth-child(3){right:0;top:17px;width:3px;height:12px}.dg i:nth-child(4){left:3px;bottom:0;width:12px;height:3px}
+.dg i:nth-child(5){left:0;top:17px;width:3px;height:12px}.dg i:nth-child(6){left:0;top:3px;width:3px;height:12px}
+.dg i:nth-child(7){left:3px;top:14.5px;width:12px;height:3px}
+#ctrN{--c:#ff6a3c}#ctrF{--c:#9ff06a}
+@media (max-width:760px){#choice{top:auto;bottom:40%}#counters{bottom:56px}.dg{width:12px;height:22px}}
 #reset{position:fixed;top:10px;left:10px;z-index:3;background:#0006;color:#f9a;border:1px dashed #f9a6;font:11px monospace;padding:4px 8px;cursor:pointer}
 #cube.bad.on #plate{filter:drop-shadow(0 0 8px var(--glow)) drop-shadow(0 0 24px var(--glow))}
 #cube.bad #plate{transition:transform 2.4s cubic-bezier(.2,0,.1,1),filter 2.4s,fill 2s}
@@ -77,6 +96,11 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 <main>
   <section id="stage">
     <div id="typed"></div>
+    <div id="choice" hidden></div>
+    <div id="counters">
+      <div class="ctr" id="ctrNBox" hidden><div class="lbl">PRESSES</div><div class="seg" id="ctrN"></div></div>
+      <div class="ctr" id="ctrFBox" hidden><div class="lbl">FAKE GREENS</div><div class="seg" id="ctrF"></div></div>
+    </div>
     <div id="cubeHolder"><div id="cubeWrap"><button id="cube" aria-label="press">
       <svg viewBox="0 0 240 280">
         <defs>
@@ -125,18 +149,23 @@ async function IDB_set(k,v){const d=await idb();if(d)d.transaction('kv','readwri
 async function writeMarks(sig){LS.set('emc_sig',sig);CK.set('_ga_mc',sig);await IDB_set('sig',sig)}
 
 /* ---------- сервер (мок, если API нет) ---------- */
-async function server(action){
+async function server(action,value){
   try{
-    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,value})});
     if(!r.ok)throw 0;return await r.json();
   }catch{
     let ip=await IDB_get('mock_ip');if(!ip){ip=crypto.randomUUID();await IDB_set('mock_ip',ip)}
     const h=await sha(await sha(ip+SALT)+SALT),m=JSON.parse(await IDB_get('mock')||'{"list":[],"fake":false}');
     const known=m.list.includes(h);
     if(action==='register'&&!known)m.list.unshift(h);
-    if(action==='fake')m.fake=true;if(action==='unfake')m.fake=false;
+    m.n=m.n||0;m.f=m.f||0;
+    if(known&&action==='fake'){m.fake=true;m.f++}if(action==='unfake')m.fake=false;
+    if(known&&action==='gamefake'&&m.mode==='game')m.f++;
+    if(known&&action==='tap'&&m.mode==='game')m.n++;
+    if(known&&action==='mode'){m.mode=value==='game'?'game':null;m.fake=false}
+    if(known&&action==='c2')m.c2=!!value;
     await IDB_set('mock',JSON.stringify(m));
-    return {known,fake:m.fake,uaSame:true,me:h,list:m.list};
+    return {known,fake:m.fake,uaSame:true,me:h,list:m.list,n:m.n,f:m.f,mode:m.mode||null,c2:!!m.c2};
   }
 }
 
@@ -251,7 +280,10 @@ function reason(s,now){
 }
 
 async function press(){
-  const now=performance.now();ev.pressesSinceLoad++;ev.recent=ev.recent.filter(x=>now-x<10000);ev.recent.push(now);
+  const now0=performance.now();
+  if(now0<lockUntil||!$('#choice').hidden)return;          // чекпоинт ещё читается / ждём выбора
+  if(game.mode==='game')return gamePress(now0);
+  const now=now0;ev.pressesSinceLoad++;ev.recent=ev.recent.filter(x=>now-x<10000);ev.recent.push(now);
   const ls=LS.get('emc_sig'),ck=CK.get('_ga_mc'),db=await IDB_get('sig');
   const any=ls||ck||db,sig=db||ls||ck;
   const s=await server('check');let kind='bad',text,big=false;
@@ -265,7 +297,7 @@ async function press(){
     await server('unfake');if(!any)await writeMarks(Math.random().toString(36).slice(2,10));
     text='Ага, в прошлый раз было зелёным, и ты подумал, что снова зарегистрировался. Но это был не тот зелёный. Я тебя не пропускаю, я тебя просто наебал! '+reason(s,Date.now());
   }else if(!any){                         // стёр всё, но IP тот же
-    await server('fake');kind='fake';text='Ты зарегистрирован. Добро пожаловать в бесконечность.';
+    SS.set('emc_pressed','1');return fakeReg();
   }else if(ck&&(ls||db)&&ck!==(db||ls)){
     await writeMarks(db||ls);
     text='Ууу, я смотрю, ты нашёл мою ловушку в кукис! Правильное ли это было значение? Нет.';
@@ -276,7 +308,7 @@ async function press(){
   }else if(!db&&ls&&ck){
     await writeMarks(sig);text='IndexedDB подчистил? Мило. Кука и localStorage передают привет.';
   }else if(sp&&sp.fake){                 // додолбился — получи «регистрацию»
-    await server('fake');kind='fake';text='Ты зарегистрирован. Добро пожаловать в бесконечность.';
+    SS.set('emc_pressed','1');return fakeReg();
   }else if(sp&&sp.big){
     text=sp.text;big=true;
   }else if(ev.otherTab){
@@ -299,12 +331,97 @@ async function press(){
 
 let offTimer;
 const glowColor={good:'#5dff9a',fake:'#9ff06a',bad:'#c9a6ff'};
+/* ================= ИГРА В ФЕЙКОВЫЕ ЗЕЛЁНЫЕ ================= */
+const game={mode:null,n:0,f:0,c2:false};
+let lockUntil=0;
+function lock(ms){lockUntil=performance.now()+ms;cube.classList.add('locked');setTimeout(()=>{if(performance.now()>=lockUntil)cube.classList.remove('locked')},ms+20)}
+function sync(st){if(!st)return;Object.assign(game,{mode:st.mode,n:st.n|0,f:st.f|0,c2:!!st.c2});drawCounters()}
+
+/* сегментные часы */
+const SEGMAP=['1111110','0110000','1101101','1111001','0110011','1011011','1011111','1110000','1111111','1111011'];
+function seg(el,num,digits){
+  const str=String(Math.max(0,num|0)).padStart(digits,' ').slice(-Math.max(digits,String(num).length));
+  if(el.children.length!==str.length){el.innerHTML='';for(const _ of str){const d=document.createElement('div');d.className='dg';d.innerHTML='<i></i>'.repeat(7);el.append(d)}}
+  [...str].forEach((ch,i)=>{const m=ch===' '?'0000000':SEGMAP[+ch];[...el.children[i].children].forEach((s,j)=>s.classList.toggle('on',m[j]==='1'))});
+}
+function drawCounters(){
+  $('#ctrNBox').hidden=game.mode!=='game';$('#ctrFBox').hidden=!(game.mode==='game'&&game.c2);
+  if(game.mode==='game')seg($('#ctrN'),game.n,7);
+  if(game.c2)seg($('#ctrF'),game.f,4);
+}
+
+/* выбор: [{label, fn}] */
+function choose(opts){
+  const box=$('#choice');box.innerHTML='';
+  for(const o of opts){const b=document.createElement('button');b.textContent=o.label;
+    b.onclick=async()=>{box.hidden=true;await o.fn()};box.append(b)}
+  box.hidden=false;
+}
+
+/* чекпоинты игры: на каждом — фейковый зелёный и новая фраза */
+const CHECKPOINTS=[
+  [25,'ДВАДЦАТЬ ПЯТЬ. ЭТО РАЗМИНКА.'],
+  [100,'СТО. Я УЖЕ НЕ УДИВЛЯЮСЬ.'],
+  [250,'ТЫ ВСЁ ЕЩЁ ЗДЕСЬ.'],
+  [500,'ПОЛТЫСЯЧИ. ПАЛЕЦ ЖИВ?'],
+  [1000,'ТЫСЯЧА. ЛАДНО, ОБЕЩАЮ: НА 1 000 000-М НАЖАТИИ БУДЕТ НАСТОЯЩИЙ НОВЫЙ ЗЕЛЁНЫЙ.'],
+  [2500,'ДО МИЛЛИОНА ОСТАЛОСЬ 997 500. Я ПОСЧИТАЛ.'],
+  [5000,'ПЯТЬ ТЫСЯЧ. ТЫ ВООБЩЕ СПИШЬ?'],
+  [10000,'ДЕСЯТЬ ТЫСЯЧ. ЗАПИШИ ЭТО В РЕЗЮМЕ.'],
+  [25000,'КНОПКА ПРОСИТ ПЕРЕДАТЬ, ЧТО ЕЙ БОЛЬНО.'],
+  [50000,'ПЯТЬДЕСЯТ ТЫСЯЧ. Я НАЧИНАЮ ТЕБЯ УВАЖАТЬ.'],
+  [100000,'СТО ТЫСЯЧ. ОБЕЩАНИЕ В СИЛЕ.'],
+  [250000,'ЧЕТВЕРТЬ МИЛЛИОНА. НЕ СДАВАЙСЯ.'],
+  [500000,'ПОЛОВИНА. Я ЖЕ ГОВОРИЛ — БУДЕТ НАСТОЯЩИЙ.'],
+  [1000000,'МИЛЛИОН. ВОТ ОН — НАСТОЯЩИЙ НОВЫЙ ЗЕЛЁНЫЙ.'],
+];
+function checkpointAt(prev,n){
+  for(const [cp,txt] of CHECKPOINTS)if(prev<cp&&n>=cp)return txt;
+  const M=1e6;if(n>M&&Math.floor(prev/M)<Math.floor(n/M))return `${Math.floor(n/M)} МИЛЛИОНА. ЗЕЛЁНЫЙ ВСЁ ЕЩЁ НЕ ТОТ.`;
+  return null;
+}
+let after1M=false;
+function maybeOfferC2(){
+  if(game.c2||LS.get('emc_c2_no')===String(game.f))return;
+  if(!(game.n>=1e6||game.f>=5))return;
+  setTimeout(()=>{
+    typeOut(game.n>=1e6?'Ладно, ты заслужил честность: счётчик фейковых зелёных. Показать?':'Ты собрал уже '+game.f+' фейковых зелёных. Хочешь, буду их считать отдельно?',true);
+    choose([{label:'Показать счётчик',fn:async()=>{sync(await server('c2',true));typeOut('Теперь игра честная: собирай фейковые зелёные.',true,true)}},
+            {label:'Не надо',fn:async()=>{LS.set('emc_c2_no',String(game.f));typeOut('Как хочешь.',true)}}]);
+  },lockUntil-performance.now()+50);
+}
+
+async function gamePress(now){
+  ev.recent=ev.recent.filter(x=>now-x<10000);ev.recent.push(now);
+  const prev=game.n,st=await server('tap');sync(st);
+  if(after1M){after1M=false;show('bad','…ну ты понял. Он тоже был не тот.',st,true);maybeOfferC2();return}
+  const cp=checkpointAt(prev,game.n),sp=spamStep(now);
+  if(cp||(sp&&sp.fake)){
+    sync(await server('gamefake'));
+    show('fake',cp||'ДОДОЛБИЛСЯ. ДЕРЖИ ЗЕЛЁНЫЙ. ОН НЕ НАСТОЯЩИЙ, НО ТЫ ЖЕ ЭТО УЖЕ ЗНАЕШЬ.',st,true);lock(5000);
+    if(game.n>=1e6&&prev<1e6)after1M=true;
+    maybeOfferC2();return;
+  }
+  show('bad',sp&&sp.big?sp.text:null,st,!!(sp&&sp.big));
+}
+
+/* фейковая рега вне игры: первая — обычный обман, со второй — вход в игру */
+async function fakeReg(){
+  const st=await server('fake');sync(st);
+  if(st.f<2){show('fake','Ты зарегистрирован. Добро пожаловать в бесконечность.',st);lock(4500);return}
+  show('fake','ТЫ ЗАРАБОТАЛ ВТОРОЙ НЕНАСТОЯЩИЙ ЗЕЛЁНЫЙ. ДОБРО ПОЖАЛОВАТЬ В ИГРУ.',st,true);lock(3500);
+  setTimeout(()=>choose([
+    {label:'Начать сначала',fn:async()=>{sync(await server('mode',null));typeOut('Как скажешь. Всё сначала.')}},
+    {label:'Продолжить игру',fn:async()=>{sync(await server('mode','game'));typeOut('ИГРА НАЧАЛАСЬ. КАЖДОЕ НАЖАТИЕ НА СЧЕТУ.',true,true)}},
+  ]),3500);
+}
+
 function show(kind,text,s,big){
   mood=kind;lastKind=kind;pressT=performance.now();play(kind);
   root.style.setProperty('--glow',glowColor[kind]);
   cube.classList.remove('shake','on','bad');void cube.offsetWidth;cube.classList.add('shake','on');cube.classList.toggle('bad',kind==='bad');
   clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?700:4500);
-  typeOut(text,kind==='bad',big);render(s);
+  if(text!=null)typeOut(text,kind==='bad',big);if(s)render(s);
 }
 function render(s){if(s.admin)$('#reset').hidden=false;ul.innerHTML='';(s.list||[]).slice(0,200).forEach(h=>{const li=document.createElement('li');li.textContent=h.slice(0,40);if(h===s.me)li.className='me';ul.append(li)})}
 
@@ -327,7 +444,7 @@ $('#reset').addEventListener('click',async()=>{
   location.reload();
 });
 cube.addEventListener('click',press);
-server('check').then(render);
+server('check').then(st=>{render(st);sync(st);if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
 typeOut('Нажми на куб.');
 </script>
 </body>

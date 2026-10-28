@@ -1,7 +1,8 @@
 """ENDLESS MC SERVER — лендинг с одной кнопкой (/endless).
 
-POST /api/endless/press  {action: "check" | "register" | "fake" | "unfake"}
-  -> {known, fake, uaSame, me, list}
+POST /api/endless/press  {action: check|register|fake|unfake|gamefake|tap|mode|c2, value?}
+  -> {known, fake, uaSame, me, list, n, f, mode, c2}
+  n — засчитанные нажатия в игре, f — полученные фейковые зелёные
 POST /api/endless/email  {email} -> {ok}
 
 Храним только inner = sha256(ip + SALT). Наружу отдаём outer = sha256(inner + SALT).
@@ -22,6 +23,7 @@ LIST_LIMIT = 200
 # с этих IP видна тестовая кнопка «стереть мою регистрацию»
 ADMIN_IPS = {x.strip() for x in os.environ.get("ENDLESS_ADMIN_IPS", "82.38.67.16").split(",") if x.strip()}
 EMAILS_PER_IP = 5
+MAX_TAPS_PER_SEC = 25
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}\.[^@\s.]{2,}$")
 
 
@@ -39,6 +41,7 @@ class Endless:
         self.emails_path = Path(data_dir) / "endless_emails.jsonl"
         self.client_ip = client_ip
         self.order, self.meta = [], {}
+        self.taps, self._saved_at = {}, 0.0
         try:
             raw = json.loads(self.path.read_text())
         except (OSError, ValueError):
@@ -56,7 +59,12 @@ class Endless:
         except (OSError, ValueError):
             pass
 
+    def _save_soon(self):  # нажатия в игре сыплются часто — пишем на диск не чаще раза в 2 с
+        if time.monotonic() - self._saved_at > 2:
+            self._save()
+
     def _save(self):
+        self._saved_at = time.monotonic()
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps([[i, self.meta[i]] for i in self.order]))
         tmp.replace(self.path)
@@ -66,9 +74,10 @@ class Endless:
 
     async def press(self, request):
         try:
-            action = (await request.json()).get("action")
+            body = await request.json()
         except Exception:
-            action = "check"
+            body = {}
+        action, value = body.get("action", "check"), body.get("value")
         inner = self._inner(request)
         ua = _h(request.headers.get("User-Agent", ""))
         meta = self.meta.get(inner)
@@ -78,8 +87,28 @@ class Endless:
             self.order.insert(0, inner)
             self.meta[inner] = meta
             self._save()
-        elif action in ("fake", "unfake") and known:
+        elif known and action in ("fake", "unfake"):
             meta["fake"] = action == "fake"
+            if action == "fake":
+                meta["f"] = meta.get("f", 0) + 1
+            self._save()
+        elif known and action == "gamefake" and meta.get("mode") == "game":
+            meta["f"] = meta.get("f", 0) + 1
+            self._save()
+        elif known and action == "tap" and meta.get("mode") == "game":
+            sec = int(time.time())
+            last_sec, cnt = self.taps.get(inner, (0, 0))
+            cnt = cnt + 1 if last_sec == sec else 1
+            self.taps[inner] = (sec, cnt)
+            if cnt <= MAX_TAPS_PER_SEC:       # автокликеру не больше 25 засчитанных в секунду
+                meta["n"] = meta.get("n", 0) + 1
+                self._save_soon()
+        elif known and action == "mode":
+            meta["mode"] = "game" if value == "game" else None
+            meta["fake"] = False
+            self._save()
+        elif known and action == "c2":
+            meta["c2"] = bool(value)
             self._save()
         return _resp({
             "known": known,
@@ -87,6 +116,8 @@ class Endless:
             "uaSame": bool(meta) and meta.get("ua", ua) == ua,
             "me": _h(inner + SALT),
             "admin": self.client_ip(request) in ADMIN_IPS,
+            "n": (meta or {}).get("n", 0), "f": (meta or {}).get("f", 0),
+            "mode": (meta or {}).get("mode"), "c2": bool((meta or {}).get("c2")),
             "list": [_h(i + SALT) for i in self.order[:LIST_LIMIT]],
         })
 
