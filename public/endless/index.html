@@ -499,27 +499,39 @@ const needFor=L=>45+L*25;                 // брут-форс «дальше»:
 function fill(t){const L=prog.bf,n=spam.bigPresses;
   return t.replace('{code}',code(n)).replace('{code2}',code(n+1)).replace('{code3}',code(n+2)).replaceAll('{L}',L+1).replace('{need}',needFor(L))}
 function rate(now){return ev.recent.filter(x=>now-x<2000).length/2}
+/* какую ветку пытается открыть игрок: 'fast' — гонит темп, 'rhythm' — стучит ровно и неторопливо */
+function stats(iv){const m=iv.reduce((a,b)=>a+b,0)/iv.length;return {m,cv:Math.sqrt(iv.reduce((a,b)=>a+(b-m)**2,0)/iv.length)/m}}
+function intent(){
+  const iv=spam.intervals.slice(-12);if(iv.length<8)return 'unknown';
+  const {m,cv}=stats(iv),h=iv.length>>1,m1=stats(iv.slice(0,h)).m,m2=stats(iv.slice(h)).m;
+  if(m<250||m2<m1*.85)return 'fast';          // очень быстро или разгоняется — это долбёжка
+  if(m<=900&&cv<.15)return 'rhythm';          // неторопливо и ровно — это ритм
+  return 'mixed';
+}
 function spamStep(now){
   if(now-spam.last>3000){Object.assign(spam,{stage:0,bigPresses:0,idx:0,intervals:[]});if(groove.state==='measure')stopGroove()}
   if(spam.last)spam.intervals.push(now-spam.last);if(spam.intervals.length>16)spam.intervals.shift();
-  spam.last=now;const r=rate(now);
+  spam.last=now;const r=rate(now),it=intent();
+  if(groove.state==='measure'&&it==='fast')stopGroove();          // начал гнать темп посреди замера — значит, не ритм
+  // секрет «Ритм»: 12 неторопливых интервалов (250–900 мс) почти одинаковые
+  if(!secrets.has('rhythm')&&it==='rhythm'&&spam.intervals.length>=12&&stats(spam.intervals.slice(-12)).cv<.1)
+    return {fake:true,secret:'rhythm',fakeText:'О. ТЫ СТУЧИШЬ В РИТМ. ЭТО УЖЕ МУЗЫКА. ДЕРЖИ ЗЕЛЁНЫЙ.'};
   // грув: ритм уже открыт и игрок снова долбит примерно ровно — предлагаем замер, потом играем
   if(groove.state!=='off'){const g=grooveOnPress(spam.intervals[spam.intervals.length-1]||9999);if(g)return g;if(groove.state==='measure')return {big:true,text:'ЗАМЕРЯЮ… ДОЛБИ РОВНО.'}}
   else if(secrets.has('rhythm')){const g=spam.intervals.slice(-GROOVE_WARMUP);   // сначала игрок должен сам подолбить в ритме
     if(g.length===GROOVE_WARMUP){const m=g.reduce((a,b)=>a+b)/g.length,sd=Math.sqrt(g.reduce((a,b)=>a+(b-m)**2,0)/g.length);
-      if(m>120&&m<1000&&sd/m<.22)return offerGroove()}}
+      if(it==='rhythm'&&m>=250&&m<=900&&sd/m<.15)return offerGroove()}}
+  if(it==='rhythm'&&spam.stage<2)return {text:secrets.has('rhythm')?'Ровно стучишь. Я слушаю… продолжай.':'Ровно стучишь. Я слушаю.'};
   if(spam.stage===0){if(ev.recent.length>=5){spam.stage=1;spam.baseRate=r;return {text:'Долбить быстрее тоже не помогает.'}}return null}
   if(spam.stage===1){
-    if(r>=3&&r>spam.baseRate*1.25){spam.stage=2;spam.bigStart=now;spam.bigPresses=0;spam.idx=0}
+    if(it!=='rhythm'&&r>=3&&r>spam.baseRate*1.25){spam.stage=2;spam.bigStart=now;spam.bigPresses=0;spam.idx=0}
     else return {text:'Долбить быстрее тоже не помогает.'};
   }
-  // секрет «Ритм»: 12 интервалов подряд почти одинаковые, темп ≥ 3/с
-  const iv=spam.intervals.slice(-12);
-  if(iv.length===12&&!secrets.has('rhythm')){const m=iv.reduce((a,b)=>a+b)/12,sd=Math.sqrt(iv.reduce((a,b)=>a+(b-m)**2,0)/12);
-    if(m<340&&sd/m<.12)return {fake:true,secret:'rhythm',fakeText:'О. ТЫ ДОЛБИШЬ В РИТМ. ЭТО УЖЕ МУЗЫКА. ДЕРЖИ ЗЕЛЁНЫЙ.'}}
   // секрет «Тормоз»: посреди долбёжки 4 медленных нажатия подряд (1,2–2,8 с)
   const iv4=spam.intervals.slice(-4);
   if(iv4.length===4&&iv4.every(x=>x>1200&&x<2800)&&!secrets.has('brake'))return {big:true,secret:'brake',text:'ЗАТОРМОЗИЛ? ПРОВЕРЯЕШЬ, СЛЕЖУ ЛИ Я. СЛЕЖУ.'};
+  // посреди брут-форса перешёл на ровный стук — фраза замирает, ветка ритма получает шанс
+  if(it==='rhythm'){const lay0=layer();if(lay0)return {text:fill(lay0.lines[spam.idx]),big:true,wait:spam.idx===lay0.lines.length-1}}
   const lay=layer();
   if(!lay){Object.assign(spam,{stage:0,bigPresses:0});return {fork:ARC[prog.bf].fork}}
   spam.bigPresses++;
@@ -702,7 +714,7 @@ const SECRETS=[
   ['spamfast','Долбить быстрее','Я это вижу. Крупно.'],
   ['spamfake','Додолбиться','Иногда упорство вознаграждается. Фальшиво.'],
   ['wait','Подождать','Иногда надо просто остановиться.'],
-  ['rhythm','Ритм','Долбить ровно, как метроном.'],
+  ['rhythm','Ритм','Стучать ровно и неторопливо, как метроном.'],
   ['groove','Грув','Кнопка подстроилась под тебя.'],
   ['band','Целый бэнд','Держал долю, пока не пришли басс и пэды.'],
   ['brake','Тормоз','Посреди долбёжки — пауза.'],
