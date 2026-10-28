@@ -1,6 +1,6 @@
 """ENDLESS MC SERVER — лендинг с одной кнопкой (/endless).
 
-POST /api/endless/press  {action: check|register|fake|unfake|gamefake|tap|mode|c2|secret, value?}
+POST /api/endless/press  {action: check|register|fake|unfake|gamefake|tap|mode|c2|secret|prog, value?}
   -> {known, fake, uaSame, me, list, n, f, mode, c2, sec}
   n — засчитанные нажатия в игре, f — полученные фейковые зелёные
 POST /api/endless/email  {email} -> {ok}
@@ -113,6 +113,12 @@ class Endless:
             if value not in sec and len(sec) < 64:
                 sec.append(value)
                 self._save()
+        elif known and action == "prog" and isinstance(value, dict):
+            k, v = value.get("k"), value.get("v")
+            prog = meta.setdefault("prog", {})
+            if isinstance(k, str) and SECRET_RE.match(k) and isinstance(v, int) and 0 <= v <= 10**6 and (k in prog or len(prog) < 32):
+                prog[k] = v
+                self._save()
         elif known and action == "c2":
             meta["c2"] = bool(value)
             self._save()
@@ -124,7 +130,7 @@ class Endless:
             "admin": self.client_ip(request) in ADMIN_IPS,
             "n": (meta or {}).get("n", 0), "f": (meta or {}).get("f", 0),
             "mode": (meta or {}).get("mode"), "c2": bool((meta or {}).get("c2")),
-            "sec": (meta or {}).get("sec", []),
+            "sec": (meta or {}).get("sec", []), "prog": (meta or {}).get("prog", {}),
             "list": [_h(i + SALT) for i in self.order[:LIST_LIMIT]],
         })
 

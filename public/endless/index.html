@@ -185,9 +185,10 @@ async function server(action,value){
     if(known&&action==='tap'&&m.mode==='game')m.n++;
     if(known&&action==='mode'){m.mode=value==='game'?'game':null;m.fake=false}
     if(known&&action==='c2')m.c2=!!value;
+    m.prog=m.prog||{};if(known&&action==='prog')m.prog[value.k]=value.v;
     m.sec=m.sec||[];if(known&&action==='secret'&&!m.sec.includes(value))m.sec.push(value);
     await IDB_set('mock',JSON.stringify(m));
-    return {known,fake:m.fake,uaSame:true,me:h,list:m.list,n:m.n,f:m.f,mode:m.mode||null,c2:!!m.c2,sec:m.sec};
+    return {known,fake:m.fake,uaSame:true,me:h,list:m.list,n:m.n,f:m.f,mode:m.mode||null,c2:!!m.c2,sec:m.sec,prog:m.prog};
   }
 }
 
@@ -261,29 +262,74 @@ requestAnimationFrame(frame);
 const nav=performance.getEntriesByType('navigation')[0]?.type||'navigate';
 const W0={ss:SS.get('emc_pressed'),t0:performance.now()};   // было ли нажатие в этой вкладке до перезагрузки
 const ev={resized:false,leftTab:false,otherTab:false,pressesSinceLoad:0,recent:[],enterSide:null,lastShown:''};
-/* долбёжка: стадия 0 — нет, 1 — сказали «не помогает», 2+ — видим, что ускорился */
-const spam={stage:0,baseRate:0,bigStart:0,bigPresses:0,last:0};
-const SPAM_BIG=[
-  'Я ВИЖУ. ТЫ СТАЛ ДОЛБИТЬ БЫСТРЕЕ.',
-  'ЕЩЁ БЫСТРЕЕ? СЕРЬЁЗНО?',
-  'ТЫ ДУМАЕШЬ, У МЕНЯ КОНЧИТСЯ ТЕРПЕНИЕ РАНЬШЕ, ЧЕМ У ТЕБЯ ПАЛЕЦ?',
-  'Я СЧИТАЮ КАЖДОЕ НАЖАТИЕ.',
-  'ЛАДНО. ЛАДНО. ПОДОЖДИ…',
+/* ================= ДОЛБЁЖКА: ВЕТКА С РАЗВИЛКАМИ =================
+   stage 0 — нет, 1 — «не помогает», 2+ — крупные фразы.
+   Каждая доведённая до конца серия = пробитый «слой» (prog.bf). Чем глубже слой —
+   тем больше фраз, тем дальше фейк и тем больше подсказок на другие секреты.
+   Последняя фраза слоя (wait:true) — ворота для секрета «Подождать».            */
+const spam={stage:0,baseRate:0,bigStart:0,bigPresses:0,last:0,idx:0,intervals:[]};
+const prog={bf:0,why:0};                  // bf — пробитые слои, why — выбор на развилке (1/2)
+function setProg(k,v){prog[k]=v;server('prog',{k,v})}
+const code=n=>String((n*7919+1234)%10000).padStart(4,'0');
+const ARC=[
+  {lines:['Я ВИЖУ. ТЫ СТАЛ ДОЛБИТЬ БЫСТРЕЕ.','ЕЩЁ БЫСТРЕЕ? СЕРЬЁЗНО?','ТЫ ДУМАЕШЬ, У МЕНЯ КОНЧИТСЯ ТЕРПЕНИЕ РАНЬШЕ, ЧЕМ У ТЕБЯ ПАЛЕЦ?',
+          'Я СЧИТАЮ КАЖДОЕ НАЖАТИЕ.','ЛАДНО. ЛАДНО. ПОДОЖДИ…'],
+   fake:'ДОДОЛБИЛСЯ. ДЕРЖИ ЗЕЛЁНЫЙ. ОН НЕ НАСТОЯЩИЙ, НО ТЫ ЖЕ ЭТО УЖЕ ЗНАЕШЬ.'},
+  {lines:['ОПЯТЬ ТЫ.','ТЫ ЖЕ ПОМНИШЬ, ЧЕМ ЭТО КОНЧИЛОСЬ В ПРОШЛЫЙ РАЗ.','В ПРОШЛЫЙ РАЗ ЗЕЛЁНЫЙ БЫЛ НЕ ТОТ. В ЭТОТ РАЗ — ТОЖЕ.',
+          'ЗНАЕШЬ, ИНОГДА Я ПРОСТО ЖДУ, ПОКА ТЫ ОСТАНОВИШЬСЯ.','ПАЛЕЦ НЕ УСТАЛ?','ДО ЗЕЛЁНОГО СЕЙЧАС ДАЛЬШЕ, ЧЕМ В ПРОШЛЫЙ РАЗ.','ЛАДНО. ДАВАЙ ПОМЕДЛЕННЕЕ…'],
+   fake:'ВТОРОЙ СЛОЙ ПРОБИТ. ЗА НИМ — ТРЕТИЙ.'},
+  {lines:['ПОНЯЛ. ТЫ ПЕРЕБИРАЕШЬ ПАРОЛЬ.','ПОДБИРАЮ ЗА ТЕБЯ: {code}','НЕ ТОТ. {code}','ЕЩЁ НЕ ТОТ. {code}',
+          'ХАОТИЧНО ДОЛБИШЬ. А Я ЛЮБЛЮ ПОРЯДОК.','{code}… {code2}… {code3}…','ПОДОЖДИ. КАЖЕТСЯ, ПОДОШЁЛ…'],
+   fake:'КОД ПОДОБРАН: ****. ШУЧУ. ДЕРЖИ ЗЕЛЁНЫЙ.'},
+  {fork:{q:'СТОП. СНАЧАЛА СКАЖИ: ЗАЧЕМ ТЫ ДОЛБИШЬ?',a:[['Хочу настоящий зелёный',1],['Мне нравится звук',2]]},
+   by:{1:{lines:['НАСТОЯЩИЙ ЗЕЛЁНЫЙ… ТЫ ПРАВДА В НЕГО ВЕРИШЬ?','Я ВИДЕЛ ЕГО ОДИН РАЗ. ОН БЫЛ ТЕМНЕЕ.','ЕГО ДАЮТ ТЕМ, КТО ПРИХОДИТ, КОГДА ВСЕ СПЯТ.',
+                 'НО ТЫ ВСЁ РАВНО ДОЛБИШЬ.','ПРОДОЛЖАЙ. ИЛИ НЕТ.','ЛАДНО. СЛУШАЙ…'],fake:'ВОТ ОН. ТЁМНЫЙ ЗЕЛЁНЫЙ. ХОТЯ НЕТ — ПРОСТО ЗЕЛЁНЫЙ.'},
+       2:{lines:['ЗВУК? ПРАВДА? ТОГДА ПОСЛУШАЙ ВНИМАТЕЛЬНЕЕ.','КАЖДОЕ НАЖАТИЕ ЗВУЧИТ ЧУТЬ ПО-ДРУГОМУ.','ЕСЛИ ЗАТОРМОЗИТЬ — В МУЗЫКЕ БУДЕТ ПАУЗА.',
+                 'А ЕСЛИ ДОЛБИТЬ РОВНО, КАК МЕТРОНОМ…','НЕТ, СЛИШКОМ ХАОТИЧНО.','ТИШЕ… ТИШЕ…'],fake:'ФИНАЛЬНЫЙ АККОРД. ЗЕЛЁНЫЙ.'}}},
 ];
-function rate(now){return ev.recent.filter(x=>now-x<2000).length/2}   // нажатий в секунду за последние 2 с
+function deepLines(L){ // слой 4 и дальше — бесконечный, с подсказками вперемешку
+  const pool=['СЛОЙ {L}. СЛЕДУЮЩИЙ ТОЛЩЕ.','ДО ЗЕЛЁНОГО ТЕПЕРЬ {need} НАЖАТИЙ. Я ДОБАВИЛ.','ПОДБИРАЮ: {code}','ТЫ СИЛЬНЕЕ, ЧЕМ Я ДУМАЛ.',
+    'ТЁМНЫЕ СТРОЧКИ В ДНЕВНИКЕ — НЕ ДЕКОРАЦИЯ.','НЕКОТОРЫЕ СЕКРЕТЫ ПРЯЧУТСЯ В ПАУЗАХ.','ТЫ ПРОБОВАЛ ДОЛБИТЬ РОВНО?','НОЧЬЮ ЗДЕСЬ ВСЁ ИНАЧЕ.',
+    'ИНТЕРЕСНО, ЧТО БУДЕТ, ЕСЛИ ОТКРЫТЬ МЕНЯ В ДРУГОМ БРАУЗЕРЕ.','КНОПКА ПОМНИТ ТЕБЯ ДОЛЬШЕ, ЧЕМ КУКИ.','СЛОЙ {L}. Я НАЧИНАЮ ЗАПОМИНАТЬ ТВОЙ РИТМ.'];
+  const n=5+Math.min(L,10),out=[];for(let i=0;i<n;i++)out.push(pool[(i*5+L*3)%pool.length]);
+  out.push('ЛАДНО. ПЕРЕДЫШКА…');return {lines:out,fake:'СЛОЙ {L} ПРОБИТ. ДЕРЖИ ЗЕЛЁНЫЙ.'};
+}
+function layer(){
+  const L=prog.bf;if(L>=ARC.length)return deepLines(L);
+  const a=ARC[L];if(!a.fork)return a;
+  return prog.why?a.by[prog.why]:null;  // null — сначала развилка
+}
+const needFor=L=>45+L*25;                 // брут-форс «дальше»: каждый слой требует больше нажатий
+function fill(t){const L=prog.bf,n=spam.bigPresses;
+  return t.replace('{code}',code(n)).replace('{code2}',code(n+1)).replace('{code3}',code(n+2)).replaceAll('{L}',L+1).replace('{need}',needFor(L))}
+function rate(now){return ev.recent.filter(x=>now-x<2000).length/2}
 function spamStep(now){
-  if(now-spam.last>3000)Object.assign(spam,{stage:0,bigPresses:0});    // перестал — всё забыли
+  if(now-spam.last>3000)Object.assign(spam,{stage:0,bigPresses:0,idx:0,intervals:[]});
+  if(spam.last)spam.intervals.push(now-spam.last);if(spam.intervals.length>16)spam.intervals.shift();
   spam.last=now;const r=rate(now);
   if(spam.stage===0){if(ev.recent.length>=5){spam.stage=1;spam.baseRate=r;return {text:'Долбить быстрее тоже не помогает.'}}return null}
   if(spam.stage===1){
-    if(r>=3&&r>spam.baseRate*1.25){spam.stage=2;spam.bigStart=now;spam.bigPresses=0}
+    if(r>=3&&r>spam.baseRate*1.25){spam.stage=2;spam.bigStart=now;spam.bigPresses=0;spam.idx=0}
     else return {text:'Долбить быстрее тоже не помогает.'};
   }
+  // секрет «Ритм»: 12 интервалов подряд почти одинаковые, темп ≥ 3/с
+  const iv=spam.intervals.slice(-12);
+  if(iv.length===12&&!secrets.has('rhythm')){const m=iv.reduce((a,b)=>a+b)/12,sd=Math.sqrt(iv.reduce((a,b)=>a+(b-m)**2,0)/12);
+    if(m<340&&sd/m<.12)return {fake:true,secret:'rhythm',fakeText:'О. ТЫ ДОЛБИШЬ В РИТМ. ЭТО УЖЕ МУЗЫКА. ДЕРЖИ ЗЕЛЁНЫЙ.'}}
+  // секрет «Тормоз»: посреди долбёжки 4 медленных нажатия подряд (1,2–2,8 с)
+  const iv4=spam.intervals.slice(-4);
+  if(iv4.length===4&&iv4.every(x=>x>1200&&x<2800)&&!secrets.has('brake'))return {big:true,secret:'brake',text:'ЗАТОРМОЗИЛ? ПРОВЕРЯЕШЬ, СЛЕЖУ ЛИ Я. СЛЕЖУ.'};
+  const lay=layer();
+  if(!lay){Object.assign(spam,{stage:0,bigPresses:0});return {fork:ARC[prog.bf].fork}}
   spam.bigPresses++;
-  if(r<2.5)return {text:SPAM_BIG[Math.min(spam.stage-2,SPAM_BIG.length-1)],big:true}; // сбавил темп — держим текущую фразу
-  if(spam.bigPresses>=45&&now-spam.bigStart>12000){Object.assign(spam,{stage:0,bigPresses:0});return {fake:true}}
-  spam.stage=2+Math.min(SPAM_BIG.length-1,Math.floor(spam.bigPresses/9));
-  return {text:SPAM_BIG[spam.stage-2],big:true};
+  if(r>=2.5){
+    if(spam.bigPresses>=needFor(prog.bf)&&now-spam.bigStart>12000){
+      const t=fill(lay.fake);setProg('bf',prog.bf+1);Object.assign(spam,{stage:0,bigPresses:0,idx:0});
+      return {fake:true,fakeText:t,layer:prog.bf}}
+    const per=Math.max(4,Math.floor(needFor(prog.bf)/lay.lines.length));
+    spam.idx=Math.min(lay.lines.length-1,Math.floor(spam.bigPresses/per));
+  }
+  const i=spam.idx;return {text:fill(lay.lines[i]),big:true,wait:i===lay.lines.length-1};
 }
 let resizeT;addEventListener('resize',()=>{fit();clearTimeout(resizeT);resizeT=setTimeout(()=>ev.resized=true,400)});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)ev.leftTab=true});
@@ -331,9 +377,14 @@ async function press(){
   }else if(!db&&ls&&ck){
     await writeMarks(sig);found('idb');text='IndexedDB подчистил? Мило. Кука и localStorage передают привет.';
   }else if(sp&&sp.fake){                 // додолбился — получи «регистрацию»
-    found('spamfake');SS.set('emc_pressed','1');return fakeReg();
+    found(sp.secret||'spamfake');layerSecret(sp);SS.set('emc_pressed','1');return fakeReg(sp.fakeText);
+  }else if(sp&&sp.fork){
+    return askFork(sp.fork);
   }else if(sp&&sp.big){
-    found('spamfast');text=sp.text;big=true;
+    found(sp.secret||'spamfast');text=sp.text;big=true;
+  }else if(new Date().getHours()<5&&!secrets.has('night')){
+    found('night');SS.set('emc_pressed','1');
+    return fakeReg(prog.why===1?'ТЫ ПРИШЁЛ, КОГДА ВСЕ СПЯТ. ВОТ ОН — ТЁМНЫЙ ЗЕЛЁНЫЙ. ПОЧТИ НАСТОЯЩИЙ.':'ТЫ ПРИШЁЛ, КОГДА ВСЕ СПЯТ. ДЕРЖИ НОЧНОЙ ЗЕЛЁНЫЙ.');
   }else if(ev.otherTab){
     ev.otherTab=false;found('othertab');text='Вторая вкладка со мной не поможет. Я вижу обе.';
   }else if(ev.pressesSinceLoad===1&&nav==='reload'&&W0.ss){
@@ -421,12 +472,13 @@ async function gamePress(now){
   const cp=checkpointAt(prev,game.n),sp=spamStep(now);armWait(sp);
   if(cp||(sp&&sp.fake)){
     sync(await server('gamefake'));
-    show('fake',cp||'ДОДОЛБИЛСЯ. ДЕРЖИ ЗЕЛЁНЫЙ. ОН НЕ НАСТОЯЩИЙ, НО ТЫ ЖЕ ЭТО УЖЕ ЗНАЕШЬ.',st,true);lock(5000);
+    show('fake',cp||sp.fakeText,st,true);lock(5000);
     if(game.n>=1e6&&prev<1e6){after1M=true;found('million')}
-    if(sp&&sp.fake)found('spamfake');
+    if(sp&&sp.fake){found(sp.secret||'spamfake');layerSecret(sp)}
     maybeOfferC2();return;
   }
-  if(sp)found(sp.big?'spamfast':'spam');
+  if(sp&&sp.fork)return askFork(sp.fork);
+  if(sp)found(sp.secret||(sp.big?'spamfast':'spam'));
   show('bad',sp&&sp.big?sp.text:null,st,!!(sp&&sp.big));
 }
 
@@ -449,6 +501,13 @@ const SECRETS=[
   ['spamfast','Долбить быстрее','Я это вижу. Крупно.'],
   ['spamfake','Додолбиться','Иногда упорство вознаграждается. Фальшиво.'],
   ['wait','Подождать','Иногда надо просто остановиться.'],
+  ['rhythm','Ритм','Долбить ровно, как метроном.'],
+  ['brake','Тормоз','Посреди долбёжки — пауза.'],
+  ['forkgreen','Ради зелёного','Ты выбрал верить.'],
+  ['forksound','Ради звука','Ты выбрал слушать.'],
+  ['night','Когда все спят','Ночью здесь всё иначе.'],
+  ['layer3','Третий слой','Брут-форс глубже, чем кажется.'],
+  ['layer5','Пятый слой','Дальше — только глубже.'],
   ['game','Войти в игру','Второй ненастоящий зелёный.'],
   ['million','Миллион','Настоящий новый зелёный. Почти.'],
   ['c2','Честный счётчик','Теперь фейки считаются.'],
@@ -476,11 +535,18 @@ function found(id){
 $('#diaryBtn').onclick=()=>{drawDiary();$('#diary').hidden=false};
 $('#diary').onclick=e=>{if(e.target.id==='diary'||e.target.classList.contains('close'))$('#diary').hidden=true};
 
+function layerSecret(sp){if(sp.layer>=3)found('layer3');if(sp.layer>=5)found('layer5')}
+function askFork(f){
+  typeOut(f.q,true,true);lock(1200);
+  setTimeout(()=>choose(f.a.map(([label,v])=>({label,fn:async()=>{setProg('why',v);found(v===1?'forkgreen':'forksound');
+    typeOut(v===1?'ХОРОШО. ТОГДА ДОЛБИ ДАЛЬШЕ. Я РАССКАЖУ, ГДЕ ОН.':'ХОРОШО. ТОГДА СЛУШАЙ, ПОКА ДОЛБИШЬ.',true,true)}}))),1200);
+}
+
 /* секрет «подождать»: на фразе «ЛАДНО. ЛАДНО. ПОДОЖДИ…» — перестать жать и реально подождать */
 const WAIT_MS=7000;let waitT;
 function armWait(sp){
   clearTimeout(waitT);
-  if(!(sp&&sp.big&&sp.text===SPAM_BIG[SPAM_BIG.length-1]))return;
+  if(!(sp&&sp.wait))return;
   waitT=setTimeout(async()=>{
     if(performance.now()<lockUntil||!$('#choice').hidden)return;
     Object.assign(spam,{stage:0,bigPresses:0});ev.recent=[];found('wait');
@@ -529,7 +595,7 @@ $('#reset').addEventListener('click',async()=>{
   location.reload();
 });
 cube.addEventListener('click',press);
-server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
+server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
 typeOut('Нажми на куб.');
 </script>
 </body>
