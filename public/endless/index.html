@@ -6,7 +6,7 @@
 <title>ENDLESS MC SERVER</title>
 <style>
 :root{--top:#45237a;--mid:#1d0f33;--bot:#000;--rim:#5b2a9a;--teal:#2fd6d0;--txt:#a07ae0;--dim:#4f6b5d;
-      --good:#5dff9a;--fake:#9ff06a;--bad:#ff5a3c;--glow:var(--rim)}
+      --good:#5dff9a;--fake:#9ff06a;--bad:#c9a6ff;--glow:var(--rim)}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;color:var(--txt);font-family:"Segoe UI",system-ui,sans-serif;
   background:linear-gradient(180deg,var(--top) 0%,var(--mid) 55%,var(--bot) 100%)}
@@ -15,31 +15,35 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #stage{position:relative;display:flex;align-items:center;justify-content:center}
 #typed{position:absolute;left:4%;top:20%;max-width:280px;font-size:18px;line-height:1.35;transform:rotate(-2deg);
   white-space:pre-wrap;min-height:4em;text-shadow:0 0 8px #0006}
-#typed.bad{color:#ff9d86}
+#typed.bad{color:#d9c2ff}
 #typed::after{content:"▌";animation:blink 1s steps(1) infinite;opacity:.7}
 @keyframes blink{50%{opacity:0}}
 
 #cubeHolder{position:relative;display:flex;flex-direction:column;align-items:center}
 #cubeWrap{animation:levitate 12s ease-in-out infinite;position:relative;z-index:1}
 @keyframes levitate{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-22px) rotate(.5deg)}}
-/* тень на подложке: не двигается вместе с кнопкой, а сжимается/бледнеет, когда кнопка взлетает */
 #floorShadow{width:300px;height:46px;margin-top:-8px;border-radius:50%;
   background:radial-gradient(ellipse at center,#000c 0%,#0007 40%,transparent 72%);filter:blur(6px);
-  animation:shadow 12s ease-in-out infinite;transition:background 1.2s}
+  animation:shadow 12s ease-in-out infinite}
 @keyframes shadow{0%,100%{transform:scale(1);opacity:.95}50%{transform:scale(.8);opacity:.6}}
-#cubeHolder.on #floorShadow{background:radial-gradient(ellipse at center,color-mix(in srgb,var(--glow) 45%,#000) 0%,#0007 45%,transparent 72%)}
+
 #cube{position:relative;width:340px;height:396px;border:0;padding:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #cube svg{width:100%;height:100%;overflow:visible;display:block}
-#hole{transition:fill 1.2s}
-#rim{transform-box:fill-box;transform-origin:center;transition:transform 1.4s cubic-bezier(.2,1.4,.4,1),stroke 1.2s,stroke-width 1.2s,filter 1.2s;
-  stroke:var(--rim)}
-#cube:hover #rim{transform:scale(1.03)}
-#cube.on #rim{transform:scale(1.14);stroke:var(--glow);stroke-width:9;
-  filter:drop-shadow(0 0 6px var(--glow)) drop-shadow(0 0 22px var(--glow))}
-#cube.on #hole{fill:url(#holeLit)}
+/* подложка: отпускание медленное, удар — быстрый с перелётом */
+#plate{transform-box:fill-box;transform-origin:center;
+  transition:transform 1.1s cubic-bezier(.3,0,.2,1),filter 1s,fill .8s}
+#plateRim{transition:stroke .8s}
+#cube:hover #plate{transform:scale(1.04)}
+#cube.on #plate{transform:scale(1.3);transition:transform .32s cubic-bezier(.2,2.4,.35,1),filter .2s,fill .2s;
+  filter:drop-shadow(0 0 10px var(--glow)) drop-shadow(0 0 34px var(--glow)) drop-shadow(0 0 70px var(--glow))}
+#cube.on #plateRim{stroke:var(--glow);transition:stroke .2s}
+#cube.on #plateFill{fill:color-mix(in srgb,var(--glow) 30%,#1a0c30)}
+/* камень светится еле-еле */
+#stone{transition:filter 1s}
+#cube.on #stone{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--glow) 60%,transparent))}
 #inner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-#inner img{position:absolute;width:62%;image-rendering:pixelated;opacity:.85}
-.tag{position:relative;transform:rotate(-6deg);color:var(--teal);font-size:17px;line-height:1.35;text-align:left;
+#inner img{position:absolute;width:56%;image-rendering:pixelated;opacity:.85}
+.tag{position:relative;transform:rotate(-6deg);color:var(--teal);font-size:16px;line-height:1.35;text-align:left;
   letter-spacing:.04em;text-shadow:0 0 6px #2fd6d055}
 .shake{animation:shake .8s cubic-bezier(.36,.07,.19,.97)}
 @keyframes shake{10%,90%{transform:translate(-2px,1px)}20%,80%{transform:translate(4px,-2px)}30%,50%,70%{transform:translate(-7px,3px) rotate(-2deg)}40%,60%{transform:translate(7px,-3px) rotate(2deg)}}
@@ -49,12 +53,15 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #list ul{margin:0;padding:0}
 #list li{list-style:none;padding:2px 0;word-break:break-all}
 #list li.me{color:var(--good)}
-#email{position:fixed;bottom:18px;left:calc((100% - 280px)/2);transform:translateX(-50%);z-index:2;width:240px;background:transparent;
-  border:1px solid #ffffff12;color:#aaa;padding:8px 10px;font:inherit;font-size:12px;outline:none}
+#emailBox{position:fixed;bottom:18px;left:calc((100% - 280px)/2);transform:translateX(-50%);z-index:2}
+#email{width:240px;background:transparent;border:1px solid #ffffff12;color:#aaa;padding:8px 10px;font:inherit;font-size:12px;outline:none;transition:border-color .6s}
 #email:focus{border-color:#ffffff26}
 #email::placeholder{color:#ffffff22}
+#email.ok{border-color:#5dff9a33}
+#email.err{border-color:#ff8a8a33}
 @media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:1fr 150px}
-  #list{border-left:0;border-top:2px solid var(--teal);padding-top:14px}#typed{top:6%;font-size:15px}#cube{width:240px;height:280px}#email{left:50%}}
+  #list{border-left:0;border-top:2px solid var(--teal);padding-top:14px}#typed{top:6%;font-size:15px}
+  #cube{width:240px;height:280px}#emailBox{left:50%}}
 </style>
 </head>
 <body>
@@ -65,15 +72,10 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
     <div id="cubeHolder"><div id="cubeWrap"><button id="cube" aria-label="press">
       <svg viewBox="0 0 240 280">
         <defs>
-          <!-- внутренняя тень выреза: размытая обводка, обрезанная по форме -->
-          <filter id="blur"><feGaussianBlur stdDeviation="6"/></filter>
-          <clipPath id="clip"><path d="M120 12 L222 66 L222 214 L120 268 L18 214 L18 66 Z"/></clipPath>
-          <linearGradient id="holeDark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0c0616"/><stop offset="1" stop-color="#1c0f30"/></linearGradient>
-          <radialGradient id="holeLit"><stop offset="0" stop-color="var(--glow)" stop-opacity=".35"/><stop offset="1" stop-color="#0c0616"/></radialGradient>
-          <path id="hex" d="M120 12 L222 66 L222 214 L120 268 L18 214 L18 66 Z"/>
+          <linearGradient id="stoneG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#160a28"/><stop offset="1" stop-color="#0a0514"/></linearGradient>
         </defs>
-        <use id="hole" href="#hex" fill="url(#holeDark)"/>
-        <use id="rim" href="#hex" fill="none" stroke-width="7" stroke-linejoin="round"/>
+        <g id="plate"><path id="plateFill" fill="#1a0c30"/><path id="plateRim" fill="none" stroke="var(--rim)" stroke-width="5"/></g>
+        <g id="stone"><path id="stoneFill" fill="url(#stoneG)" stroke="#3a1c66" stroke-width="2"/></g>
       </svg>
       <div id="inner">
         <img src="cube.png" alt="" onerror="this.remove()">
@@ -83,62 +85,71 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
   </section>
   <aside id="list"><h3>REGISTERED</h3><ul id="ul"></ul></aside>
 </main>
-<input id="email" type="email" placeholder="e-mail" autocomplete="email">
+<div id="emailBox"><input id="email" type="email" placeholder="e-mail" autocomplete="email" maxlength="254"></div>
 
 <script>
 const API='/api/endless/press', SALT='endless-v1';
 const $=s=>document.querySelector(s);
-const cube=$('#cube'), typed=$('#typed'), ul=$('#ul'), root=document.documentElement;
+const cube=$('#cube'), typed=$('#typed'), ul=$('#ul'), root=document.documentElement, holder=$('#cubeHolder');
+
+/* ---------- шестиугольник со скруглёнными углами ---------- */
+const HEX=[[0,-128],[102,-74],[102,74],[0,128],[-102,74],[-102,-74]]; // относительно центра 120,140
+function roundedHex(scale,r){
+  const P=HEX.map(([x,y])=>[120+x*scale,140+y*scale]);let d='';
+  P.forEach((p,i)=>{const a=P[(i+5)%6],b=P[(i+1)%6];
+    const u=(q)=>{const dx=q[0]-p[0],dy=q[1]-p[1],l=Math.hypot(dx,dy);return [p[0]+dx/l*r,p[1]+dy/l*r]};
+    const s=u(a),e=u(b);d+=(i?'L':'M')+s[0].toFixed(1)+' '+s[1].toFixed(1)+'Q'+p[0]+' '+p[1]+' '+e[0].toFixed(1)+' '+e[1].toFixed(1)});
+  return d+'Z';
+}
+$('#plateFill').setAttribute('d',roundedHex(1,22));$('#plateRim').setAttribute('d',roundedHex(1,22));
+$('#stoneFill').setAttribute('d',roundedHex(.84,18));
 
 async function sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
 
-/* ---------- хранилища-ловушки ---------- */
+/* ---------- хранилища ---------- */
 const LS={get:k=>{try{return localStorage.getItem(k)}catch{return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch{}}};
 const SS={get:k=>{try{return sessionStorage.getItem(k)}catch{return null}},set:(k,v)=>{try{sessionStorage.setItem(k,v)}catch{}}};
 const CK={get:k=>(document.cookie.match('(?:^|; )'+k+'=([^;]*)')||[])[1]||null,set:(k,v)=>document.cookie=`${k}=${v};max-age=31536000;path=/;SameSite=Lax`};
 function idb(){return new Promise(r=>{try{const q=indexedDB.open('emc',1);q.onupgradeneeded=()=>q.result.createObjectStore('kv');q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)}catch{r(null)}})}
 async function IDB_get(k){const d=await idb();if(!d)return null;return new Promise(r=>{const q=d.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>r(q.result??null);q.onerror=()=>r(null)})}
 async function IDB_set(k,v){const d=await idb();if(d)d.transaction('kv','readwrite').objectStore('kv').put(v,k)}
+async function writeMarks(sig){LS.set('emc_sig',sig);CK.set('_ga_mc',sig);await IDB_set('sig',sig)}
 
-/* ---------- сервер (мок, если API нет — например, открыли файл локально) ---------- */
+/* ---------- сервер (мок, если API нет) ---------- */
 async function server(action){
   try{
     const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
     if(!r.ok)throw 0;return await r.json();
   }catch{
     let ip=await IDB_get('mock_ip');if(!ip){ip=crypto.randomUUID();await IDB_set('mock_ip',ip)}
-    const h=await sha(await sha(ip+SALT)+SALT);
-    const list=JSON.parse(await IDB_get('mock_list')||'[]'),known=list.includes(h);
-    if(action==='register'&&!known)list.unshift(h);
-    await IDB_set('mock_list',JSON.stringify(list));
-    return {known,me:h,list};
+    const h=await sha(await sha(ip+SALT)+SALT),m=JSON.parse(await IDB_get('mock')||'{"list":[],"fake":false}');
+    const known=m.list.includes(h);
+    if(action==='register'&&!known)m.list.unshift(h);
+    if(action==='fake')m.fake=true;if(action==='unfake')m.fake=false;
+    await IDB_set('mock',JSON.stringify(m));
+    return {known,fake:m.fake,uaSame:true,me:h,list:m.list};
   }
 }
 
-/* ---------- звуки: свои файлы в ./sounds/ ---------- */
+/* ---------- звуки ---------- */
 const snd={};
-for(const n of ['good','fake','bad']){
-  for(const ext of ['ogg','mp3','wav']){ // берётся первый найденный формат
-    const a=new Audio(`sounds/${n}.${ext}`);a.preload='auto';
-    a.addEventListener('canplaythrough',()=>{if(!snd[n])snd[n]=a},{once:true});
-  }
+for(const n of ['good','fake','bad'])for(const ext of ['ogg','mp3','wav']){
+  const a=new Audio(`sounds/${n}.${ext}`);a.preload='auto';
+  a.addEventListener('canplaythrough',()=>{if(!snd[n])snd[n]=a},{once:true});
 }
-function play(n){const a=snd[n];if(!a)return;const c=a.cloneNode();c.volume=n==='bad'?.9:.8;c.play().catch(()=>{})}
+function play(n){const a=snd[n];if(!a)return;const c=a.cloneNode();c.volume=.85;c.play().catch(()=>{})}
 
-/* ---------- печать текста посимвольно ---------- */
+/* ---------- печать ---------- */
 let typeTimer;
 function typeOut(text,bad){
   clearInterval(typeTimer);typed.textContent='';typed.className=bad?'bad':'';
   let i=0;typeTimer=setInterval(()=>{typed.textContent=text.slice(0,++i);if(i>=text.length)clearInterval(typeTimer)},bad?38:28);
 }
 
-/* ---------- волны ---------- */
-const cv=$('#waves'),cx=cv.getContext('2d');let W,H;const fit=()=>{W=cv.width=innerWidth;H=cv.height=innerHeight};fit();addEventListener('resize',fit);
+/* ---------- волны по форме шестиугольника ---------- */
+const cv=$('#waves'),cx=cv.getContext('2d');let W,H;const fit=()=>{W=cv.width=innerWidth;H=cv.height=innerHeight};fit();
 let pressT=-1e9,mood='idle',lastSpawn=0;const rings=[];
-const colors={good:'93,255,154',fake:'159,240,106',bad:'255,90,60',idle:'120,70,200'};
-function center(){const r=cube.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]}
-// контур выреза относительно центра (из viewBox 240x280), размер 128 = половина высоты
-const HEX=[[0,-128],[102,-74],[102,74],[0,128],[-102,74],[-102,-74]];
+const colors={good:'93,255,154',fake:'159,240,106',bad:'201,166,255',idle:'120,70,200'};
 const HEXPTS=(()=>{const p=[],n=40;for(let i=0;i<6;i++){const[a,b]=[HEX[i],HEX[(i+1)%6]];
   for(let j=0;j<n;j++){const u=j/n,x=a[0]+(b[0]-a[0])*u,y=a[1]+(b[1]-a[1])*u;p.push([x,y,Math.atan2(y,x)])}}return p})();
 function frame(t){
@@ -148,75 +159,103 @@ function frame(t){
   if(t-lastSpawn>every){rings.push({born:t,mood,lobes:3+(Math.random()*4|0),seed:Math.random()*6});lastSpawn=t}
   const cr=cube.getBoundingClientRect(),x=cr.left+cr.width/2,y=cr.top+cr.height/2,unit=cr.height/280;
   for(let i=rings.length-1;i>=0;i--){
-    const r=rings[i],age=(t-r.born)/1000;
-    const sc=1.02+age*(.22+.5*energy);                 // во сколько раз волна больше выреза
+    const r=rings[i],age=(t-r.born)/1000,sc=1.02+age*(.22+.5*energy);
     const alpha=Math.max(0,1-age/6)*(r.mood==='idle'?.2:.75);
     if(alpha<=0){rings.splice(i,1);continue}
-    const dist=sc-1;                                   // насколько далеко отошла
-    const amp=dist*(r.mood==='bad'?26:14)*(.4+energy);  // чем дальше — тем сильнее искажение
-    const k=r.lobes+Math.floor(dist*3), ph=t/900+r.seed;
+    const dist=sc-1,amp=dist*(r.mood==='bad'?26:14)*(.4+energy),k=r.lobes+Math.floor(dist*3),ph=t/900+r.seed;
     cx.beginPath();
-    for(const[px,py,th] of HEXPTS){
-      let m=Math.sin(th*k+ph+age*2);
-      if(r.mood==='bad')m*=Math.sin(th*17+ph*3);
-      const s2=sc+amp*m/128;
-      cx.lineTo(x+px*s2*unit,y+py*s2*unit);
-    }
-    cx.closePath();
-    cx.strokeStyle=`rgba(${colors[r.mood]},${alpha})`;cx.lineWidth=r.mood==='bad'?1:2;cx.stroke();
+    for(const[px,py,th] of HEXPTS){let m=Math.sin(th*k+ph+age*2);if(r.mood==='bad')m*=Math.sin(th*17+ph*3);
+      const s2=sc+amp*m/128;cx.lineTo(x+px*s2*unit,y+py*s2*unit)}
+    cx.closePath();cx.strokeStyle=`rgba(${colors[r.mood]},${alpha})`;cx.lineWidth=r.mood==='bad'?1:2;cx.stroke();
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-/* ---------- мета-игра ---------- */
-const reasons=[
-  'Причина сброса: твой хеш начинался не с той буквы.',
-  'Причина сброса: ты нажал в нечётную секунду.',
-  'Причина сброса: курсор вошёл в кнопку слева, а регистрация — только справа.',
-  'Причина сброса: у тебя подозрительно честный часовой пояс.',
-  'Причина сброса: мир сгенерировался с другим seed.',
-  'Причина сброса: крипер.',
-  'Причина сброса: ты слишком долго смотрел на волны.',
-  'Причина сброса: кнопка устала.',
-];
-const isReload=performance.getEntriesByType('navigation')[0]?.type==='reload';
-const glowColor={good:'#5dff9a',fake:'#9ff06a',bad:'#ff5a3c'};
+/* ---------- слежка за тем, что делает игрок ---------- */
+const nav=performance.getEntriesByType('navigation')[0]?.type||'navigate';
+const W0={ss:SS.get('emc_pressed'),t0:performance.now()};   // было ли нажатие в этой вкладке до перезагрузки
+const ev={resized:false,leftTab:false,otherTab:false,pressesSinceLoad:0,recent:[],enterSide:null,lastShown:''};
+let resizeT;addEventListener('resize',()=>{fit();clearTimeout(resizeT);resizeT=setTimeout(()=>ev.resized=true,400)});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)ev.leftTab=true});
+cube.addEventListener('pointerenter',e=>{const r=cube.getBoundingClientRect();ev.enterSide=e.clientX<r.left+r.width/2?'слева':'справа'});
+let bc;try{bc=new BroadcastChannel('emc');bc.onmessage=e=>{if(e.data==='hi'){ev.otherTab=true;bc.postMessage('here')}if(e.data==='here')ev.otherTab=true};bc.postMessage('hi')}catch{}
+
+/* правдивые «причины сброса» — каждая про то, что реально случилось */
+function reason(s,now){
+  const out=[];
+  if(!s.uaSame)out.push('ты пришёл из другого браузера, а IP-то прежний.');
+  const sec=new Date(now).getSeconds();out.push(`ты нажал на ${sec}-й секунде, а она ${sec%2?'нечётная':'чётная'}.`);
+  if(ev.enterSide)out.push(`курсор зашёл на кнопку ${ev.enterSide}. А надо было с другой стороны.`);
+  out.push(`ты смотрел на волны ${Math.round((now-W0.t0)/1000)} с. Слишком долго.`);
+  if(s.me)out.push(`твой хеш начинается на «${s.me[0]}». Не та буква.`);
+  return 'Причина сброса: '+out[Math.random()*out.length|0];
+}
 
 async function press(){
-  const st={ls:LS.get('emc_reg'),ss:SS.get('emc_seen'),ck:CK.get('_ga_mc'),sig:await IDB_get('sig'),fake:await IDB_get('fake')||LS.get('emc_fake')};
-  const s=await server('check');let kind,text;
+  const now=performance.now();ev.pressesSinceLoad++;ev.recent=ev.recent.filter(x=>now-x<10000);ev.recent.push(now);
+  const ls=LS.get('emc_sig'),ck=CK.get('_ga_mc'),db=await IDB_get('sig');
+  const any=ls||ck||db,sig=db||ls||ck;
+  const s=await server('check');let kind='bad',text;
+
   if(!s.known){
     await server('register');s.list=[s.me,...(s.list||[])];
-    const sig=Math.random().toString(36).slice(2,10);
-    LS.set('emc_reg','1');CK.set('_ga_mc',sig);await IDB_set('sig',sig);
+    await writeMarks(Math.random().toString(36).slice(2,10));
     kind='good';text='Ты зарегистрирован. Добро пожаловать в бесконечность.';
-  }else if(st.fake){
-    await IDB_set('fake',null);LS.set('emc_fake','');
-    kind='bad';text='Ага, в прошлый раз было зелёным, и ты подумал, что снова зарегистрировался. Но это был не тот зелёный. Я тебя не пропускаю, я тебя просто наебал! '+reasons[Math.random()*reasons.length|0];
-  }else if(st.ls){
-    kind='bad';text=(isReload&&st.ss)?'Я видел, что ты обновил страницу. Нет, это не работает.':'Ты уже зарегистрировался, кнопка теперь нажимается хуже.';
-  }else if(st.ck&&st.sig&&st.ck===st.sig){
-    LS.set('emc_reg','1');kind='bad';text='Ага, а теперь ты обновился с очисткой кеша — я видел, как ты нажал кнопку.';
-  }else if(st.ck&&st.ck!==st.sig){
-    CK.set('_ga_mc',st.sig||'nope');LS.set('emc_reg','1');
-    kind='bad';text='Ууу, я смотрю, ты нашёл мою ловушку в кукис, которая не чистилась после очистки кеша! Правильное ли это было значение?';
+  }else if(s.fake){                       // в прошлый раз показали ненастоящий зелёный
+    await server('unfake');if(!any)await writeMarks(Math.random().toString(36).slice(2,10));
+    text='Ага, в прошлый раз было зелёным, и ты подумал, что снова зарегистрировался. Но это был не тот зелёный. Я тебя не пропускаю, я тебя просто наебал! '+reason(s,Date.now());
+  }else if(!any){                         // стёр всё, но IP тот же
+    await server('fake');kind='fake';text='Ты зарегистрирован. Добро пожаловать в бесконечность.';
+  }else if(ck&&(ls||db)&&ck!==(db||ls)){
+    await writeMarks(db||ls);
+    text='Ууу, я смотрю, ты нашёл мою ловушку в кукис! Правильное ли это было значение? Нет.';
+  }else if(!ls&&ck&&db){
+    await writeMarks(sig);text='Ага, ты почистил localStorage. А кука осталась — я всё видел.';
+  }else if(!ck&&(ls||db)){
+    await writeMarks(sig);text='Куку удалил? Хитро. Но я записал тебя ещё в паре мест.';
+  }else if(!db&&ls&&ck){
+    await writeMarks(sig);text='IndexedDB подчистил? Мило. Кука и localStorage передают привет.';
+  }else if(ev.otherTab){
+    ev.otherTab=false;text='Вторая вкладка со мной не поможет. Я вижу обе.';
+  }else if(ev.pressesSinceLoad===1&&nav==='reload'&&W0.ss){
+    text='Я видел, что ты обновил страницу. Нет, это не работает.';
+  }else if(ev.pressesSinceLoad===1&&nav==='back_forward'){
+    text='Кнопка «назад» тоже ничего не стирает.';
+  }else if(ev.resized){
+    ev.resized=false;text='Поменял размер окна? Твой IP от этого не изменился.';
+  }else if(ev.leftTab){
+    ev.leftTab=false;text='Сходил в другую вкладку и вернулся. Я никуда не делся.';
+  }else if(ev.recent.length>=5){
+    text='Долбить быстрее тоже не помогает.';
   }else{
-    LS.set('emc_fake','1');await IDB_set('fake','1');
-    kind='fake';text='Ты зарегистрирован. Добро пожаловать в бесконечность.';
+    text='Ты уже зарегистрировался, кнопка теперь нажимается хуже.';
   }
-  SS.set('emc_seen','1');show(kind,text,s);
+  SS.set('emc_pressed','1');show(kind,text,s);
 }
 
 let offTimer;
+const glowColor={good:'#5dff9a',fake:'#9ff06a',bad:'#c9a6ff'};
 function show(kind,text,s){
   mood=kind;pressT=performance.now();play(kind);
   root.style.setProperty('--glow',glowColor[kind]);
-  cube.classList.remove('shake');void cube.offsetWidth;cube.classList.add('shake','on');$('#cubeHolder').classList.add('on');
-  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');$('#cubeHolder').classList.remove('on');mood='idle'},kind==='bad'?3000:6000);
+  cube.classList.remove('shake','on');void cube.offsetWidth;cube.classList.add('shake','on');
+  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?1500:4500);
   typeOut(text,kind==='bad');render(s);
 }
 function render(s){ul.innerHTML='';(s.list||[]).slice(0,200).forEach(h=>{const li=document.createElement('li');li.textContent=h.slice(0,40);if(h===s.me)li.className='me';ul.append(li)})}
+
+/* ---------- e-mail ---------- */
+const em=$('#email');let sentEmail='';
+async function sendEmail(){
+  const v=em.value.trim();if(!v||v===sentEmail)return;
+  if(!em.checkValidity()){em.className='err';return}
+  try{const r=await fetch('/api/endless/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:v})});
+    em.className=r.ok?'ok':'err';if(r.ok)sentEmail=v}catch{em.className='err'}
+}
+em.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendEmail();em.blur()}});
+em.addEventListener('blur',sendEmail);
+em.addEventListener('input',()=>em.className='');
 
 cube.addEventListener('click',press);
 server('check').then(render);
