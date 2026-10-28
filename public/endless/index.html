@@ -82,12 +82,33 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #ctrN{--c:#ff6a3c}#ctrF{--c:#9ff06a}
 @media (max-width:760px){#choice{top:auto;bottom:40%}#counters{bottom:56px}.dg{width:12px;height:22px}}
 #diaryBtn{position:absolute;right:16px;top:16px;z-index:3;background:#0004;color:#c9a6ff;border:1px solid #c9a6ff44;
-  font:600 11px "Courier New",monospace;letter-spacing:.2em;padding:7px 12px;cursor:pointer;animation:pulseIn 1.2s ease-out}
+  font:600 11px "Courier New",monospace;letter-spacing:.2em;padding:7px 12px;cursor:pointer;transition:background .2s,transform .2s}
+#diaryBtn:hover{background:#c9a6ff1a;transform:translateY(-1px)}
 #diaryBtn[hidden]{display:none}
-@keyframes pulseIn{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.15);opacity:1}100%{transform:scale(1)}}
-#diary{position:fixed;inset:0;z-index:10;background:#05020ccc;backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center}
+/* появление кнопки: прыжок с перелётом, вспышка и расходящееся кольцо */
+#diaryBtn.appear{animation:btnPop .9s cubic-bezier(.2,1.8,.35,1) both,btnGlow 2.2s ease-out .2s}
+#diaryBtn.appear::after{content:"";position:absolute;inset:-2px;border:2px solid #c9a6ff;border-radius:2px;animation:btnRing 1.1s ease-out .15s both;pointer-events:none}
+@keyframes btnPop{0%{transform:scale(0) rotate(-14deg);opacity:0}55%{transform:scale(1.28) rotate(4deg);opacity:1}78%{transform:scale(.93) rotate(-1deg)}100%{transform:scale(1) rotate(0)}}
+@keyframes btnGlow{0%{box-shadow:0 0 0 #c9a6ff00}20%{box-shadow:0 0 26px #c9a6ffaa,0 0 60px #c9a6ff55}100%{box-shadow:0 0 0 #c9a6ff00}}
+@keyframes btnRing{0%{transform:scale(1);opacity:.9}100%{transform:scale(2.4,3.2);opacity:0}}
+#diary{position:fixed;inset:0;z-index:10;background:#05020ccc;backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;
+  animation:fadeIn .3s ease-out both;perspective:1000px}
+#diary.closing{animation:fadeOut .28s ease-in both}
+@keyframes fadeIn{from{opacity:0;backdrop-filter:blur(0)}to{opacity:1}}@keyframes fadeOut{to{opacity:0}}
 #diary[hidden]{display:none}
-#diary .book{width:min(560px,92vw);max-height:80vh;overflow-y:auto;background:#120824;border:1px solid #3a1c66;padding:22px 24px;box-shadow:0 20px 60px #000}
+#diary .book{position:relative;width:min(560px,92vw);max-height:80vh;overflow-y:auto;background:#120824;border:1px solid #3a1c66;padding:22px 24px;
+  box-shadow:0 20px 60px #000;transform-origin:50% 0;animation:bookIn .6s cubic-bezier(.2,1.35,.4,1) both,bookSway 2.4s ease-in-out .6s}
+#diary.closing .book{animation:bookOut .28s cubic-bezier(.5,0,.8,.4) both}
+@keyframes bookIn{0%{transform:rotateX(-70deg) translateY(-60px) scale(.7);opacity:0}60%{opacity:1}100%{transform:none}}
+@keyframes bookSway{0%,100%{transform:rotate(0)}20%{transform:rotate(.9deg)}45%{transform:rotate(-.7deg)}70%{transform:rotate(.35deg)}}
+@keyframes bookOut{to{transform:rotateX(55deg) translateY(30px) scale(.85);opacity:0}}
+/* уголок страницы: при открытии разгибается, при закрытии загибается обратно */
+#diary .corner{position:absolute;top:-1px;right:-1px;width:16px;height:16px;pointer-events:none;
+  background:linear-gradient(225deg,#05020c 0 50%,#4a2a7e 50% 58%,#2a1450 70%,#1c0d34);
+  box-shadow:-3px 3px 6px #0008;animation:cornerOpen .75s cubic-bezier(.25,1.6,.4,1) .2s both}
+#diary.closing .corner{animation:cornerClose .22s ease-in both}
+@keyframes cornerOpen{0%{width:90px;height:90px}100%{width:16px;height:16px}}
+@keyframes cornerClose{from{width:16px;height:16px}to{width:90px;height:90px}}
 #diary h2{margin:0 0 4px;font:900 22px inherit;font-family:inherit;color:#e7d6ff;letter-spacing:.08em}
 #diary .sub{font:11px "Courier New",monospace;color:#7a6a98;margin-bottom:16px}
 #diary ol{margin:0;padding:0 0 0 22px;color:#5a4a78;font-size:14px}
@@ -136,7 +157,7 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
   <aside id="list"><h3>REGISTERED</h3><ul id="ul"></ul></aside>
 </main>
 <button id="reset" hidden>TEST: стереть мою регистрацию</button>
-<div id="diary" hidden><div class="book"><button class="close" aria-label="close">×</button>
+<div id="diary" hidden><div class="book"><div class="corner"></div><button class="close" aria-label="close">×</button>
   <h2>ДНЕВНИК СЕКРЕТОВ</h2><div class="sub" id="diarySub"></div><ol id="diaryList"></ol></div></div>
 <div id="toast"></div>
 <div id="emailBox"><input id="email" type="email" placeholder="e-mail" autocomplete="email" maxlength="254"></div>
@@ -202,6 +223,31 @@ function play(n){if(!snd[n])return console.warn('[endless] нет звука',n)
 
 /* ---------- короткий тап (хай-хет) на символ ---------- */
 let ac,noiseBuf;
+function AC(){try{ac=ac||new (window.AudioContext||webkitAudioContext)();return ac.state==='running'?ac:null}catch{return null}}
+/* мягкий колокольчик: треугольник + синус, фильтр срезает «квадратность», плавная атака */
+function chime(){
+  const a=AC();if(!a)return;const t0=a.currentTime,out=a.createGain(),lp=a.createBiquadFilter();
+  lp.type='lowpass';lp.frequency.value=2600;out.gain.value=.9;lp.connect(out).connect(a.destination);
+  [[659.3,0],[987.8,.09],[1318.5,.18],[1975.5,.3]].forEach(([f,dt],i)=>{
+    for(const [type,det,vol] of [['triangle',0,.05],['sine',6,.03]]){
+      const o=a.createOscillator(),g=a.createGain(),t=t0+dt;o.type=type;o.frequency.value=f;o.detune.value=det;
+      g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol*(i===3?.7:1),t+.012);g.gain.exponentialRampToValueAtTime(.0001,t+.7+i*.12);
+      o.connect(g).connect(lp);o.start(t);o.stop(t+1.2);
+    }
+  });
+}
+/* шелест страницы: шум в полосе 1.5–5 кГц с «дрожащей» громкостью */
+function rustle(close){
+  const a=AC();if(!a)return;const t0=a.currentTime,len=close?.16:.24;
+  const buf=a.createBuffer(1,a.sampleRate*len,a.sampleRate),d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+  const src=a.createBufferSource(),bp=a.createBiquadFilter(),g=a.createGain();
+  src.buffer=buf;bp.type='bandpass';bp.Q.value=.8;
+  bp.frequency.setValueAtTime(close?4200:1800,t0);bp.frequency.linearRampToValueAtTime(close?1800:4500,t0+len);
+  g.gain.setValueAtTime(0,t0);
+  for(let k=0;k<7;k++){const t=t0+k*len/7;g.gain.linearRampToValueAtTime((.05+.05*Math.random())*(1-k/9),t+len/14);g.gain.linearRampToValueAtTime(.012,t+len/7)}
+  g.gain.linearRampToValueAtTime(0,t0+len);
+  src.connect(bp).connect(g).connect(a.destination);src.start(t0);src.stop(t0+len+.02);
+}
 function tick(){
   try{ac=ac||new (window.AudioContext||webkitAudioContext)();if(ac.state==='suspended')return;
     if(!noiseBuf){noiseBuf=ac.createBuffer(1,ac.sampleRate*.03,ac.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1}
@@ -512,10 +558,10 @@ const SECRETS=[
   ['million','Миллион','Настоящий новый зелёный. Почти.'],
   ['c2','Честный счётчик','Теперь фейки считаются.'],
 ];
-const DIARY_AT=3;            // после скольких секретов рассказываем про дневник
+const DIARY_AT=3;let diaryShown=false;            // после скольких секретов рассказываем про дневник
 const secrets=new Set();
 function drawDiary(){
-  $('#diaryBtn').hidden=secrets.size<DIARY_AT;
+  $('#diaryBtn').hidden=!diaryShown;
   $('#diaryBtn').textContent=`ДНЕВНИК ${secrets.size}/${SECRETS.length}`;
   $('#diarySub').textContent=`Открыто ${secrets.size} из ${SECRETS.length}. Тёмное — ещё не найдено.`;
   const ol=$('#diaryList');ol.innerHTML='';
@@ -530,10 +576,18 @@ function found(id){
   if(game.mode==='game'&&id!=='game')server('gamefake').then(sync);   // в игре каждый новый секрет — ещё один фейковый зелёный
   drawDiary();
   if(secrets.size===DIARY_AT)setTimeout(()=>{typeOut('Кстати. Я веду дневник твоих секретов. Тёмные строчки ты ещё не нашёл.',true);
-    $('#diaryBtn').hidden=false},Math.max(0,lockUntil-performance.now())+2200);
+    revealDiaryBtn()},Math.max(0,lockUntil-performance.now())+2200);
 }
-$('#diaryBtn').onclick=()=>{drawDiary();$('#diary').hidden=false};
-$('#diary').onclick=e=>{if(e.target.id==='diary'||e.target.classList.contains('close'))$('#diary').hidden=true};
+function revealDiaryBtn(){
+  diaryShown=true;const b=$('#diaryBtn');drawDiary();b.classList.remove('appear');void b.offsetWidth;b.classList.add('appear');chime();
+  setTimeout(()=>b.classList.remove('appear'),2500);
+}
+function openDiary(){const d=$('#diary');drawDiary();d.classList.remove('closing');d.hidden=false;rustle(false)}
+function closeDiary(){const d=$('#diary');if(d.hidden||d.classList.contains('closing'))return;d.classList.add('closing');rustle(true);
+  setTimeout(()=>{d.hidden=true;d.classList.remove('closing')},290)}
+$('#diaryBtn').onclick=openDiary;
+$('#diary').onclick=e=>{if(e.target.id==='diary'||e.target.classList.contains('close'))closeDiary()};
+addEventListener('keydown',e=>{if(e.key==='Escape')closeDiary()});
 
 function layerSecret(sp){if(sp.layer>=3)found('layer3');if(sp.layer>=5)found('layer5')}
 function askFork(f){
@@ -595,7 +649,7 @@ $('#reset').addEventListener('click',async()=>{
   location.reload();
 });
 cube.addEventListener('click',press);
-server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
+server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
 typeOut('Нажми на куб.');
 </script>
 </body>
