@@ -1094,9 +1094,9 @@ function mountAirHockey(c, w, opts = {}) {
     const refresh = el("button", { className: "btn small", textContent: "⟳ Обновить", onclick: () => load() });
     const nameBtn = el("button", { className: "btn small",
       onclick: () => send({ t: "showname", on: !showName }) });
-    nameBtns.add(nameBtn); syncNameBtn();
     const closeBtn = onClose ? [el("button", { className: "btn small", textContent: "✕ Закрыть", onclick: onClose })] : [];
     cc.append(el("div", { className: "air-lb2" }, body, el("div", { className: "air-lb-btns" }, nameBtn, refresh, ...closeBtn)));
+    nameBtns.add(nameBtn); syncNameBtn();   // после append: syncNameBtn выкидывает кнопки, которых нет на странице
     const section = (title, rows, unit) => {
       const box = el("div", { className: "air-lb-sec" }, el("div", { className: "air-lb-sec-h", textContent: title }));
       if (!rows.length) box.append(el("div", { className: "air-lb-empty", textContent: "пока пусто" }));
