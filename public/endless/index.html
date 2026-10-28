@@ -328,7 +328,7 @@ function schedule(){
     if(st===0&&bar===BASS_AT)setTimeout(()=>bpmBadge('♩ '+Math.round(60/groove.P)+' BPM · BASS'),Math.max(0,(t-a.currentTime)*1000));
     if(st===0&&bar===PADS_AT)setTimeout(()=>{bpmBadge('♩ '+Math.round(60/groove.P)+' BPM · BASS · PADS');found('band')},Math.max(0,(t-a.currentTime)*1000));
     if(st%2===0){setTimeout(beatPulse,Math.max(0,(t-a.currentTime)*1000));
-      const arrive=performance.now()+(t-a.currentTime)*1000+groove.P*2000;          // долетит через 2 доли
+      const arrive=performance.now()+(t-a.currentTime+latency(a))*1000+groove.P*2000;   // + задержка вывода: волна бьёт, когда доля слышна          // долетит через 2 доли
       inward.push({spawn:arrive-groove.P*2000,arrive,accent:st===0,seed:Math.random()*6,vol:groove.gain.gain.value})}
     groove.step++;
   }
@@ -339,12 +339,18 @@ function stopGroove(silent){
   Object.assign(groove,{state:'off',on:false});if(!silent)$('#bpm').classList.remove('on');
 }
 /* звук нажатия во время грува — на ближайшую восьмую сетки */
+function latency(a){return (a.outputLatency||0)+(a.baseLatency||0)}
 function grooveHit(n){
   const a=AC();if(!a||groove.state!=='play')return false;
-  const now=a.currentTime,half=groove.P/2,k=(now-groove.origin)/half,fl=Math.floor(k),slot=k-fl<.3?fl:fl+1;
+  const now=a.currentTime,half=groove.P/2,P=groove.P;
+  // игрок жмёт под то, что СЛЫШИТ, а слышит он сетку с задержкой вывода — судим с поправкой на неё
+  const tj=(groove.pressAt??now)-latency(a);groove.pressAt=null;
+  const k=(tj-groove.origin)/half,fl=Math.floor(k),slot=k-fl<.3?fl:fl+1;
   const when=Math.max(now,groove.origin+slot*half),b=bufs[n];
-  const err=Math.abs(now-(groove.origin+Math.round(k)*half));
-  groove.lastQ=Math.max(0,Math.min(1,1-err/(half*.45)));         // 1 — точно в сетку, 0 — мимо на четверть восьмой и больше
+  // хорошее нажатие — на долю; на полудолю засчитываем частично
+  const kb=(tj-groove.origin)/P,eBeat=Math.abs(tj-(groove.origin+Math.round(kb)*P)),eHalf=Math.abs(tj-(groove.origin+Math.round(k)*half));
+  const qBeat=1-eBeat/(P*.16),qHalf=.55*(1-eHalf/(half*.32));
+  groove.lastQ=Math.max(0,Math.min(1,Math.max(qBeat,qHalf)));
   if(!b){getBuf(n);return false}
   const src=a.createBufferSource(),g=a.createGain();src.buffer=b;g.gain.value=.85;
   let node=src;
@@ -837,7 +843,9 @@ async function fakeReg(text){
 }
 
 function show(kind,text,s,big){
-  mood=kind;lastKind=kind;pressT=performance.now();groove.lastQ=null;play(kind);
+  mood=kind;lastKind=kind;pressT=performance.now();
+  const pre=groove.pre;groove.pre=false;
+  if(!pre){groove.lastQ=null;play(kind)}else if(kind!=='bad')play(kind);   // в груве bad уже сыграл на pointerdown
   let glow=glowColor[kind],q=groove.lastQ;
   if(kind==='bad'&&q!=null){             // в груве: чем точнее нажатие — тем зеленее и ярче свет
     glow=`color-mix(in srgb,#5dff9a ${Math.round(q*100)}%,#c9a6ff)`;
@@ -868,6 +876,9 @@ $('#reset').addEventListener('click',async()=>{
   document.cookie='_ga_mc=;max-age=0;path=/';try{indexedDB.deleteDatabase('emc')}catch{}
   location.reload();
 });
+// в груве время нажатия берём в момент касания, а не после ответа сервера — иначе нажатие «опаздывает»
+cube.addEventListener('pointerdown',()=>{const a=AC();if(!a||groove.state!=='play')return;
+  groove.pressAt=a.currentTime;groove.pre=grooveHit('bad')});
 cube.addEventListener('click',press);
 server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT&&st.mode==='game'&&!!st.c2;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
 typeOut('Нажми на куб.');
