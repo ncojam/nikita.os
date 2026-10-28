@@ -785,10 +785,10 @@ function impact(br){
       {transform:`translate(${cx0+dx}px,${cy0+dy+25}px) scale(0)`,opacity:0}],
       {duration:500+Math.random()*400,easing:'cubic-bezier(.1,.8,.3,1)'}).onfinish=()=>p.remove()}
 }
-/* дневник вводится только после первого фейкового зелёного (и не раньше DIARY_AT секретов) */
+/* дневник вводится только когда открыты оба счётчика (PRESSES и FAKE GREENS) и найдено ≥ DIARY_AT секретов */
 let diaryIntroPending=false;
 function maybeIntroDiary(){
-  if(diaryShown||diaryIntroPending||secrets.size<DIARY_AT||game.f<1)return;
+  if(diaryShown||diaryIntroPending||secrets.size<DIARY_AT||!(game.mode==='game'&&game.c2))return;
   diaryIntroPending=true;
   setTimeout(()=>{diaryIntroPending=false;typeOut('Кстати. Я веду дневник твоих секретов. Тёмные строчки ты ещё не нашёл.',true);revealDiaryBtn()},
     Math.max(0,lockUntil-performance.now())+2200);
@@ -869,7 +869,7 @@ $('#reset').addEventListener('click',async()=>{
   location.reload();
 });
 cube.addEventListener('click',press);
-server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT&&(st.f|0)>=1;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
+server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT&&st.mode==='game'&&!!st.c2;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
 typeOut('Нажми на куб.');
 </script>
 </body>
