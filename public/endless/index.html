@@ -242,6 +242,7 @@ const snd={};  // имя -> url первого существующего фай
    3) play    — свой часовой механизм: хай-хет на каждую восьмую (акцент на долю), снейр на 2 и 4;
                 звук нажатия игрока снапается к ближайшей восьмой.
    Если игрок перестал жать — через 2 такта начинаем затухать, ещё за 4 такта музыка гаснет.        */
+const GROOVE_WARMUP=16;   // столько ровных интервалов подряд нужно, прежде чем предложим грув (≈4 такта)
 const groove={state:'off',on:false,P:.5,origin:0,taps:[],lastTap:0,step:0,timer:0,gain:null};
 const bufs={};
 async function getBuf(n){
@@ -504,8 +505,8 @@ function spamStep(now){
   spam.last=now;const r=rate(now);
   // грув: ритм уже открыт и игрок снова долбит примерно ровно — предлагаем замер, потом играем
   if(groove.state!=='off'){const g=grooveOnPress(spam.intervals[spam.intervals.length-1]||9999);if(g)return g;if(groove.state==='measure')return {big:true,text:'ЗАМЕРЯЮ… ДОЛБИ РОВНО.'}}
-  else if(secrets.has('rhythm')){const g=spam.intervals.slice(-6);
-    if(g.length===6){const m=g.reduce((a,b)=>a+b)/6,sd=Math.sqrt(g.reduce((a,b)=>a+(b-m)**2,0)/6);
+  else if(secrets.has('rhythm')){const g=spam.intervals.slice(-GROOVE_WARMUP);   // сначала игрок должен сам подолбить в ритме
+    if(g.length===GROOVE_WARMUP){const m=g.reduce((a,b)=>a+b)/g.length,sd=Math.sqrt(g.reduce((a,b)=>a+(b-m)**2,0)/g.length);
       if(m>120&&m<1000&&sd/m<.22)return offerGroove()}}
   if(spam.stage===0){if(ev.recent.length>=5){spam.stage=1;spam.baseRate=r;return {text:'Долбить быстрее тоже не помогает.'}}return null}
   if(spam.stage===1){
