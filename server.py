@@ -370,11 +370,21 @@ async def api_entry(request):
     })
 
 
+FIND_TTL = 60          # результат обхода fs живёт минуту (fs меняешь только ты)
+FIND_CACHE_MAX = 64    # разных наборов расширений в кэше
+_find_cache = {}       # frozenset(exts) -> (время, found, truncated)
+_find_lock = asyncio.Lock()
+
+
 async def api_find(request):
-    """Рекурсивный поиск файлов по расширению по всей fs."""
-    exts = {"." + e.strip().lower().lstrip(".") for e in request.query.get("ext", "").split(",") if e.strip()}
+    """Рекурсивный поиск файлов по расширению по всей fs (с кэшем — обход дорогой)."""
+    exts = {"." + e.strip().lower().lstrip(".")[:16] for e in request.query.get("ext", "").split(",")[:20] if e.strip()}
     if not exts:
         return json_response({"error": "Укажи ext"}, 400)
+    key = frozenset(exts)
+    hit = _find_cache.get(key)
+    if hit and time.monotonic() - hit[0] < FIND_TTL:
+        return json_response({"files": hit[1], **({"truncated": True} if hit[2] else {})})
 
     def walk():
         found = []
@@ -388,7 +398,15 @@ async def api_find(request):
                     return found, True
         return found, False
 
-    found, truncated = await asyncio.to_thread(walk)
+    async with _find_lock:   # одновременно — не больше одного обхода; остальные дождутся кэша
+        hit = _find_cache.get(key)
+        if hit and time.monotonic() - hit[0] < FIND_TTL:
+            found, truncated = hit[1], hit[2]
+        else:
+            found, truncated = await asyncio.to_thread(walk)
+            if len(_find_cache) >= FIND_CACHE_MAX:
+                _find_cache.clear()
+            _find_cache[key] = (time.monotonic(), found, truncated)
     return json_response({"files": found, **({"truncated": True} if truncated else {})})
 
 
@@ -548,15 +566,34 @@ async def api_dawn_mine(request):
                           "projects": [{"path": v, **{k: e[k] for k in ("size", "t")}} for v, e in request.app["projects"].mine(u[0])]})
 
 
+VISIT_PER_IP_MIN = 30          # обращений к счётчику с адреса в минуту
+_visit_times = {}              # ip -> deque(время)
+
+
+def _visit_limited(ip):
+    now = time.monotonic()
+    q = _visit_times.setdefault(ip, deque())
+    while q and now - q[0] > 60:
+        q.popleft()
+    if len(q) >= VISIT_PER_IP_MIN:
+        return True
+    q.append(now)
+    if len(_visit_times) > 50_000:   # подчищаем пустые/старые
+        for k in [k for k, v in _visit_times.items() if not v or now - v[-1] > 60]:
+            _visit_times.pop(k, None)
+    return False
+
+
 async def api_visit(request):
+    if _visit_limited(client_ip(request)):
+        return json_response({"error": "Слишком часто"}, 429)
     body = await _json_body(request)
     app_id = re.sub(r"[^a-z0-9_-]", "", str(body.get("app") or ""))[:24]
     if not app_id:
         return json_response({"error": "app?"}, 400)
     v = request.app["visits"]
     res = v.hit(app_id, str(body.get("id") or "")[:64]) if body.get("hit") else v.get(app_id)
-    v.flush()
-    return json_response(res)
+    return json_response(res)   # на диск пишет фоновая задача (см. on_startup)
 
 
 # ---- пользовательские папки (/ufs) ----
@@ -596,8 +633,11 @@ async def api_posts_report(request):
 
 
 def _admin_ok(request):
+    # токен — только в заголовке Authorization: Bearer <токен>; в query он оседал бы в логах и истории
     token = os.environ.get("NOS_ADMIN_TOKEN", "")
-    return bool(token) and secrets.compare_digest(request.query.get("token", ""), token)
+    auth = request.headers.get("Authorization", "")
+    got = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+    return bool(token) and bool(got) and secrets.compare_digest(got.encode(), token.encode())
 
 
 async def api_mod_reports(request):
@@ -661,6 +701,23 @@ async def serve_browser(request):
     return web.FileResponse(PUBLIC / "index.html", headers={"Content-Type": "text/html; charset=utf-8"})
 
 
+FRAME_ANCESTORS = "'self' https://zcojam.neocities.org"
+CSP_REPORT_ONLY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval' blob: https://telegram.org",
+    "worker-src 'self' blob:",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob:",
+    "connect-src 'self' https://raw.githubusercontent.com https://api.github.com",
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://w.soundcloud.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+])
+
+
 async def add_headers(request, response):
     h = response.headers
     # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки).
@@ -671,6 +728,11 @@ async def add_headers(request, response):
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Cross-Origin-Embedder-Policy"] = "require-corp"
     h["Cross-Origin-Resource-Policy"] = "same-origin"
+    # кликджекинг: встраивать сайт в iframe можно только себе и neocities (+ Telegram — для Mini App)
+    fa = FRAME_ANCESTORS + (" https://web.telegram.org" if p == "/tg.html" else "")
+    h["Content-Security-Policy"] = "frame-ancestors " + fa
+    # полная политика пока в режиме «только отчёт»: смотри нарушения в консоли браузера и потом включи
+    h["Content-Security-Policy-Report-Only"] = CSP_REPORT_ONLY
     h["X-Content-Type-Options"] = "nosniff"
     h["Referrer-Policy"] = "strict-origin-when-cross-origin"
     h["Server"] = "nikita.os"  # не светим версии Python и aiohttp
@@ -726,11 +788,35 @@ def raise_fd_limit():
         pass
 
 
+async def housekeeping(app):
+    """Раз в 30 с — счётчик посещений на диск; раз в 6 ч — уборка просроченных сессий и старых IP."""
+    last_clean = 0.0
+    try:
+        while True:
+            await asyncio.sleep(30)
+            app["visits"].flush()
+            if time.monotonic() - last_clean > 6 * 3600:
+                last_clean = time.monotonic()
+                try:
+                    await asyncio.to_thread(app["chat"].cleanup)
+                except Exception as e:
+                    log.warning("уборка чата не удалась: %s", e)
+    except asyncio.CancelledError:
+        app["visits"].flush()
+        raise
+
+
 async def on_startup(app):
     app["autosave"] = asyncio.create_task(app["plays"].autosave())
+    app["housekeeping"] = asyncio.create_task(housekeeping(app))
 
 
 async def on_cleanup(app):
+    app["housekeeping"].cancel()
+    try:
+        await app["housekeeping"]
+    except asyncio.CancelledError:
+        pass
     app["autosave"].cancel()
     try:
         await app["autosave"]

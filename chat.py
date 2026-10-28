@@ -38,6 +38,7 @@ MSG_MAX = 500                     # символов в сообщении
 PUBLIC_KEEP = 1000                # сообщений общего чата храним
 REG_PER_IP_SEC = 30 * 24 * 3600   # одна регистрация с адреса в 30 дней
 SESSION_TTL = 60 * 24 * 3600
+IP_KEEP = 180 * 24 * 3600         # журнал IP (ip_log) храним полгода
 COOKIE = "nos_chat"
 SIGNAL_MAX = 8 * 1024             # размер одного WebRTC-сигнала
 COMMENT_MAX = 500                 # символов в комментарии
@@ -93,6 +94,8 @@ class ChatDB:
             text TEXT, ts INTEGER, ip TEXT, reply_to INTEGER);
         CREATE INDEX IF NOT EXISTS users_regip ON users(reg_ip, created);
         CREATE INDEX IF NOT EXISTS comments_pid ON comments(pid, id);
+        CREATE INDEX IF NOT EXISTS sessions_exp ON sessions(expires);
+        CREATE INDEX IF NOT EXISTS ip_log_ts ON ip_log(ts);
         """)
         self.db.commit()
 
@@ -116,6 +119,15 @@ class Chat:
         self.rooms = defaultdict(set)           # имя комнаты -> {ws}, кто сейчас её смотрит
         self.crate = {}                         # nick -> время последнего коммента (антиспам)
         self.posts = None                       # ссылка на Posts (ставится в make_app) — титул/проверка поста
+
+    def cleanup(self):
+        """Удалить просроченные сессии и старые записи журнала IP (зовётся из фоновой задачи сервера)."""
+        now = int(time.time())
+        s = self.db.q("DELETE FROM sessions WHERE expires <= ?", now).rowcount
+        l = self.db.q("DELETE FROM ip_log WHERE ts < ?", now - IP_KEEP).rowcount
+        self.db.commit()
+        if s or l:
+            log.info("уборка чата: сессий %d, записей ip_log %d", s, l)
 
     # ---------- аккаунты ----------
     def user_by_token(self, request):

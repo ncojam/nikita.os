@@ -110,6 +110,10 @@ class Projects:
         return None
 
 
+VISITS_UNIQ_MAX = int(os.environ.get("NOS_VISITS_UNIQ_MAX", "200000"))
+VISITS_APPS_MAX = 64   # разных app в счётчике
+
+
 class Visits:
     def __init__(self, path):
         self.path = Path(path)
@@ -121,9 +125,11 @@ class Visits:
         self.dirty = False
 
     def hit(self, app, vid):
+        if app not in self.data and len(self.data) >= VISITS_APPS_MAX:
+            return self.get(app)
         d = self.data.setdefault(app, {"total": 0, "uniq": set()})
         d["total"] += 1
-        if vid:
+        if vid and len(d["uniq"]) < VISITS_UNIQ_MAX:   # потолок, чтобы файл не раздували случайными id
             d["uniq"].add(hashlib.sha256(("nos:" + vid).encode()).hexdigest()[:16])
         self.dirty = True
         return self.get(app)

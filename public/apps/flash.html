@@ -22,11 +22,19 @@
 </head>
 <body>
 <script>
-  const swf = new URLSearchParams(location.search).get("swf");
+  // только флешки из своей fs: чужой swf на нашем origin ходил бы в API с cookie посетителя
+  const swfParam = new URLSearchParams(location.search).get("swf") || "";
+  let swfUrl = null;
+  try { swfUrl = new URL(swfParam, location.origin); } catch (e) {}
+  if (!swfUrl || swfUrl.origin !== location.origin || !swfUrl.pathname.startsWith("/fs/")) {
+    document.body.textContent = "Можно открывать только флешки с этого сайта.";
+    throw new Error("swf not allowed: " + swfParam);
+  }
+  const swf = swfUrl.pathname + swfUrl.search;
   const player = window.RufflePlayer.newest().createPlayer();
   document.body.append(player);
   // base — чтобы игра находила соседние файлы (подгружаемые swf, xml) рядом с собой
-  player.load({ url: swf, base: swf.replace(/[^/]*$/, "") });
+  player.load({ url: swf, base: swfUrl.pathname.replace(/[^/]*$/, "") });
 
   addEventListener("message", e => {
     if (e.origin !== location.origin || e.data?.type !== "flash") return;

@@ -38,7 +38,7 @@
 | POST | `/api/posts/{id}/report` | posts | Жалоба (2 разных → картинка скрыта) |
 | GET | `/media/{id}` | posts | Картинка записи |
 | POST | `/api/folders`, `/api/folders/delete` | userfs | Общие папки |
-| GET/POST | `/api/mod/reports`, `/api/mod/show/{id}?token=` | posts | Модерация, только с `NOS_ADMIN_TOKEN` (без него — 404) |
+| GET/POST | `/api/mod/reports`, `/api/mod/show/{id}` | posts | Модерация: заголовок `Authorization: Bearer <NOS_ADMIN_TOKEN>` (без токена на сервере — 404) |
 | * | `/api/forum/...`, `/media/f/{id}` | forum | См. [browser.md](browser.md) |
 | * | маршруты `AirHockey.routes` | airhockey | WS арены, таблица рекордов |
 | GET | `/finds/...` | server | `index.html` — «Находки»; `/finds/<id>` — публичный плейлист |
