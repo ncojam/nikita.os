@@ -609,7 +609,7 @@ const glowColor={good:'#5dff9a',fake:'#9ff06a',bad:'#c9a6ff'};
 const game={mode:null,n:0,f:0,c2:false};
 let lockUntil=0;
 function lock(ms){lockUntil=performance.now()+ms;cube.classList.add('locked');setTimeout(()=>{if(performance.now()>=lockUntil)cube.classList.remove('locked')},ms+20)}
-function sync(st){if(!st)return;Object.assign(game,{mode:st.mode,n:st.n|0,f:st.f|0,c2:!!st.c2});drawCounters()}
+function sync(st){if(!st)return;Object.assign(game,{mode:st.mode,n:st.n|0,f:st.f|0,c2:!!st.c2});drawCounters();if(typeof maybeIntroDiary==='function'&&secrets.size)maybeIntroDiary()}
 
 /* сегментные часы */
 const SEGMAP=['1111110','0110000','1101101','1111001','0110011','1011011','1011111','1110000','1111111','1111011'];
@@ -731,8 +731,7 @@ function found(id){
   if(game.mode==='game'&&id!=='game')server('gamefake').then(sync);   // в игре каждый новый секрет — ещё один фейковый зелёный
   if(diaryShown){btnCount=secrets.size-1-flying;flying++;flyAchievement(meta[1])}
   drawDiary();
-  if(secrets.size===DIARY_AT)setTimeout(()=>{typeOut('Кстати. Я веду дневник твоих секретов. Тёмные строчки ты ещё не нашёл.',true);
-    revealDiaryBtn()},Math.max(0,lockUntil-performance.now())+2200);
+  maybeIntroDiary();
 }
 /* ачивка: выскакивает у куба, висит, потом с ускорением влетает в кнопку дневника */
 function blip(){const a=AC();if(!a)return;const t=a.currentTime;
@@ -769,6 +768,14 @@ function impact(br){
       {transform:`translate(${cx0+dx*.7}px,${cy0+dy*.5}px) scale(${sz})`,opacity:1,offset:.5},
       {transform:`translate(${cx0+dx}px,${cy0+dy+25}px) scale(0)`,opacity:0}],
       {duration:500+Math.random()*400,easing:'cubic-bezier(.1,.8,.3,1)'}).onfinish=()=>p.remove()}
+}
+/* дневник вводится только после первого фейкового зелёного (и не раньше DIARY_AT секретов) */
+let diaryIntroPending=false;
+function maybeIntroDiary(){
+  if(diaryShown||diaryIntroPending||secrets.size<DIARY_AT||game.f<1)return;
+  diaryIntroPending=true;
+  setTimeout(()=>{diaryIntroPending=false;typeOut('Кстати. Я веду дневник твоих секретов. Тёмные строчки ты ещё не нашёл.',true);revealDiaryBtn()},
+    Math.max(0,lockUntil-performance.now())+2200);
 }
 function revealDiaryBtn(){
   diaryShown=true;const b=$('#diaryBtn');drawDiary();b.classList.remove('appear');void b.offsetWidth;b.classList.add('appear');chime();
@@ -846,7 +853,7 @@ $('#reset').addEventListener('click',async()=>{
   location.reload();
 });
 cube.addEventListener('click',press);
-server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
+server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT&&(st.f|0)>=1;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
 typeOut('Нажми на куб.');
 </script>
 </body>
