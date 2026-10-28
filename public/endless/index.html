@@ -16,6 +16,9 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #typed{position:absolute;left:4%;top:20%;max-width:280px;font-size:18px;line-height:1.35;transform:rotate(-2deg);
   white-space:pre-wrap;min-height:4em;text-shadow:0 0 8px #0006}
 #typed.bad{color:#d9c2ff}
+#typed.big{font-size:44px;line-height:1.05;font-weight:900;max-width:min(560px,46vw);letter-spacing:-.01em;text-transform:uppercase;
+  color:#e7d6ff;text-shadow:0 0 14px #c9a6ff88,0 4px 0 #0008;transform:rotate(-3deg)}
+@media (max-width:760px){#typed.big{font-size:28px;max-width:90vw}}
 #typed::after{content:"▌";animation:blink 1s steps(1) infinite;opacity:.7}
 @keyframes blink{50%{opacity:0}}
 
@@ -160,9 +163,12 @@ addEventListener('pointerdown',()=>{try{ac=ac||new (window.AudioContext||webkitA
 
 /* ---------- печать ---------- */
 let typeTimer;
-function typeOut(text,bad){
-  clearInterval(typeTimer);typed.textContent='';typed.className=bad?'bad':'';
-  let i=0;typeTimer=setInterval(()=>{const c=text[i];typed.textContent=text.slice(0,++i);if(c&&c.trim())tick();if(i>=text.length)clearInterval(typeTimer)},bad?38:28);
+let typedText='';
+function typeOut(text,bad,big){
+  if(big&&text===typedText)return;   // во время долбёжки не перезапускаем ту же фразу — пусть допечатается
+  typedText=text;
+  clearInterval(typeTimer);typed.textContent='';typed.className=(bad?'bad':'')+(big?' big':'');
+  let i=0;typeTimer=setInterval(()=>{const c=text[i];typed.textContent=text.slice(0,++i);if(c&&c.trim())tick();if(i>=text.length)clearInterval(typeTimer)},big?22:bad?38:28);
 }
 
 /* ---------- волны по форме шестиугольника ---------- */
@@ -204,6 +210,30 @@ requestAnimationFrame(frame);
 const nav=performance.getEntriesByType('navigation')[0]?.type||'navigate';
 const W0={ss:SS.get('emc_pressed'),t0:performance.now()};   // было ли нажатие в этой вкладке до перезагрузки
 const ev={resized:false,leftTab:false,otherTab:false,pressesSinceLoad:0,recent:[],enterSide:null,lastShown:''};
+/* долбёжка: стадия 0 — нет, 1 — сказали «не помогает», 2+ — видим, что ускорился */
+const spam={stage:0,baseRate:0,bigStart:0,bigPresses:0,last:0};
+const SPAM_BIG=[
+  'Я ВИЖУ. ТЫ СТАЛ ДОЛБИТЬ БЫСТРЕЕ.',
+  'ЕЩЁ БЫСТРЕЕ? СЕРЬЁЗНО?',
+  'ТЫ ДУМАЕШЬ, У МЕНЯ КОНЧИТСЯ ТЕРПЕНИЕ РАНЬШЕ, ЧЕМ У ТЕБЯ ПАЛЕЦ?',
+  'Я СЧИТАЮ КАЖДОЕ НАЖАТИЕ.',
+  'ЛАДНО. ЛАДНО. ПОДОЖДИ…',
+];
+function rate(now){return ev.recent.filter(x=>now-x<2000).length/2}   // нажатий в секунду за последние 2 с
+function spamStep(now){
+  if(now-spam.last>3000)Object.assign(spam,{stage:0,bigPresses:0});    // перестал — всё забыли
+  spam.last=now;const r=rate(now);
+  if(spam.stage===0){if(ev.recent.length>=5){spam.stage=1;spam.baseRate=r;return {text:'Долбить быстрее тоже не помогает.'}}return null}
+  if(spam.stage===1){
+    if(r>=3&&r>spam.baseRate*1.25){spam.stage=2;spam.bigStart=now;spam.bigPresses=0}
+    else return {text:'Долбить быстрее тоже не помогает.'};
+  }
+  spam.bigPresses++;
+  if(r<2.5)return {text:SPAM_BIG[Math.min(spam.stage-2,SPAM_BIG.length-1)],big:true}; // сбавил темп — держим текущую фразу
+  if(spam.bigPresses>=45&&now-spam.bigStart>12000){Object.assign(spam,{stage:0,bigPresses:0});return {fake:true}}
+  spam.stage=2+Math.min(SPAM_BIG.length-1,Math.floor(spam.bigPresses/9));
+  return {text:SPAM_BIG[spam.stage-2],big:true};
+}
 let resizeT;addEventListener('resize',()=>{fit();clearTimeout(resizeT);resizeT=setTimeout(()=>ev.resized=true,400)});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)ev.leftTab=true});
 cube.addEventListener('pointerenter',e=>{const r=cube.getBoundingClientRect();ev.enterSide=e.clientX<r.left+r.width/2?'слева':'справа'});
@@ -224,7 +254,8 @@ async function press(){
   const now=performance.now();ev.pressesSinceLoad++;ev.recent=ev.recent.filter(x=>now-x<10000);ev.recent.push(now);
   const ls=LS.get('emc_sig'),ck=CK.get('_ga_mc'),db=await IDB_get('sig');
   const any=ls||ck||db,sig=db||ls||ck;
-  const s=await server('check');let kind='bad',text;
+  const s=await server('check');let kind='bad',text,big=false;
+  const sp=s.known&&!s.fake&&any?spamStep(now):null;
 
   if(!s.known){
     await server('register');s.list=[s.me,...(s.list||[])];
@@ -244,6 +275,10 @@ async function press(){
     await writeMarks(sig);text='Куку удалил? Хитро. Но я записал тебя ещё в паре мест.';
   }else if(!db&&ls&&ck){
     await writeMarks(sig);text='IndexedDB подчистил? Мило. Кука и localStorage передают привет.';
+  }else if(sp&&sp.fake){                 // додолбился — получи «регистрацию»
+    await server('fake');kind='fake';text='Ты зарегистрирован. Добро пожаловать в бесконечность.';
+  }else if(sp&&sp.big){
+    text=sp.text;big=true;
   }else if(ev.otherTab){
     ev.otherTab=false;text='Вторая вкладка со мной не поможет. Я вижу обе.';
   }else if(ev.pressesSinceLoad===1&&nav==='reload'&&W0.ss){
@@ -254,22 +289,22 @@ async function press(){
     ev.resized=false;text='Поменял размер окна? Твой IP от этого не изменился.';
   }else if(ev.leftTab){
     ev.leftTab=false;text='Сходил в другую вкладку и вернулся. Я никуда не делся.';
-  }else if(ev.recent.length>=5){
-    text='Долбить быстрее тоже не помогает.';
+  }else if(sp){
+    text=sp.text;
   }else{
     text='Ты уже зарегистрировался, кнопка теперь нажимается хуже.';
   }
-  SS.set('emc_pressed','1');show(kind,text,s);
+  SS.set('emc_pressed','1');show(kind,text,s,big);
 }
 
 let offTimer;
 const glowColor={good:'#5dff9a',fake:'#9ff06a',bad:'#c9a6ff'};
-function show(kind,text,s){
+function show(kind,text,s,big){
   mood=kind;lastKind=kind;pressT=performance.now();play(kind);
   root.style.setProperty('--glow',glowColor[kind]);
   cube.classList.remove('shake','on','bad');void cube.offsetWidth;cube.classList.add('shake','on');cube.classList.toggle('bad',kind==='bad');
   clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?700:4500);
-  typeOut(text,kind==='bad');render(s);
+  typeOut(text,kind==='bad',big);render(s);
 }
 function render(s){if(s.admin)$('#reset').hidden=false;ul.innerHTML='';(s.list||[]).slice(0,200).forEach(h=>{const li=document.createElement('li');li.textContent=h.slice(0,40);if(h===s.me)li.className='me';ul.append(li)})}
 
