@@ -138,12 +138,12 @@ async function server(action){
 }
 
 /* ---------- звуки ---------- */
-const snd={};
-for(const n of ['good','fake','bad'])for(const ext of ['ogg','mp3','wav']){
-  const a=new Audio(`sounds/${n}.${ext}`);a.preload='auto';
-  a.addEventListener('canplaythrough',()=>{if(!snd[n])snd[n]=a},{once:true});
-}
-function play(n){const a=snd[n];if(!a)return;const c=a.cloneNode();c.volume=.85;c.play().catch(()=>{})}
+const snd={};  // имя -> url первого существующего файла
+(async()=>{for(const n of ['good','fake','bad'])for(const ext of ['ogg','mp3','wav']){
+  const url=`sounds/${n}.${ext}`;
+  try{const r=await fetch(url,{method:'HEAD',cache:'no-store'});if(r.ok){snd[n]=url;new Audio(url).preload='auto';break}}catch{}
+}console.log('[endless] звуки:',snd)})();
+function play(n){if(!snd[n])return console.warn('[endless] нет звука',n);const a=new Audio(snd[n]);a.volume=.85;a.play().catch(e=>console.warn('[endless]',n,e))}
 
 /* ---------- короткий тап (хай-хет) на символ ---------- */
 let ac,noiseBuf;
