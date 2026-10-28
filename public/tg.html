@@ -17,7 +17,8 @@
 <script type="module">
   import { mountAirHockey } from "/js/apps/airhockey.js";
   const tg = window.Telegram?.WebApp;
-  try { tg.ready(); tg.expand(); tg.disableVerticalSwipes?.();   // без requestFullscreen: обычное окно Mini App } catch {}
+  // без requestFullscreen: обычное окно Mini App, а не во весь экран
+  try { tg.ready(); tg.expand(); tg.disableVerticalSwipes?.(); } catch {}
   const app = document.getElementById("app");
   mountAirHockey(app, { node: app }, { tg: { initData: tg?.initData || "" } });
 </script>
