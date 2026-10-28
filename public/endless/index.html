@@ -83,7 +83,7 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
         <g id="stone"><path id="stoneFill" fill="url(#stoneG)" stroke="#3a1c66" stroke-width="2"/></g>
       </svg>
       <div id="inner">
-        <img src="cube.png" alt="" onerror="this.remove()">
+        <img src="/endless/cube.png" alt="" onerror="this.remove()">
         <div class="tag">ENDLESS MC SERVER<br>ENDLESS DIRECTIONS<br>ENDLESS POSSIBILITIES</div>
       </div>
     </button></div><div id="floorShadow"></div></div>
@@ -140,7 +140,7 @@ async function server(action){
 /* ---------- звуки ---------- */
 const snd={};  // имя -> url первого существующего файла
 (async()=>{for(const n of ['good','fake','bad'])for(const ext of ['ogg','mp3','wav']){
-  const url=`sounds/${n}.${ext}`;
+  const url=`/endless/sounds/${n}.${ext}`;
   try{const r=await fetch(url,{method:'HEAD',cache:'no-store'});if(r.ok){snd[n]=url;new Audio(url).preload='auto';break}}catch{}
 }console.log('[endless] звуки:',snd)})();
 function play(n){if(!snd[n])return console.warn('[endless] нет звука',n);const a=new Audio(snd[n]);a.volume=.85;a.play().catch(e=>console.warn('[endless]',n,e))}
