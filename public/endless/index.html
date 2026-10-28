@@ -167,15 +167,24 @@ function typeOut(text,bad){
 
 /* ---------- волны по форме шестиугольника ---------- */
 const cv=$('#waves'),cx=cv.getContext('2d');let W,H;const fit=()=>{W=cv.width=innerWidth;H=cv.height=innerHeight};fit();
-let pressT=-1e9,mood='idle',lastSpawn=0;const rings=[];
+let lastKind='good',pressT=-1e9,mood='idle',lastT=0,spawnAcc=0,heat=0;const rings=[];
+/* «накал» 0..1: пока кнопка трясётся — плавно растёт, потом долго экспоненциально остывает */
+const HEAT={good:{shake:800,tail:7},fake:{shake:800,tail:7},bad:{shake:350,tail:5}};
+const IDLE_MS=3200,FAST_MS=110;
 const colors={good:'93,255,154',fake:'159,240,106',bad:'201,166,255',idle:'120,70,200'};
 const HEXPTS=(()=>{const p=[],n=40;for(let i=0;i<6;i++){const[a,b]=[HEX[i],HEX[(i+1)%6]];
   for(let j=0;j<n;j++){const u=j/n,x=a[0]+(b[0]-a[0])*u,y=a[1]+(b[1]-a[1])*u;p.push([x,y,Math.atan2(y,x)])}}return p})();
 function frame(t){
   cx.clearRect(0,0,W,H);
   const since=(t-pressT)/1000,energy=Math.exp(-since/6);
-  const every=since<12?(.3+since*.15)*1000:3200;
-  if(t-lastSpawn>every){rings.push({born:t,mood,lobes:3+(Math.random()*4|0),seed:Math.random()*6});lastSpawn=t}
+  const dt=Math.min(100,t-(lastT||t));lastT=t;
+  const h=HEAT[lastKind]||HEAT.good,sinceMs=t-pressT;
+  if(sinceMs<h.shake){const u=sinceMs/h.shake;heat=Math.max(heat,u*u*(3-2*u))}  // плавный разгон
+  else heat*=Math.exp(-dt/1000/h.tail*2.3);                                     // длинный хвост
+  const every=IDLE_MS*Math.pow(FAST_MS/IDLE_MS,heat);                            // логарифмическая интерполяция частоты
+  spawnAcc+=dt/every;
+  while(spawnAcc>=1){spawnAcc-=1;rings.push({born:t,mood:heat>.08?(lastKind||mood):'idle',lobes:3+(Math.random()*4|0),seed:Math.random()*6})}
+  if(rings.length>160)rings.splice(0,rings.length-160);
   const cr=cube.getBoundingClientRect(),x=cr.left+cr.width/2,y=cr.top+cr.height/2,unit=cr.height/280;
   for(let i=rings.length-1;i>=0;i--){
     const r=rings[i],age=(t-r.born)/1000,sc=1.02+age*(r.mood==='bad'?.14+.3*energy:.22+.5*energy);
@@ -256,7 +265,7 @@ async function press(){
 let offTimer;
 const glowColor={good:'#5dff9a',fake:'#9ff06a',bad:'#c9a6ff'};
 function show(kind,text,s){
-  mood=kind;pressT=performance.now();play(kind);
+  mood=kind;lastKind=kind;pressT=performance.now();play(kind);
   root.style.setProperty('--glow',glowColor[kind]);
   cube.classList.remove('shake','on','bad');void cube.offsetWidth;cube.classList.add('shake','on');cube.classList.toggle('bad',kind==='bad');
   clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?700:4500);
