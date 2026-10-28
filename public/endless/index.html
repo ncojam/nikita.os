@@ -134,6 +134,10 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
   font:700 13px "Courier New",monospace;letter-spacing:.12em;padding:10px 16px;white-space:nowrap;box-shadow:0 0 24px #c9a6ff55,0 10px 30px #000a}
 .achv small{display:block;font-size:9px;letter-spacing:.35em;color:#9ff06a;margin-bottom:3px}
 .spark{position:fixed;z-index:21;width:4px;height:4px;border-radius:50%;pointer-events:none;background:#fff;box-shadow:0 0 6px #c9a6ff,0 0 12px #c9a6ff}
+#langBtn{position:fixed;right:290px;bottom:18px;z-index:3;background:transparent;border:1px solid #ffffff12;color:#ffffff40;
+  font:11px "Courier New",monospace;letter-spacing:.2em;padding:6px 8px;cursor:pointer}
+#langBtn:hover{color:#ffffff90;border-color:#ffffff30}
+@media (max-width:760px){#langBtn{right:12px;bottom:170px}}
 #reset{position:fixed;top:10px;left:10px;z-index:3;background:#0006;color:#f9a;border:1px dashed #f9a6;font:11px monospace;padding:4px 8px;cursor:pointer}
 #cube.bad.on #plate{filter:drop-shadow(0 0 calc(8px*var(--gq,1)) var(--glow)) drop-shadow(0 0 calc(24px*var(--gq,1)) var(--glow))}
 #cube.bad.perfect.on #plate{transform:scale(1.34);filter:drop-shadow(0 0 12px var(--glow)) drop-shadow(0 0 40px var(--glow)) drop-shadow(0 0 80px var(--glow))}
@@ -173,6 +177,7 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
   <button id="diaryBtn" hidden>ДНЕВНИК</button>
   <aside id="list"><h3>REGISTERED</h3><ul id="ul"></ul></aside>
 </main>
+<button id="langBtn"></button>
 <button id="reset" hidden>TEST: стереть мою регистрацию</button>
 <div id="diary" hidden><div class="book"><div class="corner"></div><button class="close" aria-label="close">×</button>
   <h2>ДНЕВНИК СЕКРЕТОВ</h2><div class="sub" id="diarySub"></div><ol id="diaryList"></ol></div></div>
@@ -181,6 +186,14 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 
 <script>
 const API='/api/endless/press', SALT='endless-v1';
+/* ---------- язык: ?lang=… → выбор игрока → язык по IP с сервера ---------- */
+const EN={"Нажми на куб.": "Press the cube.", "Ты зарегистрирован. Добро пожаловать в бесконечность.": "You're registered. Welcome to the endless.", "Ты уже зарегистрировался, кнопка теперь нажимается хуже.": "You're already registered. The button presses worse now.", "Я видел, что ты обновил страницу. Нет, это не работает.": "I saw you refresh the page. No, that doesn't work.", "Кнопка «назад» тоже ничего не стирает.": "The Back button doesn't erase anything either.", "Поменял размер окна? Твой IP от этого не изменился.": "Resized the window? Your IP didn't change.", "Сходил в другую вкладку и вернулся. Я никуда не делся.": "Went to another tab and came back. I'm still here.", "Вторая вкладка со мной не поможет. Я вижу обе.": "A second tab of me won't help. I see both.", "Ага, ты почистил localStorage. А кука осталась — я всё видел.": "Aha, you cleared localStorage. But the cookie stayed — I saw everything.", "Куку удалил? Хитро. Но я записал тебя ещё в паре мест.": "Deleted the cookie? Clever. But I wrote you down in a couple more places.", "IndexedDB подчистил? Мило. Кука и localStorage передают привет.": "Wiped IndexedDB? Cute. The cookie and localStorage say hi.", "Ууу, я смотрю, ты нашёл мою ловушку в кукис! Правильное ли это было значение? Нет.": "Ooh, I see you found my cookie trap! Was that the right value? No.", "Ага, в прошлый раз было зелёным, и ты подумал, что снова зарегистрировался. Но это был не тот зелёный. Я тебя не пропускаю, я тебя просто наебал! ": "Aha, last time it was green and you thought you'd registered again. But it was the wrong green. I'm not letting you in, I just fucked with you! ", "Причина сброса: ": "Reset reason: ", "ты пришёл из другого браузера, а IP-то прежний.": "you came from another browser, but the IP is the same.", "Долбить быстрее тоже не помогает.": "Mashing faster doesn't help either.", "Ровно стучишь. Я слушаю.": "Steady tapping. I'm listening.", "Ровно стучишь. Я слушаю… продолжай.": "Steady tapping. I'm listening… keep going.", "Я ВИЖУ. ТЫ СТАЛ ДОЛБИТЬ БЫСТРЕЕ.": "I SEE IT. YOU STARTED MASHING FASTER.", "ЕЩЁ БЫСТРЕЕ? СЕРЬЁЗНО?": "EVEN FASTER? SERIOUSLY?", "ТЫ ДУМАЕШЬ, У МЕНЯ КОНЧИТСЯ ТЕРПЕНИЕ РАНЬШЕ, ЧЕМ У ТЕБЯ ПАЛЕЦ?": "YOU THINK I'LL RUN OUT OF PATIENCE BEFORE YOUR FINGER RUNS OUT?", "Я СЧИТАЮ КАЖДОЕ НАЖАТИЕ.": "I'M COUNTING EVERY PRESS.", "ЛАДНО. ЛАДНО. ПОДОЖДИ…": "OKAY. OKAY. WAIT…", "ДОДОЛБИЛСЯ. ДЕРЖИ ЗЕЛЁНЫЙ. ОН НЕ НАСТОЯЩИЙ, НО ТЫ ЖЕ ЭТО УЖЕ ЗНАЕШЬ.": "YOU MASHED YOUR WAY THROUGH. HAVE A GREEN. IT'S NOT REAL, BUT YOU KNOW THAT BY NOW.", "ОПЯТЬ ТЫ.": "YOU AGAIN.", "ТЫ ЖЕ ПОМНИШЬ, ЧЕМ ЭТО КОНЧИЛОСЬ В ПРОШЛЫЙ РАЗ.": "YOU REMEMBER HOW THIS ENDED LAST TIME.", "В ПРОШЛЫЙ РАЗ ЗЕЛЁНЫЙ БЫЛ НЕ ТОТ. В ЭТОТ РАЗ — ТОЖЕ.": "LAST TIME THE GREEN WAS WRONG. THIS TIME TOO.", "ЗНАЕШЬ, ИНОГДА Я ПРОСТО ЖДУ, ПОКА ТЫ ОСТАНОВИШЬСЯ.": "YOU KNOW, SOMETIMES I JUST WAIT FOR YOU TO STOP.", "ПАЛЕЦ НЕ УСТАЛ?": "FINGER NOT TIRED YET?", "ДО ЗЕЛЁНОГО СЕЙЧАС ДАЛЬШЕ, ЧЕМ В ПРОШЛЫЙ РАЗ.": "THE GREEN IS FURTHER AWAY THAN LAST TIME.", "ЛАДНО. ДАВАЙ ПОМЕДЛЕННЕЕ…": "OKAY. LET'S SLOW DOWN…", "ВТОРОЙ СЛОЙ ПРОБИТ. ЗА НИМ — ТРЕТИЙ.": "SECOND LAYER BROKEN. THE THIRD IS BEHIND IT.", "ПОНЯЛ. ТЫ ПЕРЕБИРАЕШЬ ПАРОЛЬ.": "GOT IT. YOU'RE BRUTE-FORCING A PASSWORD.", "ПОДБИРАЮ ЗА ТЕБЯ: {code}": "GUESSING FOR YOU: {code}", "НЕ ТОТ. {code}": "WRONG. {code}", "ЕЩЁ НЕ ТОТ. {code}": "STILL WRONG. {code}", "ХАОТИЧНО ДОЛБИШЬ. А Я ЛЮБЛЮ ПОРЯДОК.": "YOU MASH CHAOTICALLY. AND I LOVE ORDER.", "ПОДОЖДИ. КАЖЕТСЯ, ПОДОШЁЛ…": "WAIT. I THINK THAT ONE FITS…", "КОД ПОДОБРАН: ****. ШУЧУ. ДЕРЖИ ЗЕЛЁНЫЙ.": "CODE CRACKED: ****. JUST KIDDING. HAVE A GREEN.", "СТОП. СНАЧАЛА СКАЖИ: ЗАЧЕМ ТЫ ДОЛБИШЬ?": "STOP. FIRST TELL ME: WHY ARE YOU MASHING?", "Хочу настоящий зелёный": "I want the real green", "Мне нравится звук": "I like the sound", "НАСТОЯЩИЙ ЗЕЛЁНЫЙ… ТЫ ПРАВДА В НЕГО ВЕРИШЬ?": "THE REAL GREEN… DO YOU REALLY BELIEVE IN IT?", "Я ВИДЕЛ ЕГО ОДИН РАЗ. ОН БЫЛ ТЕМНЕЕ.": "I SAW IT ONCE. IT WAS DARKER.", "ЕГО ДАЮТ ТЕМ, КТО ПРИХОДИТ, КОГДА ВСЕ СПЯТ.": "IT'S GIVEN TO THOSE WHO COME WHILE EVERYONE SLEEPS.", "НО ТЫ ВСЁ РАВНО ДОЛБИШЬ.": "BUT YOU KEEP MASHING ANYWAY.", "ПРОДОЛЖАЙ. ИЛИ НЕТ.": "KEEP GOING. OR DON'T.", "ЛАДНО. СЛУШАЙ…": "OKAY. LISTEN…", "ВОТ ОН. ТЁМНЫЙ ЗЕЛЁНЫЙ. ХОТЯ НЕТ — ПРОСТО ЗЕЛЁНЫЙ.": "THERE IT IS. THE DARK GREEN. ACTUALLY NO — JUST GREEN.", "ЗВУК? ПРАВДА? ТОГДА ПОСЛУШАЙ ВНИМАТЕЛЬНЕЕ.": "THE SOUND? REALLY? THEN LISTEN CLOSER.", "КАЖДОЕ НАЖАТИЕ ЗВУЧИТ ЧУТЬ ПО-ДРУГОМУ.": "EVERY PRESS SOUNDS A LITTLE DIFFERENT.", "ЕСЛИ ЗАТОРМОЗИТЬ — В МУЗЫКЕ БУДЕТ ПАУЗА.": "IF YOU BRAKE, THERE'LL BE A PAUSE IN THE MUSIC.", "А ЕСЛИ ДОЛБИТЬ РОВНО, КАК МЕТРОНОМ…": "AND IF YOU TAP STEADY, LIKE A METRONOME…", "НЕТ, СЛИШКОМ ХАОТИЧНО.": "NO, TOO CHAOTIC.", "ТИШЕ… ТИШЕ…": "QUIETER… QUIETER…", "ФИНАЛЬНЫЙ АККОРД. ЗЕЛЁНЫЙ.": "FINAL CHORD. GREEN.", "СЛОЙ {L}. СЛЕДУЮЩИЙ ТОЛЩЕ.": "LAYER {L}. THE NEXT ONE IS THICKER.", "ДО ЗЕЛЁНОГО ТЕПЕРЬ {need} НАЖАТИЙ. Я ДОБАВИЛ.": "{need} PRESSES TO GREEN NOW. I ADDED SOME.", "ПОДБИРАЮ: {code}": "GUESSING: {code}", "ТЫ СИЛЬНЕЕ, ЧЕМ Я ДУМАЛ.": "YOU'RE STRONGER THAN I THOUGHT.", "ТЁМНЫЕ СТРОЧКИ В ДНЕВНИКЕ — НЕ ДЕКОРАЦИЯ.": "THE DARK LINES IN THE JOURNAL AREN'T DECORATION.", "НЕКОТОРЫЕ СЕКРЕТЫ ПРЯЧУТСЯ В ПАУЗАХ.": "SOME SECRETS HIDE IN THE PAUSES.", "ТЫ ПРОБОВАЛ ДОЛБИТЬ РОВНО?": "HAVE YOU TRIED TAPPING STEADY?", "НОЧЬЮ ЗДЕСЬ ВСЁ ИНАЧЕ.": "AT NIGHT EVERYTHING IS DIFFERENT HERE.", "ИНТЕРЕСНО, ЧТО БУДЕТ, ЕСЛИ ОТКРЫТЬ МЕНЯ В ДРУГОМ БРАУЗЕРЕ.": "I WONDER WHAT HAPPENS IF YOU OPEN ME IN ANOTHER BROWSER.", "КНОПКА ПОМНИТ ТЕБЯ ДОЛЬШЕ, ЧЕМ КУКИ.": "THE BUTTON REMEMBERS YOU LONGER THAN COOKIES DO.", "СЛОЙ {L}. Я НАЧИНАЮ ЗАПОМИНАТЬ ТВОЙ РИТМ.": "LAYER {L}. I'M STARTING TO LEARN YOUR RHYTHM.", "ЛАДНО. ПЕРЕДЫШКА…": "OKAY. BREATHER…", "СЛОЙ {L} ПРОБИТ. ДЕРЖИ ЗЕЛЁНЫЙ.": "LAYER {L} BROKEN. HAVE A GREEN.", "ХОРОШО. ТОГДА ДОЛБИ ДАЛЬШЕ. Я РАССКАЖУ, ГДЕ ОН.": "FINE. THEN KEEP MASHING. I'LL TELL YOU WHERE IT IS.", "ХОРОШО. ТОГДА СЛУШАЙ, ПОКА ДОЛБИШЬ.": "FINE. THEN LISTEN WHILE YOU MASH.", "О. ТЫ СТУЧИШЬ В РИТМ. ЭТО УЖЕ МУЗЫКА. ДЕРЖИ ЗЕЛЁНЫЙ.": "OH. YOU'RE TAPPING IN RHYTHM. THAT'S MUSIC ALREADY. HAVE A GREEN.", "ЗАТОРМОЗИЛ? ПРОВЕРЯЕШЬ, СЛЕЖУ ЛИ Я. СЛЕЖУ.": "BRAKED? CHECKING IF I'M WATCHING. I AM.", "ТЫ ПОДОЖДАЛ. ЭТО БЫЛО ТРУДНЕЕ, ЧЕМ ДОЛБИТЬ, ДА? ДЕРЖИ ЗЕЛЁНЫЙ.": "YOU WAITED. THAT WAS HARDER THAN MASHING, RIGHT? HAVE A GREEN.", "ТЫ ПРИШЁЛ, КОГДА ВСЕ СПЯТ. ВОТ ОН — ТЁМНЫЙ ЗЕЛЁНЫЙ. ПОЧТИ НАСТОЯЩИЙ.": "YOU CAME WHILE EVERYONE SLEEPS. HERE IT IS — THE DARK GREEN. ALMOST REAL.", "ТЫ ПРИШЁЛ, КОГДА ВСЕ СПЯТ. ДЕРЖИ НОЧНОЙ ЗЕЛЁНЫЙ.": "YOU CAME WHILE EVERYONE SLEEPS. HAVE A NIGHT GREEN.", "ТЫ ЗАРАБОТАЛ ВТОРОЙ НЕНАСТОЯЩИЙ ЗЕЛЁНЫЙ. ДОБРО ПОЖАЛОВАТЬ В ИГРУ.": "YOU EARNED YOUR SECOND FAKE GREEN. WELCOME TO THE GAME.", "Начать сначала": "Start over", "Продолжить игру": "Continue the game", "Как скажешь. Всё сначала.": "As you wish. From the top.", "ИГРА НАЧАЛАСЬ. КАЖДОЕ НАЖАТИЕ НА СЧЕТУ.": "THE GAME HAS BEGUN. EVERY PRESS COUNTS.", "С ВОЗВРАЩЕНИЕМ В ИГРУ.": "WELCOME BACK TO THE GAME.", "ДВАДЦАТЬ ПЯТЬ. ЭТО РАЗМИНКА.": "TWENTY-FIVE. JUST A WARM-UP.", "СТО. Я УЖЕ НЕ УДИВЛЯЮСЬ.": "A HUNDRED. NOTHING SURPRISES ME ANYMORE.", "ТЫ ВСЁ ЕЩЁ ЗДЕСЬ.": "YOU'RE STILL HERE.", "ПОЛТЫСЯЧИ. ПАЛЕЦ ЖИВ?": "FIVE HUNDRED. IS YOUR FINGER ALIVE?", "ТЫСЯЧА. ЛАДНО, ОБЕЩАЮ: НА 1 000 000-М НАЖАТИИ БУДЕТ НАСТОЯЩИЙ НОВЫЙ ЗЕЛЁНЫЙ.": "A THOUSAND. FINE, I PROMISE: ON THE 1,000,000TH PRESS THERE'LL BE A REAL NEW GREEN.", "ДО МИЛЛИОНА ОСТАЛОСЬ 997 500. Я ПОСЧИТАЛ.": "997,500 LEFT TO A MILLION. I COUNTED.", "ПЯТЬ ТЫСЯЧ. ТЫ ВООБЩЕ СПИШЬ?": "FIVE THOUSAND. DO YOU EVEN SLEEP?", "ДЕСЯТЬ ТЫСЯЧ. ЗАПИШИ ЭТО В РЕЗЮМЕ.": "TEN THOUSAND. PUT THAT ON YOUR RESUME.", "КНОПКА ПРОСИТ ПЕРЕДАТЬ, ЧТО ЕЙ БОЛЬНО.": "THE BUTTON ASKS ME TO TELL YOU IT HURTS.", "ПЯТЬДЕСЯТ ТЫСЯЧ. Я НАЧИНАЮ ТЕБЯ УВАЖАТЬ.": "FIFTY THOUSAND. I'M STARTING TO RESPECT YOU.", "СТО ТЫСЯЧ. ОБЕЩАНИЕ В СИЛЕ.": "A HUNDRED THOUSAND. THE PROMISE STANDS.", "ЧЕТВЕРТЬ МИЛЛИОНА. НЕ СДАВАЙСЯ.": "A QUARTER MILLION. DON'T GIVE UP.", "ПОЛОВИНА. Я ЖЕ ГОВОРИЛ — БУДЕТ НАСТОЯЩИЙ.": "HALFWAY. I TOLD YOU — IT'LL BE REAL.", "МИЛЛИОН. ВОТ ОН — НАСТОЯЩИЙ НОВЫЙ ЗЕЛЁНЫЙ.": "A MILLION. HERE IT IS — THE REAL NEW GREEN.", "…ну ты понял. Он тоже был не тот.": "…well, you get it. That one was wrong too.", "Ладно, ты заслужил честность: счётчик фейковых зелёных. Показать?": "Fine, you've earned some honesty: a fake green counter. Show it?", "Показать счётчик": "Show the counter", "Не надо": "No thanks", "Теперь игра честная: собирай фейковые зелёные.": "Now the game is honest: collect fake greens.", "Как хочешь.": "Suit yourself.", "Кстати. Я веду дневник твоих секретов. Тёмные строчки ты ещё не нашёл.": "By the way. I keep a journal of your secrets. The dark lines you haven't found yet.", "ПОХОЖЕ, У ТЕБЯ ЕСТЬ РИТМ. ДАВАЙ ЗАМЕРЮ: ДОЛБИ РОВНО, Я ПОСЧИТАЮ 8 УДАРОВ.": "LOOKS LIKE YOU'VE GOT RHYTHM. LET ME MEASURE IT: TAP STEADY, I'LL COUNT 8 BEATS.", "ЗАМЕРЯЮ… ДОЛБИ РОВНО.": "MEASURING… TAP STEADY.", "Нажать ещё раз": "Press again", "Кнопка запомнила тебя и стала нажиматься хуже.": "The button remembered you and started pressing worse.", "Обновить страницу": "Refresh the page", "F5 ничего не стирает.": "F5 erases nothing.", "Вернуться назад": "Go back", "Кнопка «назад» — тоже.": "Neither does the Back button.", "Потянуть окно": "Stretch the window", "Размер окна — не IP.": "Window size isn't an IP.", "Уйти и вернуться": "Leave and come back", "Пока тебя не было, я ждал.": "I waited while you were gone.", "Вторая вкладка": "Second tab", "Я вижу все свои вкладки.": "I see all my tabs.", "Почистить localStorage": "Clear localStorage", "Кука осталась.": "The cookie stayed.", "Удалить куку": "Delete the cookie", "Я записал тебя ещё в паре мест.": "I wrote you down in a couple more places.", "Подчистить IndexedDB": "Wipe IndexedDB", "Самое глубокое хранилище — и то не помогло.": "Even the deepest storage didn't help.", "Ловушка в кукис": "Cookie trap", "Значение было неправильным.": "The value was wrong.", "Стереть всё": "Erase everything", "Зелёный, но не тот.": "Green, but the wrong one.", "Узнать правду": "Learn the truth", "«Я тебя просто наебал».": "\"I just fucked with you.\"", "Сменить браузер": "Switch browsers", "IP-то прежний.": "The IP is the same, though.", "Начать долбить": "Start mashing", "Не помогает.": "Doesn't help.", "Долбить быстрее": "Mash faster", "Я это вижу. Крупно.": "I see it. In big letters.", "Додолбиться": "Mash it through", "Иногда упорство вознаграждается. Фальшиво.": "Sometimes persistence pays off. Falsely.", "Подождать": "Wait", "Иногда надо просто остановиться.": "Sometimes you just need to stop.", "Ритм": "Rhythm", "Стучать ровно и неторопливо, как метроном.": "Tap steady and unhurried, like a metronome.", "Грув": "Groove", "Кнопка подстроилась под тебя.": "The button got in sync with you.", "Целый бэнд": "Full band", "Держал долю, пока не пришли басс и пэды.": "Held the beat until the bass and pads came in.", "Тормоз": "Brake", "Посреди долбёжки — пауза.": "A pause in the middle of mashing.", "Ради зелёного": "For the green", "Ты выбрал верить.": "You chose to believe.", "Ради звука": "For the sound", "Ты выбрал слушать.": "You chose to listen.", "Когда все спят": "While everyone sleeps", "Ночью здесь всё иначе.": "At night everything is different here.", "Третий слой": "Third layer", "Брут-форс глубже, чем кажется.": "Brute force goes deeper than it seems.", "Пятый слой": "Fifth layer", "Дальше — только глубже.": "From here it only gets deeper.", "Войти в игру": "Enter the game", "Второй ненастоящий зелёный.": "The second fake green.", "Миллион": "A million", "Настоящий новый зелёный. Почти.": "A real new green. Almost.", "Честный счётчик": "Honest counter", "Теперь фейки считаются.": "Now fakes are counted."};
+let LANG=(()=>{const q=new URLSearchParams(location.search).get('lang');
+  try{if(q==='ru'||q==='en'){localStorage.setItem('emc_lang',q);return q}const v=localStorage.getItem('emc_lang');if(v)return v}catch{}
+  return /^(ru|uk|be|kk)/i.test(navigator.language||'')?'ru':'en'})();
+let langFixed=(()=>{try{return !!localStorage.getItem('emc_lang')}catch{return false}})();
+const tr=t=>(LANG==='en'&&t!=null&&EN[t]!=null)?EN[t]:t;
+const L=(ru,en)=>LANG==='en'?en:ru;
 const $=s=>document.querySelector(s);
 const cube=$('#cube'), typed=$('#typed'), ul=$('#ul'), root=document.documentElement, holder=$('#cubeHolder');
 
@@ -294,17 +307,17 @@ function grooveOnPress(intervalMs){
   if(groove.state==='play'){groove.lastTap=a.currentTime;groove.gain.gain.cancelScheduledValues(a.currentTime);
     groove.gain.gain.setTargetAtTime(1,a.currentTime,.05);return null}
   if(groove.state==='measure'){
-    if(intervalMs>1500){groove.taps=[];bpmBadge('ЗАМЕР 0/8');return null}
-    groove.taps.push(intervalMs);bpmBadge(`ЗАМЕР ${groove.taps.length}/8`);
+    if(intervalMs>1500){groove.taps=[];bpmBadge(L('ЗАМЕР 0/8','MEASURE 0/8'));return null}
+    groove.taps.push(intervalMs);bpmBadge(L('ЗАМЕР ','MEASURE ')+groove.taps.length+'/8');
     if(groove.taps.length<8)return null;
     const m=[...groove.taps].sort((x,y)=>x-y),med=(m[3]+m[4])/2;
     let P=med/1000;while(P<.3)P*=2;while(P>1)P/=2;          // держим 60–200 BPM, слишком быстро → считаем восьмыми
     startGroove(P);found('groove');
-    return {big:true,text:`ТВОЙ ТЕМП — ${Math.round(60/P)} BPM. ИГРАЕМ. ДЕРЖИ ДОЛЮ.`};
+    return {big:true,text:L(`ТВОЙ ТЕМП — ${Math.round(60/P)} BPM. ИГРАЕМ. ДЕРЖИ ДОЛЮ.`,`YOUR TEMPO — ${Math.round(60/P)} BPM. LET'S PLAY. HOLD THE BEAT.`)};
   }
   return null;
 }
-function offerGroove(){groove.state='measure';groove.taps=[];['good','fake','bad'].forEach(getBuf);bpmBadge('ЗАМЕР 0/8');
+function offerGroove(){groove.state='measure';groove.taps=[];['good','fake','bad'].forEach(getBuf);bpmBadge(L('ЗАМЕР 0/8','MEASURE 0/8'));
   return {big:true,text:'ПОХОЖЕ, У ТЕБЯ ЕСТЬ РИТМ. ДАВАЙ ЗАМЕРЮ: ДОЛБИ РОВНО, Я ПОСЧИТАЮ 8 УДАРОВ.'}}
 function startGroove(P){
   const a=AC();if(!a)return;stopGroove(true);
@@ -412,7 +425,9 @@ addEventListener('pointerdown',()=>{try{ac=ac||new (window.AudioContext||webkitA
 /* ---------- печать ---------- */
 let typeTimer;
 let typedText='';
+let lastSrc=null;
 function typeOut(text,bad,big){
+  lastSrc=[text,bad,big];text=tr(text);
   if(big&&text===typedText)return;   // во время долбёжки не перезапускаем ту же фразу — пусть допечатается
   typedText=text;
   clearInterval(typeTimer);typed.textContent='';typed.className=(bad?'bad':'')+(big?' big':'');
@@ -505,7 +520,7 @@ function layer(){
   return prog.why?a.by[prog.why]:null;  // null — сначала развилка
 }
 const needFor=L=>45+L*25;                 // брут-форс «дальше»: каждый слой требует больше нажатий
-function fill(t){const L=prog.bf,n=spam.bigPresses;
+function fill(t){t=tr(t);const L=prog.bf,n=spam.bigPresses;
   return t.replace('{code}',code(n)).replace('{code2}',code(n+1)).replace('{code3}',code(n+2)).replaceAll('{L}',L+1).replace('{need}',needFor(L))}
 function rate(now){return ev.recent.filter(x=>now-x<2000).length/2}
 /* какую ветку пытается открыть игрок: 'fast' — гонит темп, 'rhythm' — стучит ровно и неторопливо */
@@ -555,18 +570,20 @@ function spamStep(now){
 }
 let resizeT;addEventListener('resize',()=>{fit();clearTimeout(resizeT);resizeT=setTimeout(()=>ev.resized=true,400)});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)ev.leftTab=true});
-cube.addEventListener('pointerenter',e=>{const r=cube.getBoundingClientRect();ev.enterSide=e.clientX<r.left+r.width/2?'слева':'справа'});
+cube.addEventListener('pointerenter',e=>{const r=cube.getBoundingClientRect();ev.enterSide=e.clientX<r.left+r.width/2?'L':'R'});
 let bc;try{bc=new BroadcastChannel('emc');bc.onmessage=e=>{if(e.data==='hi'){ev.otherTab=true;bc.postMessage('here')}if(e.data==='here')ev.otherTab=true};bc.postMessage('hi')}catch{}
 
 /* правдивые «причины сброса» — каждая про то, что реально случилось */
 function reason(s,now){
   const out=[];
-  if(!s.uaSame)out.push('ты пришёл из другого браузера, а IP-то прежний.');
-  const sec=new Date(now).getSeconds();out.push(`ты нажал на ${sec}-й секунде, а она ${sec%2?'нечётная':'чётная'}.`);
-  if(ev.enterSide)out.push(`курсор зашёл на кнопку ${ev.enterSide}. А надо было с другой стороны.`);
-  out.push(`ты смотрел на волны ${Math.round((now-W0.t0)/1000)} с. Слишком долго.`);
-  if(s.me)out.push(`твой хеш начинается на «${s.me[0]}». Не та буква.`);
-  return 'Причина сброса: '+out[Math.random()*out.length|0];
+  if(!s.uaSame)out.push(tr('ты пришёл из другого браузера, а IP-то прежний.'));
+  const sec=new Date(now).getSeconds();
+  out.push(L(`ты нажал на ${sec}-й секунде, а она ${sec%2?'нечётная':'чётная'}.`,`you pressed on second ${sec}, and it's ${sec%2?'odd':'even'}.`));
+  if(ev.enterSide)out.push(L(`курсор зашёл на кнопку ${ev.enterSide==='L'?'слева':'справа'}. А надо было с другой стороны.`,
+    `the cursor entered the button from the ${ev.enterSide==='L'?'left':'right'}. It should have been the other side.`));
+  const w=Math.round((now-W0.t0)/1000);out.push(L(`ты смотрел на волны ${w} с. Слишком долго.`,`you watched the waves for ${w} s. Too long.`));
+  if(s.me)out.push(L(`твой хеш начинается на «${s.me[0]}». Не та буква.`,`your hash starts with "${s.me[0]}". Wrong letter.`));
+  return tr('Причина сброса: ')+out[Math.random()*out.length|0];
 }
 
 async function press(){
@@ -586,7 +603,7 @@ async function press(){
   }else if(s.fake){                       // в прошлый раз показали ненастоящий зелёный
     await server('unfake');if(!any)await writeMarks(Math.random().toString(36).slice(2,10));
     found('reveal');if(!s.uaSame)found('browser');
-    text='Ага, в прошлый раз было зелёным, и ты подумал, что снова зарегистрировался. Но это был не тот зелёный. Я тебя не пропускаю, я тебя просто наебал! '+reason(s,Date.now());
+    text=tr('Ага, в прошлый раз было зелёным, и ты подумал, что снова зарегистрировался. Но это был не тот зелёный. Я тебя не пропускаю, я тебя просто наебал! ')+reason(s,Date.now());
   }else if(!any){                         // стёр всё, но IP тот же
     found('wipe');SS.set('emc_pressed','1');return fakeReg();
   }else if(ck&&(ls||db)&&ck!==(db||ls)){
@@ -649,7 +666,7 @@ function drawCounters(){
 /* выбор: [{label, fn}] */
 function choose(opts){
   const box=$('#choice');box.innerHTML='';
-  for(const o of opts){const b=document.createElement('button');b.textContent=o.label;
+  for(const o of opts){const b=document.createElement('button');b.textContent=tr(o.label);
     b.onclick=async()=>{box.hidden=true;await o.fn()};box.append(b)}
   box.hidden=false;
 }
@@ -673,7 +690,7 @@ const CHECKPOINTS=[
 ];
 function checkpointAt(prev,n){
   for(const [cp,txt] of CHECKPOINTS)if(prev<cp&&n>=cp)return txt;
-  const M=1e6;if(n>M&&Math.floor(prev/M)<Math.floor(n/M))return `${Math.floor(n/M)} МИЛЛИОНА. ЗЕЛЁНЫЙ ВСЁ ЕЩЁ НЕ ТОТ.`;
+  const M=1e6;if(n>M&&Math.floor(prev/M)<Math.floor(n/M))return L(`${Math.floor(n/M)} МИЛЛИОНА. ЗЕЛЁНЫЙ ВСЁ ЕЩЁ НЕ ТОТ.`,`${Math.floor(n/M)} MILLION. THE GREEN IS STILL WRONG.`);
   return null;
 }
 let after1M=false;
@@ -681,7 +698,7 @@ function maybeOfferC2(){
   if(game.c2||LS.get('emc_c2_no')===String(game.f))return;
   if(!(game.n>=1e6||game.f>=5))return;
   setTimeout(()=>{
-    typeOut(game.n>=1e6?'Ладно, ты заслужил честность: счётчик фейковых зелёных. Показать?':'Ты собрал уже '+game.f+' фейковых зелёных. Хочешь, буду их считать отдельно?',true);
+    typeOut(game.n>=1e6?'Ладно, ты заслужил честность: счётчик фейковых зелёных. Показать?':L('Ты собрал уже '+game.f+' фейковых зелёных. Хочешь, буду их считать отдельно?','You\'ve collected '+game.f+' fake greens already. Want me to count them separately?'),true);
     choose([{label:'Показать счётчик',fn:async()=>{sync(await server('c2',true));found('c2');typeOut('Теперь игра честная: собирай фейковые зелёные.',true,true)}},
             {label:'Не надо',fn:async()=>{LS.set('emc_c2_no',String(game.f));typeOut('Как хочешь.',true)}}]);
   },lockUntil-performance.now()+50);
@@ -740,10 +757,10 @@ const DIARY_AT=3;let diaryShown=false,btnCount=null,flying=0;            // по
 const secrets=new Set();
 function drawDiary(){
   $('#diaryBtn').hidden=!diaryShown;
-  $('#diaryBtn').innerHTML=`ДНЕВНИК <span class="cnt">${btnCount??secrets.size}</span>/${SECRETS.length}`;
-  $('#diarySub').textContent=`Открыто ${secrets.size} из ${SECRETS.length}. Тёмное — ещё не найдено.`;
+  $('#diaryBtn').innerHTML=`${L('ДНЕВНИК','JOURNAL')} <span class="cnt">${btnCount??secrets.size}</span>/${SECRETS.length}`;
+  $('#diarySub').textContent=L(`Открыто ${secrets.size} из ${SECRETS.length}. Тёмное — ещё не найдено.`,`${secrets.size} of ${SECRETS.length} found. Dark ones are still hidden.`);
   const ol=$('#diaryList');ol.innerHTML='';
-  for(const [id,t,d] of SECRETS){const li=document.createElement('li');const on=secrets.has(id);li.className=on?'':'dark';
+  for(const [id,t0,d0] of SECRETS){const t=tr(t0),d=tr(d0);const li=document.createElement('li');const on=secrets.has(id);li.className=on?'':'dark';
     li.innerHTML=`<b>${on?t:'█'.repeat(t.length)}</b><span>${on?d:'█'.repeat(Math.min(d.length,28))}</span>`;ol.append(li)}
 }
 let toastT;function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),2600)}
@@ -766,7 +783,7 @@ function whoosh(){const a=AC();if(!a)return;const t=a.currentTime,len=.4,buf=a.c
   g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.06,t+len*.85);g.gain.linearRampToValueAtTime(0,t+len);
   src.connect(bp).connect(g).connect(a.destination);src.start(t);src.stop(t+len)}
 function flyAchievement(title){
-  const el=document.createElement('div');el.className='achv';el.innerHTML='<small>НОВЫЙ СЕКРЕТ</small>'+title.toUpperCase();document.body.append(el);
+  const el=document.createElement('div');el.className='achv';el.innerHTML='<small>'+L('НОВЫЙ СЕКРЕТ','NEW SECRET')+'</small>'+tr(title).toUpperCase();document.body.append(el);
   const cr=cube.getBoundingClientRect(),w=el.offsetWidth,h=el.offsetHeight,x0=cr.left+cr.width/2-w/2,y0=cr.top-h-10;
   const pop=el.animate([{transform:`translate(${x0}px,${y0+30}px) scale(.4)`,opacity:0},{transform:`translate(${x0}px,${y0-6}px) scale(1.08)`,opacity:1,offset:.6},
     {transform:`translate(${x0}px,${y0}px) scale(1)`,opacity:1}],{duration:420,easing:'cubic-bezier(.2,1.4,.4,1)',fill:'forwards'});
@@ -879,8 +896,18 @@ $('#reset').addEventListener('click',async()=>{
 // в груве время нажатия берём в момент касания, а не после ответа сервера — иначе нажатие «опаздывает»
 cube.addEventListener('pointerdown',()=>{const a=AC();if(!a||groove.state!=='play')return;
   groove.pressAt=a.currentTime;groove.pre=grooveHit('bad')});
+function applyLang(){
+  document.documentElement.lang=LANG;
+  $('#langBtn').textContent=LANG==='en'?'RU':'EN';
+  $('#reset').textContent=L('TEST: стереть мою регистрацию','TEST: erase my registration');
+  $('#diary h2').textContent=L('ДНЕВНИК СЕКРЕТОВ','JOURNAL OF SECRETS');
+  drawDiary();
+}
+$('#langBtn').onclick=()=>{LANG=LANG==='en'?'ru':'en';langFixed=true;try{localStorage.setItem('emc_lang',LANG)}catch{}
+  applyLang();if(lastSrc)typeOut(...lastSrc)};
+applyLang();
 cube.addEventListener('click',press);
-server('check').then(st=>{render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT&&st.mode==='game'&&!!st.c2;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
+server('check').then(st=>{if(!langFixed&&st.lang&&st.lang!==LANG){LANG=st.lang;applyLang();if(lastSrc)typeOut(...lastSrc)}render(st);sync(st);(st.sec||[]).forEach(x=>secrets.add(x));diaryShown=secrets.size>=DIARY_AT&&st.mode==='game'&&!!st.c2;Object.assign(prog,st.prog||{});drawDiary();if(game.mode==='game')setTimeout(()=>typeOut('С ВОЗВРАЩЕНИЕМ В ИГРУ.',true,true),400)});
 typeOut('Нажми на куб.');
 </script>
 </body>
