@@ -59,6 +59,11 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #email::placeholder{color:#ffffff22}
 #email.ok{border-color:#5dff9a33}
 #email.err{border-color:#ff8a8a33}
+#reset{position:fixed;top:10px;left:10px;z-index:3;background:#0006;color:#f9a;border:1px dashed #f9a6;font:11px monospace;padding:4px 8px;cursor:pointer}
+#cube.bad.on #plate{filter:drop-shadow(0 0 8px var(--glow)) drop-shadow(0 0 24px var(--glow))}
+#cube.bad #plate{transition:transform 2.4s cubic-bezier(.2,0,.1,1),filter 2.4s,fill 2s}
+#cube.bad #plateRim,#cube.bad #stone{transition:stroke 2.2s,filter 2.2s}
+.shake.bad{animation-duration:.35s}
 @media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:1fr 150px}
   #list{border-left:0;border-top:2px solid var(--teal);padding-top:14px}#typed{top:6%;font-size:15px}
   #cube{width:240px;height:280px}#emailBox{left:50%}}
@@ -85,6 +90,7 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
   </section>
   <aside id="list"><h3>REGISTERED</h3><ul id="ul"></ul></aside>
 </main>
+<button id="reset" hidden>TEST: стереть мою регистрацию</button>
 <div id="emailBox"><input id="email" type="email" placeholder="e-mail" autocomplete="email" maxlength="254"></div>
 
 <script>
@@ -139,11 +145,24 @@ for(const n of ['good','fake','bad'])for(const ext of ['ogg','mp3','wav']){
 }
 function play(n){const a=snd[n];if(!a)return;const c=a.cloneNode();c.volume=.85;c.play().catch(()=>{})}
 
+/* ---------- короткий тап (хай-хет) на символ ---------- */
+let ac,noiseBuf;
+function tick(){
+  try{ac=ac||new (window.AudioContext||webkitAudioContext)();if(ac.state==='suspended')return;
+    if(!noiseBuf){noiseBuf=ac.createBuffer(1,ac.sampleRate*.03,ac.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1}
+    const t=ac.currentTime,src=ac.createBufferSource(),hp=ac.createBiquadFilter(),g=ac.createGain();
+    src.buffer=noiseBuf;src.playbackRate.value=.9+Math.random()*.3;hp.type='highpass';hp.frequency.value=7000;
+    g.gain.setValueAtTime(.035,t);g.gain.exponentialRampToValueAtTime(.0001,t+.018);
+    src.connect(hp).connect(g).connect(ac.destination);src.start(t);src.stop(t+.025);
+  }catch{}
+}
+addEventListener('pointerdown',()=>{try{ac=ac||new (window.AudioContext||webkitAudioContext)();ac.resume()}catch{}},{once:true});
+
 /* ---------- печать ---------- */
 let typeTimer;
 function typeOut(text,bad){
   clearInterval(typeTimer);typed.textContent='';typed.className=bad?'bad':'';
-  let i=0;typeTimer=setInterval(()=>{typed.textContent=text.slice(0,++i);if(i>=text.length)clearInterval(typeTimer)},bad?38:28);
+  let i=0;typeTimer=setInterval(()=>{const c=text[i];typed.textContent=text.slice(0,++i);if(c&&c.trim())tick();if(i>=text.length)clearInterval(typeTimer)},bad?38:28);
 }
 
 /* ---------- волны по форме шестиугольника ---------- */
@@ -159,8 +178,8 @@ function frame(t){
   if(t-lastSpawn>every){rings.push({born:t,mood,lobes:3+(Math.random()*4|0),seed:Math.random()*6});lastSpawn=t}
   const cr=cube.getBoundingClientRect(),x=cr.left+cr.width/2,y=cr.top+cr.height/2,unit=cr.height/280;
   for(let i=rings.length-1;i>=0;i--){
-    const r=rings[i],age=(t-r.born)/1000,sc=1.02+age*(.22+.5*energy);
-    const alpha=Math.max(0,1-age/6)*(r.mood==='idle'?.2:.75);
+    const r=rings[i],age=(t-r.born)/1000,sc=1.02+age*(r.mood==='bad'?.14+.3*energy:.22+.5*energy);
+    const alpha=Math.max(0,1-age/(r.mood==='bad'?11:6))*(r.mood==='idle'?.2:.75);
     if(alpha<=0){rings.splice(i,1);continue}
     const dist=sc-1,amp=dist*(r.mood==='bad'?26:14)*(.4+energy),k=r.lobes+Math.floor(dist*3),ph=t/900+r.seed;
     cx.beginPath();
@@ -239,11 +258,11 @@ const glowColor={good:'#5dff9a',fake:'#9ff06a',bad:'#c9a6ff'};
 function show(kind,text,s){
   mood=kind;pressT=performance.now();play(kind);
   root.style.setProperty('--glow',glowColor[kind]);
-  cube.classList.remove('shake','on');void cube.offsetWidth;cube.classList.add('shake','on');
-  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?1500:4500);
+  cube.classList.remove('shake','on','bad');void cube.offsetWidth;cube.classList.add('shake','on');cube.classList.toggle('bad',kind==='bad');
+  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?700:4500);
   typeOut(text,kind==='bad');render(s);
 }
-function render(s){ul.innerHTML='';(s.list||[]).slice(0,200).forEach(h=>{const li=document.createElement('li');li.textContent=h.slice(0,40);if(h===s.me)li.className='me';ul.append(li)})}
+function render(s){if(s.admin)$('#reset').hidden=false;ul.innerHTML='';(s.list||[]).slice(0,200).forEach(h=>{const li=document.createElement('li');li.textContent=h.slice(0,40);if(h===s.me)li.className='me';ul.append(li)})}
 
 /* ---------- e-mail ---------- */
 const em=$('#email');let sentEmail='';
@@ -257,6 +276,12 @@ em.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendEma
 em.addEventListener('blur',sendEmail);
 em.addEventListener('input',()=>em.className='');
 
+$('#reset').addEventListener('click',async()=>{
+  await fetch('/api/endless/reset',{method:'POST'}).catch(()=>{});
+  try{localStorage.clear();sessionStorage.clear()}catch{}
+  document.cookie='_ga_mc=;max-age=0;path=/';try{indexedDB.deleteDatabase('emc')}catch{}
+  location.reload();
+});
 cube.addEventListener('click',press);
 server('check').then(render);
 typeOut('Нажми на куб.');

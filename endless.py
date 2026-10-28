@@ -19,6 +19,8 @@ from aiohttp import web
 
 SALT = os.environ.get("ENDLESS_SALT", "endless-v1")
 LIST_LIMIT = 200
+# с этих IP видна тестовая кнопка «стереть мою регистрацию»
+ADMIN_IPS = {x.strip() for x in os.environ.get("ENDLESS_ADMIN_IPS", "82.38.67.16").split(",") if x.strip()}
 EMAILS_PER_IP = 5
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}\.[^@\s.]{2,}$")
 
@@ -84,6 +86,7 @@ class Endless:
             "fake": bool(meta and meta.get("fake")),
             "uaSame": bool(meta) and meta.get("ua", ua) == ua,
             "me": _h(inner + SALT),
+            "admin": self.client_ip(request) in ADMIN_IPS,
             "list": [_h(i + SALT) for i in self.order[:LIST_LIMIT]],
         })
 
@@ -102,6 +105,16 @@ class Endless:
             f.write(json.dumps({"email": email, "inner": inner, "t": int(time.time())}, ensure_ascii=False) + "\n")
         return _resp({"ok": True})
 
+    async def reset(self, request):
+        if self.client_ip(request) not in ADMIN_IPS:
+            raise web.HTTPForbidden()
+        inner = self._inner(request)
+        if self.meta.pop(inner, None) is not None:
+            self.order.remove(inner)
+            self._save()
+        return _resp({"ok": True})
+
     def routes(self, app):
+        app.router.add_post("/api/endless/reset", self.reset)
         app.router.add_post("/api/endless/press", self.press)
         app.router.add_post("/api/endless/email", self.email)
