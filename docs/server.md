@@ -21,7 +21,7 @@
 |---|---|---|---|
 | GET | `/api/ls?path=` | server | Содержимое папки (fs + ufs + записи), у аудио `plays` |
 | GET | `/api/entry?path=` | server | Есть ли путь, файл/папка (не `/api/stat` — режут блокировщики) |
-| GET | `/api/find?ext=` | server | Поиск файлов по расширению |
+| GET | `/api/find?ext=` | server | Поиск файлов по расширению (кэш 60 с, ≤ 20 расширений) |
 | POST | `/api/listen?path=` | server | +1 прослушивание (1 раз с IP за 30 мин) |
 | GET | `/fs/{path}` | server | Файл: канон → ufs → JSON виртуальной записи. `.br/.gz` отдаются с `Content-Encoding` (Unity) |
 | GET | `/grab/{name}` | server | «Бесконечная загрузка» для fakedl |
@@ -29,7 +29,7 @@
 | POST | `/api/dawn/save` `{dir, name, data}` | dawnstore | Сохранить проект в папку (нужен вход; своё — перезаписывается) |
 | POST | `/api/dawn/delete` `{path}` | dawnstore | Удалить свой проект |
 | GET | `/api/dawn/mine` | dawnstore | Кто я, мои проекты, лимиты |
-| POST | `/api/visit` `{app, id, hit}` | dawnstore | Счётчик: `hit` — засчитать открытие; ответ `{total, unique}` (id хранится хэшем) |
+| POST | `/api/visit` `{app, id, hit}` | dawnstore | Счётчик: `hit` — засчитать открытие; ответ `{total, unique}` (id хранится хэшем). 30 запросов в минуту с IP, иначе 429 |
 | POST | `/api/chat/auth`, `/api/chat/logout` | chat | Вход/регистрация, выход |
 | GET | `/api/chat/me`, `/api/chat/history`, `/api/chat/comments` | chat | Кто я, история, комменты комнаты |
 | WS | `/api/chat/ws` | chat | Общий чат, онлайн, P2P-сигналы, комнаты комментов |
@@ -57,4 +57,6 @@
 - Поэтому всё служебное лежит в `.meta/` — его невозможно скачать через `/fs`.
 - `client_ip()` берёт `X-Forwarded-For` только при `TRUST_PROXY=1`.
 - `client_max_size = 2,5 МБ` — под проект DAWN (≤ 2 МБ) и сжатые картинки записей; лимиты модулей строже.
+- Фоновая задача `housekeeping`: сохраняет счётчик посещений и раз в 6 ч чистит истёкшие сессии и старый `ip_log`.
+- Заголовки, токены, лимиты и что ещё не сделано — в [security.md](security.md).
 - Аккаунт один на всё: чат, форум, Джус, общие папки, записи, проекты DAWN — `chat.user_by_token`.
