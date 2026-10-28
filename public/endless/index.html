@@ -135,7 +135,8 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 .achv small{display:block;font-size:9px;letter-spacing:.35em;color:#9ff06a;margin-bottom:3px}
 .spark{position:fixed;z-index:21;width:4px;height:4px;border-radius:50%;pointer-events:none;background:#fff;box-shadow:0 0 6px #c9a6ff,0 0 12px #c9a6ff}
 #reset{position:fixed;top:10px;left:10px;z-index:3;background:#0006;color:#f9a;border:1px dashed #f9a6;font:11px monospace;padding:4px 8px;cursor:pointer}
-#cube.bad.on #plate{filter:drop-shadow(0 0 8px var(--glow)) drop-shadow(0 0 24px var(--glow))}
+#cube.bad.on #plate{filter:drop-shadow(0 0 calc(8px*var(--gq,1)) var(--glow)) drop-shadow(0 0 calc(24px*var(--gq,1)) var(--glow))}
+#cube.bad.perfect.on #plate{transform:scale(1.34);filter:drop-shadow(0 0 12px var(--glow)) drop-shadow(0 0 40px var(--glow)) drop-shadow(0 0 80px var(--glow))}
 #cube.bad #plate{transition:transform 2.4s cubic-bezier(.2,0,.1,1),filter 2.4s,fill 2s}
 #cube.bad #plateRim,#cube.bad #stone{transition:stroke 2.2s,filter 2.2s}
 .shake.bad{animation-duration:.35s}
@@ -322,7 +323,9 @@ function schedule(){
     if(bar>=PADS_AT&&st===0)pad(a,t,ch[1],groove.P*4,groove.gain);
     if(st===0&&bar===BASS_AT)setTimeout(()=>bpmBadge('♩ '+Math.round(60/groove.P)+' BPM · BASS'),Math.max(0,(t-a.currentTime)*1000));
     if(st===0&&bar===PADS_AT)setTimeout(()=>{bpmBadge('♩ '+Math.round(60/groove.P)+' BPM · BASS · PADS');found('band')},Math.max(0,(t-a.currentTime)*1000));
-    if(st%2===0)setTimeout(beatPulse,Math.max(0,(t-a.currentTime)*1000));
+    if(st%2===0){setTimeout(beatPulse,Math.max(0,(t-a.currentTime)*1000));
+      const arrive=performance.now()+(t-a.currentTime)*1000+groove.P*2000;          // долетит через 2 доли
+      inward.push({spawn:arrive-groove.P*2000,arrive,accent:st===0,seed:Math.random()*6,vol:groove.gain.gain.value})}
     groove.step++;
   }
 }
@@ -336,6 +339,8 @@ function grooveHit(n){
   const a=AC();if(!a||groove.state!=='play')return false;
   const now=a.currentTime,half=groove.P/2,k=(now-groove.origin)/half,fl=Math.floor(k),slot=k-fl<.3?fl:fl+1;
   const when=Math.max(now,groove.origin+slot*half),b=bufs[n];
+  const err=Math.abs(now-(groove.origin+Math.round(k)*half));
+  groove.lastQ=Math.max(0,Math.min(1,1-err/(half*.45)));         // 1 — точно в сетку, 0 — мимо на четверть восьмой и больше
   if(!b){getBuf(n);return false}
   const src=a.createBufferSource(),g=a.createGain();src.buffer=b;g.gain.value=.85;
   let node=src;
@@ -344,6 +349,11 @@ function grooveHit(n){
     if(bar>=BASS_AT){const hp=a.createBiquadFilter();hp.type='highpass';hp.frequency.value=Math.min(420,140+(bar-BASS_AT)*35);node.connect(hp);node=hp} // место под басс
   }
   node.connect(g).connect(groove.gain);src.start(when);
+  // к плохому нажатию подмешиваем «хороший» звук — тем громче, чем точнее попал
+  const q=groove.lastQ,gb=bufs.good;
+  if(n==='bad'&&gb&&q>.15){const s2=a.createBufferSource(),g2=a.createGain(),lp2=a.createBiquadFilter();
+    s2.buffer=gb;lp2.type='lowpass';lp2.frequency.value=3000+q*5000;g2.gain.value=.55*q*q;
+    s2.connect(lp2).connect(g2).connect(groove.gain);s2.start(when)}
   return true;
 }
 function beatPulse(){const el=$('#bpm');el.classList.remove('beat');void el.offsetWidth;el.classList.add('beat');
@@ -401,7 +411,7 @@ function typeOut(text,bad,big){
 
 /* ---------- волны по форме шестиугольника ---------- */
 const cv=$('#waves'),cx=cv.getContext('2d');let W,H;const fit=()=>{W=cv.width=innerWidth;H=cv.height=innerHeight};fit();
-let lastKind='good',pressT=-1e9,mood='idle',lastT=0,spawnAcc=0,heat=0;const rings=[];
+const inward=[];let lastKind='good',pressT=-1e9,mood='idle',lastT=0,spawnAcc=0,heat=0;const rings=[];
 /* «накал» 0..1: пока кнопка трясётся — плавно растёт, потом долго экспоненциально остывает */
 const HEAT={good:{shake:800,tail:7},fake:{shake:800,tail:7},bad:{shake:350,tail:5}};
 const IDLE_MS=3200,FAST_MS=110;
@@ -429,6 +439,15 @@ function frame(t){
     for(const[px,py,th] of HEXPTS){let m=Math.sin(th*k+ph+age*2);if(r.mood==='bad')m*=Math.sin(th*17+ph*3);
       const s2=sc+amp*m/128;cx.lineTo(x+px*s2*unit,y+py*s2*unit)}
     cx.closePath();cx.strokeStyle=`rgba(${colors[r.mood]},${alpha})`;cx.lineWidth=r.mood==='bad'?1:2;cx.stroke();
+  }
+  // обратные волны во время грува: сходятся к кубу с ускорением и бьют в него на долю
+  for(let i=inward.length-1;i>=0;i--){
+    const w=inward[i];if(t<w.spawn)continue;const u=(t-w.spawn)/(w.arrive-w.spawn);
+    if(u>=1){inward.splice(i,1);continue}
+    const sc=1+2.6*Math.pow(1-u,1.6),alpha=Math.min(1,u*2.2)*.55*w.vol*(w.accent?1:.6),ph=t/600+w.seed,amp=(1-u)*10;
+    cx.beginPath();
+    for(const[px,py,th] of HEXPTS){const s2=sc+amp*Math.sin(th*4+ph)/128;cx.lineTo(x+px*s2*unit,y+py*s2*unit)}
+    cx.closePath();cx.strokeStyle=`rgba(47,214,208,${alpha})`;cx.lineWidth=w.accent?2.5:1.5;cx.stroke();
   }
   requestAnimationFrame(frame);
 }
@@ -795,10 +814,15 @@ async function fakeReg(text){
 }
 
 function show(kind,text,s,big){
-  mood=kind;lastKind=kind;pressT=performance.now();play(kind);
-  root.style.setProperty('--glow',glowColor[kind]);
+  mood=kind;lastKind=kind;pressT=performance.now();groove.lastQ=null;play(kind);
+  let glow=glowColor[kind],q=groove.lastQ;
+  if(kind==='bad'&&q!=null){             // в груве: чем точнее нажатие — тем зеленее и ярче свет
+    glow=`color-mix(in srgb,#5dff9a ${Math.round(q*100)}%,#c9a6ff)`;
+    root.style.setProperty('--gq',(.6+q*1.2).toFixed(2));cube.classList.toggle('perfect',q>.85)}
+  else{root.style.setProperty('--gq','1');cube.classList.remove('perfect')}
+  root.style.setProperty('--glow',glow);
   cube.classList.remove('shake','on','bad');void cube.offsetWidth;cube.classList.add('shake','on');cube.classList.toggle('bad',kind==='bad');
-  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?700:4500);
+  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on','perfect');mood='idle'},kind==='bad'?700+(q!=null?q*900:0):4500);
   if(text!=null)typeOut(text,kind==='bad',big);if(s)render(s);
 }
 function render(s){if(s.admin)$('#reset').hidden=false;ul.innerHTML='';(s.list||[]).slice(0,200).forEach(h=>{const li=document.createElement('li');li.textContent=h.slice(0,40);if(h===s.me)li.className='me';ul.append(li)})}
