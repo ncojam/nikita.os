@@ -242,6 +242,9 @@ const snd={};  // имя -> url первого существующего фай
    3) play    — свой часовой механизм: хай-хет на каждую восьмую (акцент на долю), снейр на 2 и 4;
                 звук нажатия игрока снапается к ближайшей восьмой.
    Если игрок перестал жать — через 2 такта начинаем затухать, ещё за 4 такта музыка гаснет.        */
+/* грув открывается только поздно: оба счётчика уже есть (игра + FAKE GREENS),
+   дневник уже показан и секрет «Ритм» (свой ритм без музыки) уже пройден */
+function grooveUnlocked(){return game.mode==='game'&&game.c2&&diaryShown&&secrets.has('rhythm')}
 const GROOVE_WARMUP=16;   // столько ровных интервалов подряд нужно, прежде чем предложим грув (≈4 такта)
 const groove={state:'off',on:false,P:.5,origin:0,taps:[],lastTap:0,step:0,timer:0,gain:null};
 const bufs={};
@@ -518,7 +521,7 @@ function spamStep(now){
     return {fake:true,secret:'rhythm',fakeText:'О. ТЫ СТУЧИШЬ В РИТМ. ЭТО УЖЕ МУЗЫКА. ДЕРЖИ ЗЕЛЁНЫЙ.'};
   // грув: ритм уже открыт и игрок снова долбит примерно ровно — предлагаем замер, потом играем
   if(groove.state!=='off'){const g=grooveOnPress(spam.intervals[spam.intervals.length-1]||9999);if(g)return g;if(groove.state==='measure')return {big:true,text:'ЗАМЕРЯЮ… ДОЛБИ РОВНО.'}}
-  else if(secrets.has('rhythm')){const g=spam.intervals.slice(-GROOVE_WARMUP);   // сначала игрок должен сам подолбить в ритме
+  else if(grooveUnlocked()){const g=spam.intervals.slice(-GROOVE_WARMUP);   // сначала игрок должен сам подолбить в ритме
     if(g.length===GROOVE_WARMUP){const m=g.reduce((a,b)=>a+b)/g.length,sd=Math.sqrt(g.reduce((a,b)=>a+(b-m)**2,0)/g.length);
       if(it==='rhythm'&&m>=250&&m<=900&&sd/m<.15)return offerGroove()}}
   if(it==='rhythm'&&spam.stage<2)return {text:secrets.has('rhythm')?'Ровно стучишь. Я слушаю… продолжай.':'Ровно стучишь. Я слушаю.'};
