@@ -119,6 +119,21 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #toast{position:fixed;left:50%;top:18px;transform:translateX(-50%) translateY(-80px);z-index:9;background:#120824;border:1px solid #9ff06a66;
   color:#d9ffc0;font:600 12px "Courier New",monospace;letter-spacing:.12em;padding:8px 14px;transition:transform .5s cubic-bezier(.2,1.6,.4,1)}
 #toast.show{transform:translateX(-50%) translateY(0)}
+#bpm{position:absolute;left:50%;top:calc(50% + 230px);transform:translateX(-50%);z-index:2;font:700 12px "Courier New",monospace;
+  letter-spacing:.25em;color:#c9a6ff;opacity:0;transition:opacity .4s;pointer-events:none}
+#bpm.on{opacity:.85}#bpm.beat{animation:beat .18s ease-out}
+@keyframes beat{0%{transform:translateX(-50%) scale(1.35);color:#fff}100%{transform:translateX(-50%) scale(1)}}
+@media (max-width:760px){#bpm{top:calc(50% + 160px)}}
+#diaryBtn .cnt{display:inline-block;transition:color .3s}
+#diaryBtn.hit{animation:btnHit .45s cubic-bezier(.36,.07,.19,.97)}
+#diaryBtn.hit .cnt{animation:cntFlash 1s ease-out}
+@keyframes btnHit{15%{transform:scale(1.22) rotate(-4deg)}30%{transform:scale(.92) rotate(3deg)}45%{transform:translate(3px,-2px) rotate(-2deg)}
+  60%{transform:translate(-2px,1px) rotate(1deg)}100%{transform:none}}
+@keyframes cntFlash{0%{color:#fff;text-shadow:0 0 10px #fff,0 0 20px #c9a6ff;transform:scale(1.6)}100%{color:inherit;text-shadow:none;transform:scale(1)}}
+.achv{position:fixed;z-index:20;left:0;top:0;pointer-events:none;background:#140a26;border:1px solid #c9a6ff88;color:#efe4ff;
+  font:700 13px "Courier New",monospace;letter-spacing:.12em;padding:10px 16px;white-space:nowrap;box-shadow:0 0 24px #c9a6ff55,0 10px 30px #000a}
+.achv small{display:block;font-size:9px;letter-spacing:.35em;color:#9ff06a;margin-bottom:3px}
+.spark{position:fixed;z-index:21;width:4px;height:4px;border-radius:50%;pointer-events:none;background:#fff;box-shadow:0 0 6px #c9a6ff,0 0 12px #c9a6ff}
 #reset{position:fixed;top:10px;left:10px;z-index:3;background:#0006;color:#f9a;border:1px dashed #f9a6;font:11px monospace;padding:4px 8px;cursor:pointer}
 #cube.bad.on #plate{filter:drop-shadow(0 0 8px var(--glow)) drop-shadow(0 0 24px var(--glow))}
 #cube.bad #plate{transition:transform 2.4s cubic-bezier(.2,0,.1,1),filter 2.4s,fill 2s}
@@ -135,6 +150,7 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
   <section id="stage">
     <div id="typed"></div>
     <div id="choice" hidden></div>
+    <div id="bpm"></div>
     <div id="counters">
       <div class="ctr" id="ctrNBox" hidden><div class="lbl">PRESSES</div><div class="seg" id="ctrN"></div></div>
       <div class="ctr" id="ctrFBox" hidden><div class="lbl">FAKE GREENS</div><div class="seg" id="ctrF"></div></div>
@@ -219,7 +235,50 @@ const snd={};  // имя -> url первого существующего фай
   const url=`/endless/sounds/${n}.${ext}`;
   try{const r=await fetch(url,{method:'HEAD',cache:'no-store'});if(r.ok){snd[n]=url;new Audio(url).preload='auto';break}}catch{}
 }console.log('[endless] звуки:',snd)})();
-function play(n){if(!snd[n])return console.warn('[endless] нет звука',n);const a=new Audio(snd[n]);a.volume=.85;a.play().catch(e=>console.warn('[endless]',n,e))}
+/* ---------- грув: подстраиваемся под ритм игрока ----------
+   groove.P — длина доли (сек) по его нажатиям, origin — фаза сетки (время AudioContext).
+   Звук нажатия снапается к ближайшей доле или полудоле; на полудолях добавляем снейр. */
+const groove={on:false,P:.5,origin:0,hits:0};
+const bufs={};
+async function getBuf(n){
+  if(bufs[n]!==undefined)return bufs[n];bufs[n]=null;const a=AC();if(!a||!snd[n])return null;
+  try{bufs[n]=await a.decodeAudioData(await (await fetch(snd[n])).arrayBuffer())}catch{bufs[n]=null}return bufs[n];
+}
+function snare(a,t){
+  const len=.16,buf=a.createBuffer(1,a.sampleRate*len,a.sampleRate),d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+  const nz=a.createBufferSource(),bp=a.createBiquadFilter(),g=a.createGain();nz.buffer=buf;bp.type='bandpass';bp.frequency.value=2200;bp.Q.value=.7;
+  g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.22,t+.004);g.gain.exponentialRampToValueAtTime(.0001,t+len);
+  nz.connect(bp).connect(g).connect(a.destination);nz.start(t);nz.stop(t+len);
+  const o=a.createOscillator(),og=a.createGain();o.type='triangle';o.frequency.setValueAtTime(230,t);o.frequency.exponentialRampToValueAtTime(150,t+.08);
+  og.gain.setValueAtTime(.0001,t);og.gain.linearRampToValueAtTime(.18,t+.003);og.gain.exponentialRampToValueAtTime(.0001,t+.1);
+  o.connect(og).connect(a.destination);o.start(t);o.stop(t+.12);
+}
+function startGroove(P){const a=AC();if(!a)return false;Object.assign(groove,{on:true,P,origin:a.currentTime,hits:0});
+  ['good','fake','bad'].forEach(getBuf);showBpm();return true}
+function stopGroove(){groove.on=false;$('#bpm').classList.remove('on')}
+function grooveHit(n){
+  const a=AC();if(!a)return false;const now=a.currentTime,half=groove.P/2,k=(now-groove.origin)/half,fl=Math.floor(k),fr=k-fl;
+  const slot=fr<.25?fl:fl+1;                            // чуть опоздал — играем сразу, иначе ждём следующую полудолю
+  const when=Math.max(now,groove.origin+slot*half);
+  groove.origin+=((now-(groove.origin+Math.round(k)*half)))*.08;   // мягко подтягиваем фазу под игрока
+  const b=bufs[n];
+  if(b){const src=a.createBufferSource(),g=a.createGain();src.buffer=b;g.gain.value=.85;src.connect(g).connect(a.destination);src.start(when)}
+  else getBuf(n);
+  if(slot%2)snare(a,when);
+  groove.hits++;setTimeout(beatPulse,(when-now)*1000);
+  return true;
+}
+function grooveTrack(intervalMs){       // каждое нажатие подстраивает темп и решает, жив ли ещё грув
+  if(!groove.on)return;const P=groove.P*1000,ratio=intervalMs/P,near=Math.max(.5,Math.round(ratio*2)/2);
+  if(intervalMs>P*2.6){stopGroove();return}
+  if(Math.abs(ratio-near)<.22)groove.P=groove.P*.88+(intervalMs/near/1000)*.12;
+  showBpm();
+}
+function showBpm(){const el=$('#bpm');el.textContent='♩ '+Math.round(60/groove.P)+' BPM';el.classList.add('on')}
+function beatPulse(){const el=$('#bpm');el.classList.remove('beat');void el.offsetWidth;el.classList.add('beat');
+  const pl=$('#plate');pl.animate([{transform:'scale(1.06)'},{transform:'scale(1)'}],{duration:180,easing:'ease-out',composite:'add'})}
+
+function play(n){if(groove.on&&grooveHit(n))return;if(!snd[n])return console.warn('[endless] нет звука',n);const a=new Audio(snd[n]);a.volume=.85;a.play().catch(e=>console.warn('[endless]',n,e))}
 
 /* ---------- короткий тап (хай-хет) на символ ---------- */
 let ac,noiseBuf;
@@ -350,9 +409,14 @@ function fill(t){const L=prog.bf,n=spam.bigPresses;
   return t.replace('{code}',code(n)).replace('{code2}',code(n+1)).replace('{code3}',code(n+2)).replaceAll('{L}',L+1).replace('{need}',needFor(L))}
 function rate(now){return ev.recent.filter(x=>now-x<2000).length/2}
 function spamStep(now){
-  if(now-spam.last>3000)Object.assign(spam,{stage:0,bigPresses:0,idx:0,intervals:[]});
+  if(now-spam.last>3000){Object.assign(spam,{stage:0,bigPresses:0,idx:0,intervals:[]});stopGroove()}
   if(spam.last)spam.intervals.push(now-spam.last);if(spam.intervals.length>16)spam.intervals.shift();
   spam.last=now;const r=rate(now);
+  // грув: ритм уже открыт и игрок снова долбит ровно (8 интервалов, 100–700 мс) — подстраиваемся
+  if(groove.on)grooveTrack(spam.intervals[spam.intervals.length-1]||0);
+  else if(secrets.has('rhythm')){const g=spam.intervals.slice(-8);
+    if(g.length===8){const m=g.reduce((a,b)=>a+b)/8,sd=Math.sqrt(g.reduce((a,b)=>a+(b-m)**2,0)/8);
+      if(m>100&&m<700&&sd/m<.14&&startGroove(m/1000)){found('groove');return {big:true,text:'ПОГОДИ… Я ЛОВЛЮ ТВОЙ РИТМ. '+Math.round(60000/m)+' BPM. ПОЕХАЛИ.'}}}}
   if(spam.stage===0){if(ev.recent.length>=5){spam.stage=1;spam.baseRate=r;return {text:'Долбить быстрее тоже не помогает.'}}return null}
   if(spam.stage===1){
     if(r>=3&&r>spam.baseRate*1.25){spam.stage=2;spam.bigStart=now;spam.bigPresses=0;spam.idx=0}
@@ -548,6 +612,7 @@ const SECRETS=[
   ['spamfake','Додолбиться','Иногда упорство вознаграждается. Фальшиво.'],
   ['wait','Подождать','Иногда надо просто остановиться.'],
   ['rhythm','Ритм','Долбить ровно, как метроном.'],
+  ['groove','Грув','Кнопка подстроилась под тебя.'],
   ['brake','Тормоз','Посреди долбёжки — пауза.'],
   ['forkgreen','Ради зелёного','Ты выбрал верить.'],
   ['forksound','Ради звука','Ты выбрал слушать.'],
@@ -558,11 +623,11 @@ const SECRETS=[
   ['million','Миллион','Настоящий новый зелёный. Почти.'],
   ['c2','Честный счётчик','Теперь фейки считаются.'],
 ];
-const DIARY_AT=3;let diaryShown=false;            // после скольких секретов рассказываем про дневник
+const DIARY_AT=3;let diaryShown=false,btnCount=null,flying=0;            // после скольких секретов рассказываем про дневник
 const secrets=new Set();
 function drawDiary(){
   $('#diaryBtn').hidden=!diaryShown;
-  $('#diaryBtn').textContent=`ДНЕВНИК ${secrets.size}/${SECRETS.length}`;
+  $('#diaryBtn').innerHTML=`ДНЕВНИК <span class="cnt">${btnCount??secrets.size}</span>/${SECRETS.length}`;
   $('#diarySub').textContent=`Открыто ${secrets.size} из ${SECRETS.length}. Тёмное — ещё не найдено.`;
   const ol=$('#diaryList');ol.innerHTML='';
   for(const [id,t,d] of SECRETS){const li=document.createElement('li');const on=secrets.has(id);li.className=on?'':'dark';
@@ -572,11 +637,47 @@ let toastT;function toast(t){const el=$('#toast');el.textContent=t;el.classList.
 function found(id){
   if(secrets.has(id))return;const meta=SECRETS.find(x=>x[0]===id);if(!meta)return;
   secrets.add(id);server('secret',id);
-  if(secrets.size>DIARY_AT)toast('+ СЕКРЕТ: '+meta[1].toUpperCase());
   if(game.mode==='game'&&id!=='game')server('gamefake').then(sync);   // в игре каждый новый секрет — ещё один фейковый зелёный
+  if(diaryShown){btnCount=secrets.size-1-flying;flying++;flyAchievement(meta[1])}
   drawDiary();
   if(secrets.size===DIARY_AT)setTimeout(()=>{typeOut('Кстати. Я веду дневник твоих секретов. Тёмные строчки ты ещё не нашёл.',true);
     revealDiaryBtn()},Math.max(0,lockUntil-performance.now())+2200);
+}
+/* ачивка: выскакивает у куба, висит, потом с ускорением влетает в кнопку дневника */
+function blip(){const a=AC();if(!a)return;const t=a.currentTime;
+  [[1568,0,.06],[2349,.05,.04],[3136,.1,.025]].forEach(([f,dt,v])=>{const o=a.createOscillator(),g=a.createGain(),lp=a.createBiquadFilter();
+    lp.type='lowpass';lp.frequency.value=3500;o.type='triangle';o.frequency.value=f;g.gain.setValueAtTime(0,t+dt);g.gain.linearRampToValueAtTime(v,t+dt+.008);
+    g.gain.exponentialRampToValueAtTime(.0001,t+dt+.45);o.connect(lp).connect(g).connect(a.destination);o.start(t+dt);o.stop(t+dt+.5)})}
+function whoosh(){const a=AC();if(!a)return;const t=a.currentTime,len=.4,buf=a.createBuffer(1,a.sampleRate*len,a.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;const src=a.createBufferSource(),bp=a.createBiquadFilter(),g=a.createGain();
+  src.buffer=buf;bp.type='bandpass';bp.Q.value=1.2;bp.frequency.setValueAtTime(500,t);bp.frequency.exponentialRampToValueAtTime(5000,t+len);
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.06,t+len*.85);g.gain.linearRampToValueAtTime(0,t+len);
+  src.connect(bp).connect(g).connect(a.destination);src.start(t);src.stop(t+len)}
+function flyAchievement(title){
+  const el=document.createElement('div');el.className='achv';el.innerHTML='<small>НОВЫЙ СЕКРЕТ</small>'+title.toUpperCase();document.body.append(el);
+  const cr=cube.getBoundingClientRect(),w=el.offsetWidth,h=el.offsetHeight,x0=cr.left+cr.width/2-w/2,y0=cr.top-h-10;
+  const pop=el.animate([{transform:`translate(${x0}px,${y0+30}px) scale(.4)`,opacity:0},{transform:`translate(${x0}px,${y0-6}px) scale(1.08)`,opacity:1,offset:.6},
+    {transform:`translate(${x0}px,${y0}px) scale(1)`,opacity:1}],{duration:420,easing:'cubic-bezier(.2,1.4,.4,1)',fill:'forwards'});
+  pop.onfinish=()=>setTimeout(()=>{
+    const br=$('#diaryBtn').getBoundingClientRect(),x1=br.left+br.width/2-w/2,y1=br.top+br.height/2-h/2;
+    whoosh();
+    const fly=el.animate([{transform:`translate(${x0}px,${y0}px) scale(1) rotate(0)`,opacity:1},
+      {transform:`translate(${(x0+x1)/2}px,${Math.min(y0,y1)-60}px) scale(.8) rotate(-6deg)`,opacity:1,offset:.45},
+      {transform:`translate(${x1}px,${y1}px) scale(.15) rotate(8deg)`,opacity:.9}],
+      {duration:620,easing:'cubic-bezier(.55,0,.9,.3)',fill:'forwards'});   // изинг с ускорением
+    fly.onfinish=()=>{el.remove();impact(br)};
+  },900);
+}
+function impact(br){
+  flying=Math.max(0,flying-1);btnCount=flying?secrets.size-flying:null;drawDiary();
+  const b=$('#diaryBtn');b.classList.remove('hit');void b.offsetWidth;b.classList.add('hit');blip();
+  const cx0=br.left+br.width/2,cy0=br.top+br.height/2;
+  for(let i=0;i<22;i++){const p=document.createElement('div');p.className='spark';document.body.append(p);
+    const ang=Math.random()*Math.PI*2,dist=30+Math.random()*70,dx=Math.cos(ang)*dist,dy=Math.sin(ang)*dist+20,sz=.6+Math.random()*1.4;
+    p.animate([{transform:`translate(${cx0}px,${cy0}px) scale(${sz})`,opacity:1},
+      {transform:`translate(${cx0+dx*.7}px,${cy0+dy*.5}px) scale(${sz})`,opacity:1,offset:.5},
+      {transform:`translate(${cx0+dx}px,${cy0+dy+25}px) scale(0)`,opacity:0}],
+      {duration:500+Math.random()*400,easing:'cubic-bezier(.1,.8,.3,1)'}).onfinish=()=>p.remove()}
 }
 function revealDiaryBtn(){
   diaryShown=true;const b=$('#diaryBtn');drawDiary();b.classList.remove('appear');void b.offsetWidth;b.classList.add('appear');chime();
