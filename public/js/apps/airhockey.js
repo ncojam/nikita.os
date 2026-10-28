@@ -393,7 +393,7 @@ function mountAirHockey(c, w, opts = {}) {
   const score = el("div", { className: "air-score" });
   const lbBtn = el("button", { className: "btn small air-lb-btn", textContent: "🏆 Лидерборд", onclick: openLeaderboard });
   const feed = el("div", { className: "air-last" });
-  const HINT = mobile ? "Тапни по верхней или нижней зоне, чтобы выбрать сторону, и води пальцем по тачпаду внизу"
+  const HINT = mobile ? "Тапни по верхней или нижней зоне, чтобы выбрать сторону, и води по тачпаду внизу или прямо по своей зоне"
                       : "Веди курсор в светлую зону у ворот · вторая платформа — A/D";
   const hint = el("div", { className: "air-hint", textContent: HINT });
   const strip = mobile ? el("div", { className: "air-strip" }) : null;
@@ -690,12 +690,30 @@ function mountAirHockey(c, w, opts = {}) {
   }
   if (strip) {
     if (touch.side) setSide(touch.side); else strip.classList.add("locked");
+    /* прямое управление по полю: мышью — просто водишь в своей зоне (как на ПК),
+     * пальцем — тап по зоне выбирает сторону и сразу ведёт платформу, пока палец на поле */
+    const fieldPos = e => { const r = cv.getBoundingClientRect();
+      return [clamp01((e.clientX - r.left) / r.width), (e.clientY - r.top) / r.height]; };
+    const inOwn = y => touch.side === "top" ? y <= zone.itop : touch.side === "bottom" && y >= zone.ibot;
+    let direct = false;   // палец ведёт прямо по полю
+    const fieldMove = e => {
+      const [x, y] = fieldPos(e);
+      if (!inOwn(y)) { if (!touch.on) { cv.classList.remove("playing"); leaveMine("m"); } return; }
+      cv.classList.toggle("playing", canPlay);
+      if (!canPlay) return playNah();
+      moveMine("m", x, clamp01(y));
+    };
     cv.onpointerdown = e => {
       Snd.init();
-      const r = cv.getBoundingClientRect();
-      const y = (e.clientY - r.top) / r.height;
-      if (y <= zone.itop) setSide("top"); else if (y >= zone.ibot) setSide("bottom");
+      const [, y] = fieldPos(e);
+      if (y <= zone.itop) setSide("top"); else if (y >= zone.ibot) setSide("bottom"); else return;
+      if (e.pointerType !== "mouse") { direct = true; cv.setPointerCapture?.(e.pointerId); }
+      fieldMove(e);
     };
+    cv.onpointermove = e => { if (e.pointerType === "mouse" || direct) fieldMove(e); };
+    const fieldUp = () => { if (!direct) return; direct = false; if (!touch.on) leaveMine("m"); };
+    cv.onpointerup = fieldUp; cv.onpointercancel = fieldUp;
+    cv.onpointerleave = e => { if (e.pointerType === "mouse" && !touch.on) { cv.classList.remove("playing"); leaveMine("m"); } };
     var onStrip = e => {
       lastStrip = { clientX: e.clientX, clientY: e.clientY };
       const r = strip.getBoundingClientRect();
@@ -1045,9 +1063,13 @@ function mountAirHockey(c, w, opts = {}) {
 
   function openLeaderboard() {
     if (tg || mobile) {
+      // кнопка закрытия — внизу, рядом с остальными: вверху её перекрывают кнопки самого Телеграма.
+      // плюс системная «Назад» Телеграма
+      const tgApp = tg ? window.Telegram?.WebApp : null;
       const ov = el("div", { className: "air-lb-ov" });
-      ov.append(el("button", { className: "btn small air-lb-x", textContent: "✕", onclick: () => ov.remove() }));
-      c.append(ov); lbRender(ov); return;
+      const close = () => { ov.remove(); try { tgApp?.BackButton.offClick(close); tgApp?.BackButton.hide(); } catch {} };
+      try { tgApp?.BackButton.onClick(close); tgApp?.BackButton.show(); } catch {}
+      c.append(ov); lbRender(ov, close); return;
     }
     const lw = 300, lh = 440;
     const win = WM.open({ title: "Лидерборд — Джус", icon: "🏆", width: lw, height: lh, key: "air-lb",
@@ -1060,17 +1082,21 @@ function mountAirHockey(c, w, opts = {}) {
   function syncNameBtn() {
     for (const b of nameBtns) {
       if (!b.isConnected) { nameBtns.delete(b); continue; }
-      b.hidden = !tgMe;
-      b.textContent = showName ? "🙈 Скрыть мой юзернейм" : "👁 Показывать мой юзернейм";
+      // в Телеграме кнопка видна всегда; неактивна — если вход через Телеграм не прошёл
+      b.style.display = tg ? "" : "none";
+      b.disabled = !tgMe;
+      b.title = tgMe ? "" : "Вход через Телеграм не удался — ник неизвестен";
+      b.textContent = showName ? "🙈 Скрыть мой ник" : "👁 Показывать мой ник";
     }
   }
-  function lbRender(cc) {
+  function lbRender(cc, onClose) {
     const body = el("div", { className: "air-lb-body", textContent: "Загрузка…" });
     const refresh = el("button", { className: "btn small", textContent: "⟳ Обновить", onclick: () => load() });
-    const nameBtn = el("button", { className: "btn small", hidden: true,
+    const nameBtn = el("button", { className: "btn small",
       onclick: () => send({ t: "showname", on: !showName }) });
     nameBtns.add(nameBtn); syncNameBtn();
-    cc.append(el("div", { className: "air-lb2" }, body, el("div", { className: "air-lb-btns" }, refresh, nameBtn)));
+    const closeBtn = onClose ? [el("button", { className: "btn small", textContent: "✕ Закрыть", onclick: onClose })] : [];
+    cc.append(el("div", { className: "air-lb2" }, body, el("div", { className: "air-lb-btns" }, nameBtn, refresh, ...closeBtn)));
     const section = (title, rows, unit) => {
       const box = el("div", { className: "air-lb-sec" }, el("div", { className: "air-lb-sec-h", textContent: title }));
       if (!rows.length) box.append(el("div", { className: "air-lb-empty", textContent: "пока пусто" }));

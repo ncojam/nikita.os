@@ -681,7 +681,11 @@ html, body {
   background: repeating-linear-gradient(90deg, rgba(138,180,255,0.10) 0 24px, rgba(138,180,255,0.05) 24px 48px);
   border: 1px dashed rgba(138,180,255,0.4); }
 .air-strip.on { background-color: rgba(138,180,255,0.12); border-style: solid; }
+.air-tg .air-cv { touch-action: none; }   /* палец ведёт платформу по полю — страница не скроллится */
 .air-lb-ov { position: fixed; inset: 0; z-index: 10; background: rgba(10,12,20,0.94); padding: 14px; box-sizing: border-box;
+  /* отступ под шапку/кнопки Телеграма (переменные ставит telegram-web-app.js) */
+  padding-top: calc(14px + var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  padding-bottom: calc(14px + var(--tg-safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
   display: flex; flex-direction: column; }
 .air-lb-x { align-self: flex-end; }
 .air-strip.locked { opacity: 0.4; }
