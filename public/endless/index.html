@@ -19,22 +19,29 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #typed::after{content:"▌";animation:blink 1s steps(1) infinite;opacity:.7}
 @keyframes blink{50%{opacity:0}}
 
-#cubeWrap{animation:levitate 7s ease-in-out infinite}
-@keyframes levitate{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-14px) rotate(.5deg)}}
-#cube{position:relative;width:240px;height:280px;border:0;padding:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#cubeHolder{position:relative;display:flex;flex-direction:column;align-items:center}
+#cubeWrap{animation:levitate 12s ease-in-out infinite;position:relative;z-index:1}
+@keyframes levitate{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-22px) rotate(.5deg)}}
+/* тень на подложке: не двигается вместе с кнопкой, а сжимается/бледнеет, когда кнопка взлетает */
+#floorShadow{width:300px;height:46px;margin-top:-8px;border-radius:50%;
+  background:radial-gradient(ellipse at center,#000c 0%,#0007 40%,transparent 72%);filter:blur(6px);
+  animation:shadow 12s ease-in-out infinite;transition:background 1.2s}
+@keyframes shadow{0%,100%{transform:scale(1);opacity:.95}50%{transform:scale(.8);opacity:.6}}
+#cubeHolder.on #floorShadow{background:radial-gradient(ellipse at center,color-mix(in srgb,var(--glow) 45%,#000) 0%,#0007 45%,transparent 72%)}
+#cube{position:relative;width:340px;height:396px;border:0;padding:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #cube svg{width:100%;height:100%;overflow:visible;display:block}
-#hole{transition:fill .4s}
-#rim{transform-box:fill-box;transform-origin:center;transition:transform .5s cubic-bezier(.2,1.6,.4,1),stroke .4s,stroke-width .4s;
-  stroke:var(--rim);filter:drop-shadow(0 3px 2px #0009)}
+#hole{transition:fill 1.2s}
+#rim{transform-box:fill-box;transform-origin:center;transition:transform 1.4s cubic-bezier(.2,1.4,.4,1),stroke 1.2s,stroke-width 1.2s,filter 1.2s;
+  stroke:var(--rim)}
 #cube:hover #rim{transform:scale(1.03)}
 #cube.on #rim{transform:scale(1.14);stroke:var(--glow);stroke-width:9;
-  filter:drop-shadow(0 0 6px var(--glow)) drop-shadow(0 0 22px var(--glow)) drop-shadow(0 3px 2px #0009)}
+  filter:drop-shadow(0 0 6px var(--glow)) drop-shadow(0 0 22px var(--glow))}
 #cube.on #hole{fill:url(#holeLit)}
 #inner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 #inner img{position:absolute;width:62%;image-rendering:pixelated;opacity:.85}
-.tag{position:relative;transform:rotate(-6deg);color:var(--teal);font-size:13px;line-height:1.35;text-align:left;
+.tag{position:relative;transform:rotate(-6deg);color:var(--teal);font-size:17px;line-height:1.35;text-align:left;
   letter-spacing:.04em;text-shadow:0 0 6px #2fd6d055}
-.shake{animation:shake .45s cubic-bezier(.36,.07,.19,.97)}
+.shake{animation:shake .8s cubic-bezier(.36,.07,.19,.97)}
 @keyframes shake{10%,90%{transform:translate(-2px,1px)}20%,80%{transform:translate(4px,-2px)}30%,50%,70%{transform:translate(-7px,3px) rotate(-2deg)}40%,60%{transform:translate(7px,-3px) rotate(2deg)}}
 
 #list{border-left:2px solid var(--teal);padding:100px 14px 20px;overflow-y:auto;font-family:"Courier New",monospace;font-size:10px;color:var(--dim)}
@@ -47,7 +54,7 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 #email:focus{border-color:#ffffff26}
 #email::placeholder{color:#ffffff22}
 @media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:1fr 150px}
-  #list{border-left:0;border-top:2px solid var(--teal);padding-top:14px}#typed{top:6%;font-size:15px}#email{left:50%}}
+  #list{border-left:0;border-top:2px solid var(--teal);padding-top:14px}#typed{top:6%;font-size:15px}#cube{width:240px;height:280px}#email{left:50%}}
 </style>
 </head>
 <body>
@@ -55,7 +62,7 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
 <main>
   <section id="stage">
     <div id="typed"></div>
-    <div id="cubeWrap"><button id="cube" aria-label="press">
+    <div id="cubeHolder"><div id="cubeWrap"><button id="cube" aria-label="press">
       <svg viewBox="0 0 240 280">
         <defs>
           <!-- внутренняя тень выреза: размытая обводка, обрезанная по форме -->
@@ -66,14 +73,13 @@ main{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:
           <path id="hex" d="M120 12 L222 66 L222 214 L120 268 L18 214 L18 66 Z"/>
         </defs>
         <use id="hole" href="#hex" fill="url(#holeDark)"/>
-        <g clip-path="url(#clip)"><use href="#hex" fill="none" stroke="#000" stroke-width="22" filter="url(#blur)" transform="translate(0 6)" opacity=".9"/></g>
         <use id="rim" href="#hex" fill="none" stroke-width="7" stroke-linejoin="round"/>
       </svg>
       <div id="inner">
         <img src="cube.png" alt="" onerror="this.remove()">
         <div class="tag">ENDLESS MC SERVER<br>ENDLESS DIRECTIONS<br>ENDLESS POSSIBILITIES</div>
       </div>
-    </button></div>
+    </button></div><div id="floorShadow"></div></div>
   </section>
   <aside id="list"><h3>REGISTERED</h3><ul id="ul"></ul></aside>
 </main>
@@ -131,22 +137,32 @@ const cv=$('#waves'),cx=cv.getContext('2d');let W,H;const fit=()=>{W=cv.width=in
 let pressT=-1e9,mood='idle',lastSpawn=0;const rings=[];
 const colors={good:'93,255,154',fake:'159,240,106',bad:'255,90,60',idle:'120,70,200'};
 function center(){const r=cube.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]}
+// контур выреза относительно центра (из viewBox 240x280), размер 128 = половина высоты
+const HEX=[[0,-128],[102,-74],[102,74],[0,128],[-102,74],[-102,-74]];
+const HEXPTS=(()=>{const p=[],n=40;for(let i=0;i<6;i++){const[a,b]=[HEX[i],HEX[(i+1)%6]];
+  for(let j=0;j<n;j++){const u=j/n,x=a[0]+(b[0]-a[0])*u,y=a[1]+(b[1]-a[1])*u;p.push([x,y,Math.atan2(y,x)])}}return p})();
 function frame(t){
   cx.clearRect(0,0,W,H);
   const since=(t-pressT)/1000,energy=Math.exp(-since/6);
-  const every=since<12?(.18+since*.12)*1000:2600;
-  if(t-lastSpawn>every){rings.push({born:t,mood,lobes:3+(Math.random()*4|0)});lastSpawn=t}
-  const [x,y]=center();
+  const every=since<12?(.3+since*.15)*1000:3200;
+  if(t-lastSpawn>every){rings.push({born:t,mood,lobes:3+(Math.random()*4|0),seed:Math.random()*6});lastSpawn=t}
+  const cr=cube.getBoundingClientRect(),x=cr.left+cr.width/2,y=cr.top+cr.height/2,unit=cr.height/280;
   for(let i=rings.length-1;i>=0;i--){
-    const r=rings[i],age=(t-r.born)/1000,R=60+age*(110+260*energy);
-    const alpha=Math.max(0,1-age/5)*(r.mood==='idle'?.18:.75);
+    const r=rings[i],age=(t-r.born)/1000;
+    const sc=1.02+age*(.22+.5*energy);                 // во сколько раз волна больше выреза
+    const alpha=Math.max(0,1-age/6)*(r.mood==='idle'?.2:.75);
     if(alpha<=0){rings.splice(i,1);continue}
-    const amp=(r.mood==='bad'?18:10)*energy+2,k=r.lobes+Math.floor(since%7),ph=t/700;
+    const dist=sc-1;                                   // насколько далеко отошла
+    const amp=dist*(r.mood==='bad'?26:14)*(.4+energy);  // чем дальше — тем сильнее искажение
+    const k=r.lobes+Math.floor(dist*3), ph=t/900+r.seed;
     cx.beginPath();
-    for(let a=0;a<=Math.PI*2+.05;a+=.04){
-      const rr=R+amp*Math.sin(a*k+ph+age*3)*(r.mood==='bad'?Math.sin(a*17+ph*3):1);
-      cx.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr*.62);
+    for(const[px,py,th] of HEXPTS){
+      let m=Math.sin(th*k+ph+age*2);
+      if(r.mood==='bad')m*=Math.sin(th*17+ph*3);
+      const s2=sc+amp*m/128;
+      cx.lineTo(x+px*s2*unit,y+py*s2*unit);
     }
+    cx.closePath();
     cx.strokeStyle=`rgba(${colors[r.mood]},${alpha})`;cx.lineWidth=r.mood==='bad'?1:2;cx.stroke();
   }
   requestAnimationFrame(frame);
@@ -196,8 +212,8 @@ let offTimer;
 function show(kind,text,s){
   mood=kind;pressT=performance.now();play(kind);
   root.style.setProperty('--glow',glowColor[kind]);
-  cube.classList.remove('shake');void cube.offsetWidth;cube.classList.add('shake','on');
-  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');mood='idle'},kind==='bad'?1800:4000);
+  cube.classList.remove('shake');void cube.offsetWidth;cube.classList.add('shake','on');$('#cubeHolder').classList.add('on');
+  clearTimeout(offTimer);offTimer=setTimeout(()=>{cube.classList.remove('on');$('#cubeHolder').classList.remove('on');mood='idle'},kind==='bad'?3000:6000);
   typeOut(text,kind==='bad');render(s);
 }
 function render(s){ul.innerHTML='';(s.list||[]).slice(0,200).forEach(h=>{const li=document.createElement('li');li.textContent=h.slice(0,40);if(h===s.me)li.className='me';ul.append(li)})}
