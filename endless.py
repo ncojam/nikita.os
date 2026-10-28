@@ -1,7 +1,7 @@
 """ENDLESS MC SERVER — лендинг с одной кнопкой (/endless).
 
-POST /api/endless/press  {action: check|register|fake|unfake|gamefake|tap|mode|c2, value?}
-  -> {known, fake, uaSame, me, list, n, f, mode, c2}
+POST /api/endless/press  {action: check|register|fake|unfake|gamefake|tap|mode|c2|secret, value?}
+  -> {known, fake, uaSame, me, list, n, f, mode, c2, sec}
   n — засчитанные нажатия в игре, f — полученные фейковые зелёные
 POST /api/endless/email  {email} -> {ok}
 
@@ -24,6 +24,7 @@ LIST_LIMIT = 200
 ADMIN_IPS = {x.strip() for x in os.environ.get("ENDLESS_ADMIN_IPS", "82.38.67.16").split(",") if x.strip()}
 EMAILS_PER_IP = 5
 MAX_TAPS_PER_SEC = 25
+SECRET_RE = re.compile(r"^[a-z0-9]{1,16}$")
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}\.[^@\s.]{2,}$")
 
 
@@ -107,6 +108,11 @@ class Endless:
             meta["mode"] = "game" if value == "game" else None
             meta["fake"] = False
             self._save()
+        elif known and action == "secret" and isinstance(value, str) and SECRET_RE.match(value):
+            sec = meta.setdefault("sec", [])
+            if value not in sec and len(sec) < 64:
+                sec.append(value)
+                self._save()
         elif known and action == "c2":
             meta["c2"] = bool(value)
             self._save()
@@ -118,6 +124,7 @@ class Endless:
             "admin": self.client_ip(request) in ADMIN_IPS,
             "n": (meta or {}).get("n", 0), "f": (meta or {}).get("f", 0),
             "mode": (meta or {}).get("mode"), "c2": bool((meta or {}).get("c2")),
+            "sec": (meta or {}).get("sec", []),
             "list": [_h(i + SALT) for i in self.order[:LIST_LIMIT]],
         })
 
