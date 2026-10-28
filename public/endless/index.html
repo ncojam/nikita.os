@@ -235,48 +235,88 @@ const snd={};  // имя -> url первого существующего фай
   const url=`/endless/sounds/${n}.${ext}`;
   try{const r=await fetch(url,{method:'HEAD',cache:'no-store'});if(r.ok){snd[n]=url;new Audio(url).preload='auto';break}}catch{}
 }console.log('[endless] звуки:',snd)})();
-/* ---------- грув: подстраиваемся под ритм игрока ----------
-   groove.P — длина доли (сек) по его нажатиям, origin — фаза сетки (время AudioContext).
-   Звук нажатия снапается к ближайшей доле или полудоле; на полудолях добавляем снейр. */
-const groove={on:false,P:.5,origin:0,hits:0};
+/* ---------- грув ----------
+   1) offer   — заметили ровную долбёжку, предлагаем замер;
+   2) measure — считаем 8 ударов, берём медиану интервала → фиксированный BPM (дальше не плывёт);
+   3) play    — свой часовой механизм: хай-хет на каждую восьмую (акцент на долю), снейр на 2 и 4;
+                звук нажатия игрока снапается к ближайшей восьмой.
+   Если игрок перестал жать — через 2 такта начинаем затухать, ещё за 4 такта музыка гаснет.        */
+const groove={state:'off',on:false,P:.5,origin:0,taps:[],lastTap:0,step:0,timer:0,gain:null};
 const bufs={};
 async function getBuf(n){
   if(bufs[n]!==undefined)return bufs[n];bufs[n]=null;const a=AC();if(!a||!snd[n])return null;
   try{bufs[n]=await a.decodeAudioData(await (await fetch(snd[n])).arrayBuffer())}catch{bufs[n]=null}return bufs[n];
 }
-function snare(a,t){
-  const len=.16,buf=a.createBuffer(1,a.sampleRate*len,a.sampleRate),d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-  const nz=a.createBufferSource(),bp=a.createBiquadFilter(),g=a.createGain();nz.buffer=buf;bp.type='bandpass';bp.frequency.value=2200;bp.Q.value=.7;
-  g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.22,t+.004);g.gain.exponentialRampToValueAtTime(.0001,t+len);
-  nz.connect(bp).connect(g).connect(a.destination);nz.start(t);nz.stop(t+len);
-  const o=a.createOscillator(),og=a.createGain();o.type='triangle';o.frequency.setValueAtTime(230,t);o.frequency.exponentialRampToValueAtTime(150,t+.08);
-  og.gain.setValueAtTime(.0001,t);og.gain.linearRampToValueAtTime(.18,t+.003);og.gain.exponentialRampToValueAtTime(.0001,t+.1);
-  o.connect(og).connect(a.destination);o.start(t);o.stop(t+.12);
+let noise1;
+function noiseBuf1(a){if(!noise1){noise1=a.createBuffer(1,a.sampleRate*.25,a.sampleRate);const d=noise1.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1}return noise1}
+function hat(a,t,acc,out){
+  const src=a.createBufferSource(),hp=a.createBiquadFilter(),g=a.createGain();src.buffer=noiseBuf1(a);hp.type='highpass';hp.frequency.value=8000;
+  const v=acc?.07:.035;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+.002);g.gain.exponentialRampToValueAtTime(.0001,t+(acc?.06:.035));
+  src.connect(hp).connect(g).connect(out);src.start(t);src.stop(t+.08);
 }
-function startGroove(P){const a=AC();if(!a)return false;Object.assign(groove,{on:true,P,origin:a.currentTime,hits:0});
-  ['good','fake','bad'].forEach(getBuf);showBpm();return true}
-function stopGroove(){groove.on=false;$('#bpm').classList.remove('on')}
+function snare(a,t,out){
+  const nz=a.createBufferSource(),bp=a.createBiquadFilter(),g=a.createGain();nz.buffer=noiseBuf1(a);bp.type='bandpass';bp.frequency.value=2200;bp.Q.value=.7;
+  g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.2,t+.003);g.gain.exponentialRampToValueAtTime(.0001,t+.16);
+  nz.connect(bp).connect(g).connect(out);nz.start(t);nz.stop(t+.2);
+  const o=a.createOscillator(),og=a.createGain();o.type='triangle';o.frequency.setValueAtTime(230,t);o.frequency.exponentialRampToValueAtTime(150,t+.08);
+  og.gain.setValueAtTime(.0001,t);og.gain.linearRampToValueAtTime(.16,t+.003);og.gain.exponentialRampToValueAtTime(.0001,t+.1);
+  o.connect(og).connect(out);o.start(t);o.stop(t+.12);
+}
+function bpmBadge(t){const el=$('#bpm');el.textContent=t;el.classList.add('on')}
+/* вызывается на каждое нажатие (из spamStep), возвращает фразу или null */
+function grooveOnPress(intervalMs){
+  const a=AC();if(!a)return null;
+  if(groove.state==='play'){groove.lastTap=a.currentTime;groove.gain.gain.cancelScheduledValues(a.currentTime);
+    groove.gain.gain.setTargetAtTime(1,a.currentTime,.05);return null}
+  if(groove.state==='measure'){
+    if(intervalMs>1500){groove.taps=[];bpmBadge('ЗАМЕР 0/8');return null}
+    groove.taps.push(intervalMs);bpmBadge(`ЗАМЕР ${groove.taps.length}/8`);
+    if(groove.taps.length<8)return null;
+    const m=[...groove.taps].sort((x,y)=>x-y),med=(m[3]+m[4])/2;
+    let P=med/1000;while(P<.3)P*=2;while(P>1)P/=2;          // держим 60–200 BPM, слишком быстро → считаем восьмыми
+    startGroove(P);found('groove');
+    return {big:true,text:`ТВОЙ ТЕМП — ${Math.round(60/P)} BPM. ИГРАЕМ. ДЕРЖИ ДОЛЮ.`};
+  }
+  return null;
+}
+function offerGroove(){groove.state='measure';groove.taps=[];['good','fake','bad'].forEach(getBuf);bpmBadge('ЗАМЕР 0/8');
+  return {big:true,text:'ПОХОЖЕ, У ТЕБЯ ЕСТЬ РИТМ. ДАВАЙ ЗАМЕРЮ: ДОЛБИ РОВНО, Я ПОСЧИТАЮ 8 УДАРОВ.'}}
+function startGroove(P){
+  const a=AC();if(!a)return;stopGroove(true);
+  groove.gain=a.createGain();groove.gain.connect(a.destination);
+  Object.assign(groove,{state:'play',on:true,P,lastTap:a.currentTime,step:0,origin:a.currentTime+P}); // первая доля — через долю от последнего удара
+  bpmBadge('♩ '+Math.round(60/P)+' BPM');
+  groove.timer=setInterval(schedule,25);
+}
+function schedule(){
+  const a=AC();if(!a||!groove.on)return;const half=groove.P/2,ahead=a.currentTime+.12;
+  // затухание при бездействии: 2 такта ждём, потом 4 такта гаснем
+  const idle=a.currentTime-groove.lastTap,bar=groove.P*4;
+  if(idle>bar*2){const v=Math.max(0,1-(idle-bar*2)/(bar*4));groove.gain.gain.setTargetAtTime(v,a.currentTime,.1);if(v<=0){stopGroove();return}}
+  while(groove.origin+groove.step*half<ahead){
+    const t=groove.origin+groove.step*half,st=groove.step%8;
+    hat(a,t,st%2===0,groove.gain);
+    if(st===2||st===6)snare(a,t,groove.gain);
+    if(st%2===0)setTimeout(beatPulse,Math.max(0,(t-a.currentTime)*1000));
+    groove.step++;
+  }
+}
+function stopGroove(silent){
+  clearInterval(groove.timer);
+  if(groove.gain){try{const a=AC();a&&groove.gain.gain.setTargetAtTime(0,a.currentTime,.05)}catch{}}
+  Object.assign(groove,{state:'off',on:false});if(!silent)$('#bpm').classList.remove('on');
+}
+/* звук нажатия во время грува — на ближайшую восьмую сетки */
 function grooveHit(n){
-  const a=AC();if(!a)return false;const now=a.currentTime,half=groove.P/2,k=(now-groove.origin)/half,fl=Math.floor(k),fr=k-fl;
-  const slot=fr<.25?fl:fl+1;                            // чуть опоздал — играем сразу, иначе ждём следующую полудолю
-  const when=Math.max(now,groove.origin+slot*half);
-  groove.origin+=((now-(groove.origin+Math.round(k)*half)))*.08;   // мягко подтягиваем фазу под игрока
-  const b=bufs[n];
-  if(b){const src=a.createBufferSource(),g=a.createGain();src.buffer=b;g.gain.value=.85;src.connect(g).connect(a.destination);src.start(when)}
-  else getBuf(n);
-  if(slot%2)snare(a,when);
-  groove.hits++;setTimeout(beatPulse,(when-now)*1000);
+  const a=AC();if(!a||groove.state!=='play')return false;
+  const now=a.currentTime,half=groove.P/2,k=(now-groove.origin)/half,fl=Math.floor(k),slot=k-fl<.3?fl:fl+1;
+  const when=Math.max(now,groove.origin+slot*half),b=bufs[n];
+  if(!b){getBuf(n);return false}
+  const src=a.createBufferSource(),g=a.createGain();src.buffer=b;g.gain.value=.85;src.connect(g).connect(groove.gain);src.start(when);
   return true;
 }
-function grooveTrack(intervalMs){       // каждое нажатие подстраивает темп и решает, жив ли ещё грув
-  if(!groove.on)return;const P=groove.P*1000,ratio=intervalMs/P,near=Math.max(.5,Math.round(ratio*2)/2);
-  if(intervalMs>P*2.6){stopGroove();return}
-  if(Math.abs(ratio-near)<.22)groove.P=groove.P*.88+(intervalMs/near/1000)*.12;
-  showBpm();
-}
-function showBpm(){const el=$('#bpm');el.textContent='♩ '+Math.round(60/groove.P)+' BPM';el.classList.add('on')}
 function beatPulse(){const el=$('#bpm');el.classList.remove('beat');void el.offsetWidth;el.classList.add('beat');
-  const pl=$('#plate');pl.animate([{transform:'scale(1.06)'},{transform:'scale(1)'}],{duration:180,easing:'ease-out',composite:'add'})}
+  $('#plate').animate([{transform:'scale(1.06)'},{transform:'scale(1)'}],{duration:180,easing:'ease-out',composite:'add'})}
 
 function play(n){if(groove.on&&grooveHit(n))return;if(!snd[n])return console.warn('[endless] нет звука',n);const a=new Audio(snd[n]);a.volume=.85;a.play().catch(e=>console.warn('[endless]',n,e))}
 
@@ -409,14 +449,14 @@ function fill(t){const L=prog.bf,n=spam.bigPresses;
   return t.replace('{code}',code(n)).replace('{code2}',code(n+1)).replace('{code3}',code(n+2)).replaceAll('{L}',L+1).replace('{need}',needFor(L))}
 function rate(now){return ev.recent.filter(x=>now-x<2000).length/2}
 function spamStep(now){
-  if(now-spam.last>3000){Object.assign(spam,{stage:0,bigPresses:0,idx:0,intervals:[]});stopGroove()}
+  if(now-spam.last>3000){Object.assign(spam,{stage:0,bigPresses:0,idx:0,intervals:[]});if(groove.state==='measure')stopGroove()}
   if(spam.last)spam.intervals.push(now-spam.last);if(spam.intervals.length>16)spam.intervals.shift();
   spam.last=now;const r=rate(now);
-  // грув: ритм уже открыт и игрок снова долбит ровно (8 интервалов, 100–700 мс) — подстраиваемся
-  if(groove.on)grooveTrack(spam.intervals[spam.intervals.length-1]||0);
-  else if(secrets.has('rhythm')){const g=spam.intervals.slice(-8);
-    if(g.length===8){const m=g.reduce((a,b)=>a+b)/8,sd=Math.sqrt(g.reduce((a,b)=>a+(b-m)**2,0)/8);
-      if(m>100&&m<700&&sd/m<.14&&startGroove(m/1000)){found('groove');return {big:true,text:'ПОГОДИ… Я ЛОВЛЮ ТВОЙ РИТМ. '+Math.round(60000/m)+' BPM. ПОЕХАЛИ.'}}}}
+  // грув: ритм уже открыт и игрок снова долбит примерно ровно — предлагаем замер, потом играем
+  if(groove.state!=='off'){const g=grooveOnPress(spam.intervals[spam.intervals.length-1]||9999);if(g)return g;if(groove.state==='measure')return {big:true,text:'ЗАМЕРЯЮ… ДОЛБИ РОВНО.'}}
+  else if(secrets.has('rhythm')){const g=spam.intervals.slice(-6);
+    if(g.length===6){const m=g.reduce((a,b)=>a+b)/6,sd=Math.sqrt(g.reduce((a,b)=>a+(b-m)**2,0)/6);
+      if(m>120&&m<1000&&sd/m<.22)return offerGroove()}}
   if(spam.stage===0){if(ev.recent.length>=5){spam.stage=1;spam.baseRate=r;return {text:'Долбить быстрее тоже не помогает.'}}return null}
   if(spam.stage===1){
     if(r>=3&&r>spam.baseRate*1.25){spam.stage=2;spam.bigStart=now;spam.bigPresses=0;spam.idx=0}
