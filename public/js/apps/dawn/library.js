@@ -148,7 +148,7 @@ DRUMS.push(
     kick: at([0, 1, 2, 3], 0.95), rim: [h(0.75, 0.5), h(2.5, 0.45), h(3.75, 0.4)], shaker: range(0, 4, 0.25).map((s, i) => h(s + (i % 2 ? 0.05 : 0), i % 2 ? 0.45 : 0.25)), snap: [h(1, 0.7), h(3, 0.7)] } },
 );
 for (const d of DRUMS) d.genre ||= d.riddim ? "riddim" : /dnb|jungle/.test(d.id) ? "dnb" : d.id === "trap" ? "trap" : ["house", "afro128"].includes(d.id) ? "electro" : "odd";
-export const GENRES = { chip: "👾 Чиптюн: 8 бит, блип-блупы", riddim: "🔥 Риддим / дабстеп", trap: "🪤 Трэп / дрилл / фонк", dnb: "⚡ Drum'n'bass / jungle", electro: "🎛 Электроника: house, techno, garage, breaks…", odd: "🌀 Нечётные размеры" };
+export const GENRES = { chipcore: "🦇 Чиптюн-металкор", chip: "👾 Чиптюн: 8 бит, блип-блупы", riddim: "🔥 Риддим / дабстеп", trap: "🪤 Трэп / дрилл / фонк", dnb: "⚡ Drum'n'bass / jungle", electro: "🎛 Электроника: house, techno, garage, breaks…", odd: "🌀 Нечётные размеры" };
 
 /* мелодические заготовки: degrees — ступени лада канала (0 = тоника), oct — октавный сдвиг */
 export const MELODIC = [
@@ -257,7 +257,7 @@ function build(id, Dawn) {
   if (d) {
     const notes = {};
     for (const [role, list] of Object.entries(d.notes)) {
-      const ch = d.chip ? ensureChipDrum(role) : ensureDrum(role), pitch = Engine.defaultPitch(ch);
+      const ch = role.startsWith("c:") ? ensureChipDrum(role.slice(2)) : d.chip ? ensureChipDrum(role) : ensureDrum(role), pitch = Engine.defaultPitch(ch);
       notes[ch.id] = list.map(([s, l, , v]) => ({ s, l, n: pitch, v }));
     }
     return { name: d.name, kind: "drums", sig: d.sig.split("/").map(Number), len: d.len, notes };
@@ -271,7 +271,7 @@ function build(id, Dawn) {
       if (!ch) {
         ch = Engine.addChannel(part.type || "osc3", part.name);
         if (ref && ref.type !== "sampler") { ch.edo = ref.edo; ch.scale = { ...ref.scale }; }
-        ch.poly = 1;
+        ch.poly = part.poly || 1;
         applyPreset(Engine, ch, part.preset);
       }
       const deg = degreeFn(ch), E = ch.edo || 12;
@@ -409,4 +409,27 @@ KITS.push(
     { name: "Boom", type: "chip", preset: "Blip · Explosion", make: d => [[7, 1, d(0, -1), 1]] }] },
 );
 
+/* ---------- 🦇 чиптюн-металкор: настоящие барабаны + чип-слои («c:роль» — чип-ударные) ---------- */
+DRUMS.push(
+  { id: "cc-blast", genre: "chipcore", name: "Металкор · бласт-бит", sig: "4/4", len: 4, tags: "двойная бочка 16-е · чип-малый слоем", notes: {
+    punch: range(0, 4, 0.25).map((s, i) => h(s, i % 2 ? 0.7 : 0.9)), fat: [0.5, 1.5, 2.5, 3.5].map(s => h(s, 0.9)), "c:snare": [0.5, 1.5, 2.5, 3.5].map(s => h(s, 0.7)),
+    crash: [h(0, 0.8), h(2, 0.6)], "c:metal": hats8(4, 0.5, 0.35) } },
+  { id: "cc-gallop", genre: "chipcore", name: "Металкор · галоп", sig: "4/4", len: 4, tags: "8-я + две 16-е", notes: {
+    punch: [0, 1, 2, 3].flatMap(s => [h(s, 0.95), h(s + 0.5, 0.75), h(s + 0.75, 0.75)]), fat: [h(1, 1), h(3, 1)], "c:hyb": [h(1, 0.7), h(3, 0.7)], crash: [h(0, 0.7)], "c:hat": hats8(4, 0.5, 0.3) } },
+  { id: "cc-dbeat", genre: "chipcore", name: "Металкор · d-beat", sig: "4/4", len: 4, tags: "панковый драйв", notes: {
+    punch: [h(0, 1), h(1.5, 0.85), h(2, 0.95), h(3.5, 0.85)], fat: [h(1, 1), h(3, 1)], ride: hats8(4, 0.55, 0.4), "c:metal": hats16(4) } },
+  { id: "cc-break", genre: "chipcore", name: "Металкор · брейкдаун", sig: "4/4", len: 4, tags: "halftime · бочка под чаги", notes: {
+    punch: [h(0, 1), h(0.75, 0.9), h(1.5, 0.95), h(2.5, 0.9), h(2.75, 0.85), h(3.5, 0.95)], fat: [h(2, 1)], "c:snare": [h(2, 0.8)], crash: [0, 1, 2, 3].map(s => h(s, 0.45)), "c:kick": [h(0, 0.8)] } },
+  { id: "cc-trap", genre: "chipcore", name: "Металкор · трап-секция", sig: "4/4", len: 4, tags: "808 · роллы чип-хэтов", notes: {
+    k808: [h(0, 1), h(1.75, 0.85), h(2.5, 0.9)], snap: [h(2, 0.9)], "c:snare": [h(2, 0.6)], "c:ohat": [h(3, 0.4)],
+    "c:hat": [...range(0, 1.5, 0.5).map(s => h(s, 0.5)), ...range(1.5, 2, 1 / 6).map(s => h(+s.toFixed(4), 0.4)), ...range(2, 3.5, 0.25).map(s => h(s, 0.45)), ...range(3.5, 4, 0.125).map(s => h(s, 0.35))] } },
+);
+KITS.push(
+  { id: "k-cc-chug", genre: "chipcore", name: "Чаги · пауэр-аккорды галопом", tags: "Power Chord Chug · минор", len: 4, parts: [
+    { name: "Chug", type: "chip", preset: "Power Chord Chug", make: d => [0, 1, 2, 3].flatMap(s => [[s, 0.4, s === 3 ? d.semi(1, 0) : d.semi(0, 0), 0.95], [s + 0.5, 0.2, d.semi(0, 0), 0.75], [s + 0.75, 0.2, d.semi(0, 0), 0.75]]) },
+    { name: "Shred", type: "chip", preset: "Shred Lead", make: d => S(d, [[0, 0.25, 12], [0.25, 0.25, 15], [0.5, 0.25, 14], [0.75, 0.25, 12], [1, 1, 10], [2, 0.25, 12], [2.25, 0.25, 15], [2.5, 0.25, 17], [2.75, 0.25, 15], [3, 1, 13]], 0, 0.8) }] },
+  { id: "k-cc-castle", genre: "chipcore", name: "Замок · орган и призраки", tags: "Gothic Organ + Ghost Wail", len: 8, parts: [
+    { name: "Organ", preset: "Gothic Organ", poly: 8, make: d => [[0, 0, 3, 7], [2, -4, 0, 3], [4, -7, -4, 0], [6, -5, -1, 2]].flatMap(([s, ...t]) => t.map(x => [s, 1.95, d.semi(x, 0), 0.6])) },
+    { name: "Ghost", type: "chip", preset: "Ghost Wail", make: d => [[0, 3.9, 7], [4, 3.9, 8]].map(([s, l, n]) => [s, l, d.semi(n, 0), 0.5]) }] },
+);
 for (const k of KITS) k.genre ||= k.riddim ? "riddim" : "electro";
