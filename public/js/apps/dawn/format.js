@@ -31,7 +31,7 @@ export function toFile(P) {
   return {
     format: FORMAT,
     _about: "DAWN project (nikita.os). Times in beats (quarter notes); pitches are note names. Spec: docs/dawn-format.md",
-    name: P.name, bpm: P.bpm, swing: q(P.swing || 0), mode: P.mode, current: P.cur, ...(P.live ? { live: true } : {}),
+    name: P.name, bpm: P.bpm, swing: q(P.swing || 0), mode: P.mode, current: P.cur, ...(P.live ? { live: true } : {}), ...(P.chip ? { chip: { ...P.chip } } : {}),
     channels: P.channels.map(c => {
       const { path, ...params } = c.params;
       const roots = degreeNames(c.edo || 12);
@@ -43,6 +43,7 @@ export function toFile(P) {
       if (c.flash !== undefined) out.flash = c.flash;
       if (c.mute) out.mute = true;
       if (c.solo) out.solo = true;
+      if (c.type === "chip" && c.preset) out.preset = c.preset;
       out.params = roundDeep(params);
       return out;
     }),
@@ -95,8 +96,9 @@ export function fromFile(raw) {
     }
     return { id, type, name: String(c.name || TYPES[type].name).slice(0, 24), color: c.color || PASTEL[i % PASTEL.length],
       vol: clamp(c.vol, 0, 1.25, 0.8), pan: clamp(c.pan, -1, 1, 0), mute: !!c.mute, solo: !!c.solo,
-      mix: Math.max(0, Math.round(+c.mixer || 0)), edo, scale, params, poly: Math.round(clamp(c.poly, 1, 32, 16)),
-      ...(c.flash === null || /^#[0-9a-f]{6}$/i.test(c.flash || "") ? { flash: c.flash } : {}) };
+      mix: Math.max(0, Math.round(+c.mixer || 0)), edo, scale, params, poly: Math.round(clamp(c.poly, 1, 32, type === "chip" ? 1 : 16)),
+      ...(c.flash === null || /^#[0-9a-f]{6}$/i.test(c.flash || "") ? { flash: c.flash } : {}),
+      ...(type === "chip" && typeof c.preset === "string" ? { preset: c.preset.slice(0, 40) } : {}) };
   });
 
   const pids = new Set(), patMap = {};
@@ -157,6 +159,9 @@ export function fromFile(raw) {
   const P = { name: String(raw.name || "Трек").slice(0, 60), bpm: clamp(raw.bpm, 40, 300, 128), swing: clamp(raw.swing, 0, 0.6, 0), mods, live: !!raw.live,
     mode: raw.mode === "song" ? "song" : "pat", channels, patterns, playlist, tracks: 16, mixer,
     cur: patMap[raw.current] || patterns[0].id, songStart: 0, pedals, layout: raw.layout && typeof raw.layout === "object" ? raw.layout : {} };
+  // 👾 чиптюн-режим: консоль, лимит голосов, строгость (см. chip.js)
+  if (raw.chip && typeof raw.chip === "object") P.chip = { on: raw.chip.on !== false, console: ["nes", "gb", "c64", "free"].includes(raw.chip.console) ? raw.chip.console : "free",
+    voices: clamp(raw.chip.voices, 1, 16, 8), strict: !!raw.chip.strict };
   for (const c of playlist) if (!c.l) c.l = patLen(P, c.p);
   return P;
 }

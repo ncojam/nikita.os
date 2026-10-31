@@ -148,7 +148,7 @@ DRUMS.push(
     kick: at([0, 1, 2, 3], 0.95), rim: [h(0.75, 0.5), h(2.5, 0.45), h(3.75, 0.4)], shaker: range(0, 4, 0.25).map((s, i) => h(s + (i % 2 ? 0.05 : 0), i % 2 ? 0.45 : 0.25)), snap: [h(1, 0.7), h(3, 0.7)] } },
 );
 for (const d of DRUMS) d.genre ||= d.riddim ? "riddim" : /dnb|jungle/.test(d.id) ? "dnb" : d.id === "trap" ? "trap" : ["house", "afro128"].includes(d.id) ? "electro" : "odd";
-export const GENRES = { riddim: "🔥 Риддим / дабстеп", trap: "🪤 Трэп / дрилл / фонк", dnb: "⚡ Drum'n'bass / jungle", electro: "🎛 Электроника: house, techno, garage, breaks…", odd: "🌀 Нечётные размеры" };
+export const GENRES = { chip: "👾 Чиптюн: 8 бит, блип-блупы", riddim: "🔥 Риддим / дабстеп", trap: "🪤 Трэп / дрилл / фонк", dnb: "⚡ Drum'n'bass / jungle", electro: "🎛 Электроника: house, techno, garage, breaks…", odd: "🌀 Нечётные размеры" };
 
 /* мелодические заготовки: degrees — ступени лада канала (0 = тоника), oct — октавный сдвиг */
 export const MELODIC = [
@@ -233,6 +233,15 @@ export function degreeFn(ch) {
   };
 }
 
+/* 👾 чип-ударные: каналы Chip с пресетом роли — считаются в лимит каналов консоли, как на приставке */
+export const CHIP_KIT = { kick: "Chip Kick", nkick: "Noise Kick", snare: "Chip Snare", hyb: "Hybrid Snare", hat: "Chip Hat", metal: "Metal Hat",
+  ohat: "Chip Open Hat", tom: "Chip Tom", crash: "Chip Crash" };
+export function ensureChipDrum(key) {
+  const P = Engine.project, name = CHIP_KIT[key] || CHIP_KIT.snare;
+  let ch = P.channels.find(c => c.type === "chip" && c.preset === name);
+  if (!ch) { ch = Engine.addChannel("chip", "👾 " + name.replace(/^Chip /, "")); applyPreset(Engine, ch, name); }
+  return ch;
+}
 export function ensureDrum(role) {
   const P = Engine.project, name = BUILTIN[ROLES[role]];
   let ch = P.channels.find(c => c.id === role) || P.channels.find(c => c.type === "sampler" && c.params.path === "builtin:" + ROLES[role]);
@@ -248,7 +257,7 @@ function build(id, Dawn) {
   if (d) {
     const notes = {};
     for (const [role, list] of Object.entries(d.notes)) {
-      const ch = ensureDrum(role), pitch = Engine.defaultPitch(ch);
+      const ch = d.chip ? ensureChipDrum(role) : ensureDrum(role), pitch = Engine.defaultPitch(ch);
       notes[ch.id] = list.map(([s, l, , v]) => ({ s, l, n: pitch, v }));
     }
     return { name: d.name, kind: "drums", sig: d.sig.split("/").map(Number), len: d.len, notes };
@@ -322,7 +331,7 @@ export function instantiate(id, Dawn, into = null) {
     if (b.len) pat.len = b.len;
     Object.assign(pat.notes, b.notes);
   } else {
-    const isDrum = chId => Engine.chan(chId)?.type === "sampler";
+    const isDrum = chId => Engine.chan(chId)?.type === "sampler" || !!Engine.chan(chId)?.params?.drum;
     const same = chId => b.kind === "all" || (b.kind === "drums") === isDrum(chId);
     const others = Object.entries(pat.notes).some(([c, L]) => L.length && !same(c));
     for (const c of Object.keys(pat.notes)) if (same(c)) pat.notes[c] = [];
@@ -338,5 +347,66 @@ export function instantiate(id, Dawn, into = null) {
   Engine.touch({ patterns: true, notes: true, channels: true });
   return pat.id;
 }
+
+/* ---------- 👾 чиптюн: грувы на чип-ударных и мелодии «звук + рифф» ---------- */
+DRUMS.push(
+  { id: "ch-beat", genre: "chip", chip: true, name: "Chip · бит Overworld", sig: "4/4", len: 4, tags: "треугольная бочка · шум", notes: {
+    kick: [h(0, 1), h(2.5, 0.9)], snare: [h(1, 1), h(3, 1)], hat: hats8(4, 0.6, 0.35) } },
+  { id: "ch-boss", genre: "chip", chip: true, name: "Chip · Boss 16-е", sig: "4/4", len: 4, tags: "гибридный малый · металл", notes: {
+    kick: [h(0, 1), h(0.75, 0.8), h(2, 1), h(2.5, 0.85)], hyb: [h(1, 1), h(3, 1), h(3.75, 0.5)], metal: hats16(4) } },
+  { id: "ch-break", genre: "chip", chip: true, name: "Chip · брейкбит на шуме", sig: "4/4", len: 8, tags: "ghost-ноты", notes: {
+    kick: [h(0, 1), h(2.5, 0.9), h(4, 1), h(4.75, 0.7), h(6.5, 0.9)], snare: [h(1, 1), h(3, 1), h(3.75, 0.4), h(5, 1), h(7, 1), h(7.5, 0.5)], hat: hats8(8, 0.55, 0.3) } },
+  { id: "ch-dnb", genre: "chip", chip: true, name: "Chip · DnB 174", sig: "4/4", len: 4, tags: "174 · металл-хэты", notes: {
+    kick: [h(0, 1), h(2.5, 0.9)], snare: [h(1, 1), h(3, 1)], metal: hats8(4), ohat: [h(3.5, 0.5)] } },
+  { id: "ch-floor", genre: "chip", chip: true, name: "Chip · four-on-the-floor", sig: "4/4", len: 4, tags: "шумовая бочка", notes: {
+    nkick: [0, 1, 2, 3].map(s => h(s, 1)), snare: [h(1, 0.8), h(3, 0.8)], hat: [0.5, 1.5, 2.5, 3.5].map(s => h(s, 0.6)) } },
+  { id: "ch-waltz", genre: "chip", chip: true, name: "Chip · вальс 3/4", sig: "3/4", len: 3, tags: "город / таверна", notes: {
+    kick: [h(0, 0.9)], snare: [h(1, 0.5), h(2, 0.5)], hat: [h(0.5, 0.35), h(1.5, 0.35), h(2.5, 0.35)] } },
+  { id: "ch-fill", genre: "chip", chip: true, name: "Chip · сбивка томами + тарелка", sig: "4/4", len: 4, tags: "в конец фразы", notes: {
+    crash: [h(0, 0.8)], kick: [h(0, 1)], snare: [h(1, 0.9)], tom: [2, 2.25, 2.5, 2.75, 3, 3.25, 3.5].map((s, i) => h(s, 0.6 + i * 0.05)) } },
+);
+const S = (d, list, oct = 0, v = 0.85) => list.map(([s, l, semi, vv]) => [s, l, d.semi(semi, oct), vv ?? v]);
+const roots8 = (d, roots, per, oct = -1, len = 8) => range(0, len, 0.5).map((s, i) => [s, 0.4, d.semi(roots[Math.floor(s / per) % roots.length] + (i % 2 ? 12 : 0), oct), i % 2 ? 0.75 : 0.95]);
+const TITLE = [[0, 0.5, 0], [0.5, 0.5, 4], [1, 0.5, 7], [1.5, 0.5, 12], [2, 1.5, 11], [3.5, 0.5, 7], [4, 0.5, 9], [4.5, 0.5, 11], [5, 0.5, 12], [5.5, 0.5, 14], [6, 2, 12]];
+KITS.push(
+  { id: "k-ch-overworld", genre: "chip", name: "Overworld · бодрая тема", tags: "NES Lead + Tri Bass + арп · мажор", len: 8, parts: [
+    { name: "Lead", type: "chip", preset: "NES Lead 25%", make: d => S(d, [[0, 0.5, 7], [0.5, 0.5, 7], [1, 0.5, 9], [1.5, 0.5, 7], [2, 0.75, 12], [2.75, 0.25, 11], [3, 1, 7],
+      [4, 0.5, 5], [4.5, 0.5, 4], [5, 0.5, 5], [5.5, 0.5, 7], [6, 0.5, 4], [6.5, 0.5, 2], [7, 1, 0]]) },
+    { name: "Chords", type: "chip", preset: "Arp Major 0-4-7", make: d => [0, 7, 5, 7].map((r, k) => [k * 2, 1.9, d.semi(r, 0), 0.6]) },
+    { name: "Tri bass", type: "chip", preset: "Tri Bass", make: d => roots8(d, [0, 7, 5, 7], 2, 0) }] },
+  { id: "k-ch-dungeon", genre: "chip", name: "Dungeon · тёмное арпеджио", tags: "Arp Minor + Pulse Bass · минор", len: 8, parts: [
+    { name: "Dark arp", type: "chip", preset: "Arp Minor 0-3-7", make: d => [0, -4, -7, -5].map((r, k) => [k * 2, 1.9, d.semi(r, 0), 0.6]) },
+    { name: "Thin lead", type: "chip", preset: "Thin Lead 12.5%", make: d => S(d, [[0, 1.5, 7], [1.5, 0.5, 8], [2, 2, 7], [4, 1, 3], [5, 1, 2], [6, 1.5, 0], [7.5, 0.5, -1]], 1, 0.7) },
+    { name: "Dungeon bass", type: "chip", preset: "Pulse Bass", make: d => range(0, 8, 1).map(s => [s, 0.8, d.semi([0, -4, -7, -5][Math.floor(s / 2)], -1), 0.9]) }] },
+  { id: "k-ch-boss", genre: "chip", name: "Boss · 16-е треугольник + стабы", tags: "Tri Bass + Thin Lead · угроза b2", len: 4, parts: [
+    { name: "Boss bass", type: "chip", preset: "Tri Bass", make: d => range(0, 4, 0.25).map((s, i) => [s, 0.2, d.semi(s >= 3 ? (i % 2 ? 1 : -1) : i % 4 === 2 ? 12 : 0, 0), i % 4 ? 0.8 : 1]) },
+    { name: "Boss stab", type: "chip", preset: "Thin Lead 12.5%", make: d => S(d, [[0, 0.25, 12], [0.75, 0.25, 12], [1.5, 0.5, 13], [2.5, 0.25, 12], [3, 0.25, 15], [3.25, 0.25, 13], [3.5, 0.5, 12]], 0, 0.8) }] },
+  { id: "k-ch-title", genre: "chip", name: "Title · фанфара + эхо-канал", tags: "эхо без ревера: копия на 3/16 тише", len: 8, parts: [
+    { name: "Fanfare", type: "chip", preset: "NES Lead 25%", make: d => S(d, TITLE, 0, 0.9) },
+    { name: "Echo", type: "chip", preset: "Echo Lead", make: d => S(d, TITLE.map(([s, l, n]) => [s + 0.375, l, n]).filter(n => n[0] < 8), 0, 0.5) },
+    { name: "Title bass", type: "chip", preset: "Tri Bass", make: d => roots8(d, [0, 7, 5, 0], 2, 0) }] },
+  { id: "k-ch-town", genre: "chip", name: "Town · вальс 3/4", tags: "GB Flute + Pluck · уютно", sig: [3, 4], len: 6, parts: [
+    { name: "Town flute", type: "chip", preset: "GB Wave Flute", make: d => S(d, [[0, 2, 4], [2, 1, 7], [3, 1.5, 9], [4.5, 0.5, 7], [5, 1, 4]], 1, 0.8) },
+    { name: "Town pluck", type: "chip", preset: "Pluck Blip", make: d => [[1, 7], [2, 4], [4, 9], [5, 5]].map(([s, n]) => [s, 0.3, d.semi(n, 0), 0.6]) },
+    { name: "Town bass", type: "chip", preset: "Tri Bass", make: d => [[0, 0], [3, 5]].map(([s, n]) => [s, 0.9, d.semi(n, 0), 0.95]) }] },
+  { id: "k-ch-space", genre: "chip", name: "Space · флейта Game Boy с вибрато", tags: "GB Wave Flute + Thick Bass + мерцание", len: 8, parts: [
+    { name: "Space flute", type: "chip", preset: "GB Wave Flute", make: d => S(d, [[0, 3, 7], [3, 1, 5], [4, 3, 3], [7, 1, 2]], 1, 0.8) },
+    { name: "Shimmer", type: "chip", preset: "Arp Octave Shimmer", make: d => [[0, 4, 3], [4, 4, -1]].map(([s, l, n]) => [s, l - 0.1, d.semi(n, 0), 0.45]) },
+    { name: "Space bass", type: "chip", preset: "GB Thick Bass", make: d => [[0, 4, 0], [4, 4, -4]].map(([s, l, n]) => [s, l - 0.1, d.semi(n, 0), 0.85]) }] },
+  { id: "k-ch-race", genre: "chip", name: "Racing · октавный бас Sunsoft", tags: "Saw Bass + PWM Lead · драйв", len: 4, parts: [
+    { name: "Saw bass", type: "chip", preset: "Sunsoft Saw Bass", make: d => range(0, 4, 0.5).map((s, i) => [s, 0.4, d.semi([0, 0, 0, 0, 3, 3, 5, 5][i] + (i % 2 ? 12 : 0), 0), i % 2 ? 0.75 : 0.95]) },
+    { name: "PWM lead", type: "chip", preset: "C64 PWM Lead", make: d => S(d, [[0, 0.75, 12], [0.75, 0.75, 14], [1.5, 0.5, 15], [2, 1, 17], [3, 0.5, 15], [3.5, 0.5, 14]], 0, 0.8) }] },
+  { id: "k-ch-demo", genre: "chip", name: "C64 · аккорды демосцены", tags: "трель-аккорды + PWM", len: 8, parts: [
+    { name: "SID chords", type: "chip", preset: "Arp Minor 0-3-7", make: d => range(0, 8, 1).map(s => [s, 0.95, d.semi([0, -4, -7, -5][Math.floor(s / 2)], 0), 0.55]) },
+    { name: "SID lead", type: "chip", preset: "C64 PWM Lead", make: d => S(d, [[0, 2, 7], [2, 2, 8], [4, 2, 5], [6, 2, 7]], 1, 0.75) },
+    { name: "SID bass", type: "chip", preset: "Pulse Bass", make: d => range(0.5, 8, 1).map(s => [s, 0.4, d.semi([0, -4, -7, -5][Math.floor(s / 2)], -1), 0.85]) }] },
+  { id: "k-ch-blips", genre: "chip", name: "🎮 Блип-блупы: игровые звуки", tags: "монетка, прыжок, лазер, power-up…", len: 8, parts: [
+    { name: "Coin", type: "chip", preset: "Blip · Coin", make: d => [[0, 0.5, d(0, 0), 0.9]] },
+    { name: "Jump", type: "chip", preset: "Blip · Jump", make: d => [[1.5, 0.4, d(0, 0), 0.9]] },
+    { name: "Laser", type: "chip", preset: "Blip · Laser", make: d => [[3, 0.25, d(0, 0), 0.9], [3.25, 0.25, d(0, 0), 0.8]] },
+    { name: "Power-Up", type: "chip", preset: "Blip · Power-Up", make: d => [[4, 0.5, d(0, 0), 0.9]] },
+    { name: "Hurt", type: "chip", preset: "Blip · Hurt", make: d => [[6, 0.3, d(0, 0), 0.9]] },
+    { name: "Boom", type: "chip", preset: "Blip · Explosion", make: d => [[7, 1, d(0, -1), 1]] }] },
+);
 
 for (const k of KITS) k.genre ||= k.riddim ? "riddim" : "electro";
