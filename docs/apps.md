@@ -17,6 +17,7 @@
 | Находки | `apps/finds.js`, `finds.py` | Пуск → «Находки», `app: "finds"` (`path` — id публичного плейлиста), `/finds/<id>`. Свои плейлисты-чипы и «🌐 Все плейлисты» (каталог, без входа), лента и плейлист, bump/dump (bump не прерывает трек), перетаскивание карточки на чип другого плейлиста, автопереход к следующему по концу трека (postMessage YouTube `enablejsapi` / виджета SoundCloud), ✕ у примеров, плеер YouTube/SoundCloud. На изолированной главной (COEP ради GBA) плеер встраивается только через `iframe credentialless` (Chrome/Edge); иначе кнопка «Включить плеер» перезагружает вкладку в `/finds/<id>?tab=&play=` — сервер отдаёт `/finds…` без COOP/COEP, плееры работают везде, GBA там не стартует |
 | Настройки | `apps/settings.js` | вкладки: обои, живой фон (+ качество), окна, мои файлы, язык |
 | Джус (аэро-арканоид) | `apps/airhockey.js`, `airhockey.py`, `public/tg.html` | `app: "airhockey"`; также Telegram Mini App |
+| Файлы (файлообменник) | `apps/share.js`, `share.py` | Пуск → Приложения → «Файлы», `app: "share"`. Только для ника `cojam` (`NOS_SHARE_OWNER`): папка `NOS_DATA/share`, перетащить файлы в окно или «+»; клик — скачать, ⋯ / ПКМ / долгое нажатие (~0,5 с) — меню. Лимиты `NOS_SHARE_MAX_MB` (500) и `NOS_SHARE_QUOTA_MB` (5000). Право проверяет сервер, кнопка в меню лишь скрыта. Для nginx есть `location = /api/share/upload` (большое тело) |
 | «Загрузчик» | `apps/fakedl.js`, `server.py: serve_grab` | ярлык `{app:"fakedl", file, size}` |
 
 ## Джус

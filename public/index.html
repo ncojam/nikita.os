@@ -17,11 +17,24 @@
     <div class="sm-title">nikita.os</div>
     <button data-open="/home/nikita">🏠 Домашняя папка</button>
     <button data-open="/home/nikita/Projects">📁 Projects</button>
+    <button id="sm-apps" aria-expanded="false" aria-controls="sm-apps-list">🧩 Приложения <span class="sm-arrow">▸</span></button>
+    <div id="sm-apps-list" class="sm-sub" hidden>
+      <button data-open="/home/nikita">🗂️ Проводник</button>
+      <button data-app="browser">🌐 Браузер</button>
+      <button data-app="dawn">🌸 DAWN</button>
+      <button data-app="finds">🎧 Находки</button>
+      <button data-app="chat">💬 Чат</button>
+      <button data-app="airhockey">🍒 Джус</button>
+      <button data-app="settings">⚙️ Настройки</button>
+      <button data-app="about">ℹ️ О системе</button>
+      <button id="sm-share" data-app="share" hidden>📤 Файлы</button>
+    </div>
     <button data-app="browser">🌐 Браузер</button>
     <button data-app="dawn">🌸 DAWN</button>
     <button data-app="finds">🎧 Находки</button>
     <button data-app="settings">⚙️ Настройки</button>
     <button data-app="about">ℹ️ О системе</button>
+    <button data-href="/endless">♾️ Endless</button>
   </div>
 
   <div id="taskbar" class="glass">
