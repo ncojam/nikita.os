@@ -13,6 +13,7 @@
 | `forum.py` | `Forum` | `ufs/.meta/forum.json`, `.meta/forum_media/` | Форум Kursk Artists |
 | `airhockey.py` | `AirHockey` | `NOS_DATA` (таблица рекордов) | Арена «Джус» |
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
+| `share.py` | `Share` | `NOS_DATA/share/` (плоская папка файлов) | Файлообменник владельца: `GET /api/share/list`, `POST /api/share/upload` (multipart, потоково), `GET /api/share/file/{name}`, `POST /api/share/delete`, `GET/POST /api/share/clip` (общий текстовый буфер); всё только для ника `cojam` |
 | `finds.py` | `Finds` | `NOS_DATA/finds.db` (SQLite, WAL) | «Находки»: плейлисты по настроениям (до 6 на аккаунт), лента от домашнего воркера ([worker/README.md](../worker/README.md)), bump/dump. Сам никуда не ходит |
 
 ## Эндпоинты

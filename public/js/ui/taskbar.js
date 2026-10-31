@@ -1,13 +1,20 @@
 import { D, EASE } from "../core/anim.js";
 import { $ } from "../core/util.js";
 import { openAbout } from "../open.js";
-import { openBrowser, openDawn, openExplorer, openFinds, openSettings } from "../apps/lazy.js";
+import { openAirHockey, openBrowser, openChat, openDawn, openExplorer, openFinds, openSettings, openShare } from "../apps/lazy.js";
 import { WM } from "../wm.js";
 
 /* ================= пуск (с анимацией) ================= */
 const startBtn = $("#start-btn"), startMenu = $("#start-menu");
 
 let startAnim = null;
+
+// «Файлы» видны только владельцу (ник cojam); настоящую проверку делает сервер
+async function refreshShareItem() {
+  let nick = null;
+  try { const r = await fetch("/api/chat/me", { cache: "no-store" }); if (r.ok) nick = (await r.json()).nick; } catch {}
+  $("#sm-share").hidden = String(nick || "").toLowerCase() !== "cojam";
+}
 
 function toggleStart(show) {
   if (show === startBtn.classList.contains("on")) return;
@@ -59,6 +66,14 @@ export function init_ui_taskbar() {
 
   startMenu.addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
+    if (b.id === "sm-apps") {   // раскрыть/свернуть «Приложения», меню остаётся
+      const open = b.getAttribute("aria-expanded") !== "true";
+      b.setAttribute("aria-expanded", open);
+      $("#sm-apps-list").hidden = !open;
+      if (open) refreshShareItem();
+      return;
+    }
+    if (b.dataset.href) { toggleStart(false); location.assign(b.dataset.href); return; }
     WM.origin = { rect: b.getBoundingClientRect(), t: performance.now() };
     if (b.dataset.open) openExplorer(b.dataset.open);
     if (b.dataset.app === "about") openAbout();
@@ -66,6 +81,9 @@ export function init_ui_taskbar() {
     if (b.dataset.app === "browser") openBrowser();
     if (b.dataset.app === "dawn") openDawn();
     if (b.dataset.app === "finds") openFinds();
+    if (b.dataset.app === "chat") openChat();
+    if (b.dataset.app === "airhockey") openAirHockey();
+    if (b.dataset.app === "share") openShare();
     toggleStart(false);
   });
 

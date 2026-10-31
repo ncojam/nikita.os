@@ -773,6 +773,9 @@ def make_app():
     app["air"].routes(app)
     app["endless"] = Endless(DATA_DIR, client_ip)
     app["endless"].routes(app)
+    # файлообменник владельца (ник cojam) — NOS_DATA/share
+    from share import Share
+    Share(DATA_DIR / "share", app["chat"].user_by_token).routes(app)
     app.router.add_post("/api/dawn/save", api_dawn_save)
     app.router.add_post("/api/dawn/delete", api_dawn_delete)
     app.router.add_get("/api/dawn/mine", api_dawn_mine)
