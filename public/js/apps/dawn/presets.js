@@ -27,6 +27,8 @@ export const OSC3_PRESETS = {
     fx: [fx("delay", { sync: 2, fb: 0.4, mix: 0.3 }), fx("reverb", { decay: 2.5, mix: 0.25 })] },
   "Ambient Pad": { params: { oscs: [o("triangle", 0.5, 0, -5, -0.3), o("sawtooth", 0.25, 0, 5, 0.3), o("sine", 0.4, 12)], att: 1.2, dec: 1, sus: 0.85, rel: 2.5, cut: 2400, res: 0.8, uni: 5, udet: 25, uspr: 1 },
     fx: [fx("eq", { lf: 250, lg: -10, hf: 8000, hg: 2 }), fx("reverb", { decay: 6, pre: 0.05, mix: 0.45 })] },
+  "Gothic Organ": { params: { oscs: [o("sine", 0.5), o("square", 0.18, 12), o("sine", 0.3, 19)], att: 0.04, dec: 0.3, sus: 1, rel: 0.7, cut: 4200, res: 0.7, uni: 2, udet: 6, uspr: 0.5 },
+    fx: [fx("eq", { lf: 120, lg: -4, hf: 7000, hg: -3 }), fx("reverb", { decay: 5, pre: 0.03, mix: 0.4 })] },
   "Chip Lead": { params: { oscs: [o("square", 0.5), o("square", 0.25, 12, 3), o("triangle", 0.3, -12)], att: 0.002, dec: 0.1, sus: 0.6, rel: 0.08, cut: 9000, res: 0.7, uni: 1 },
     fx: [fx("delay", { sync: 1, fb: 0.3, mix: 0.2 })] },
   // от cojam: синус на октаву вниз + немного квадрата, crush с закрытым тоном — верха открывают Tone/Cut

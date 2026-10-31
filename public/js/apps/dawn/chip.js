@@ -241,5 +241,9 @@ export const CHIP_PRESETS = {
   "Blip · Hurt":        PR({ wave: "noise", seq: ["p125", "noise", "p125", "noise", "p125", "noise"], sweep: -0.8, table: [15, 14, 12, 10, 8, 6, 4, 2, 0], crel: 0 }, "блип"),
   "Blip · Warp":        PR({ wave: "tri4", vibD: 2, vibR: 12, vibW: 0, sweep: 0.5, table: [...Array(30).fill(12), 9, 6, 3, 0], crel: 0 }, "блип"),
   "Blip · Explosion":   PR({ wave: "noise", c_tr: 6, sweep: -0.35, table: fall(15, 0, 45), crel: 0 }, "блип"),
+  // 🦇 чиптюн-металкор: 8-битные «гитары» и призраки
+  "Power Chord Chug":   PR({ wave: "p25", arp: [0, 7, 12], arpR: 1, c_tr: -12, table: [15, 13, 11, 9, 8, 7], crel: 2 }, "гитара: пауэр-аккорд трелью"),
+  "Shred Lead":         PR({ wave: "p125", table: [15, 14, 13, 12], crel: 4, vibD: 0.5, vibR: 7, vibW: 8 }, "гитара: соло"),
+  "Ghost Wail":         PR({ wave: "tri4", c_tr: 12, table: [3, 5, 7, 9, 11, 12, 12], crel: 24, vibD: 1.2, vibR: 3, vibW: 6 }, "призрак: вой с глубоким вибрато"),
   "Noise Riser":        PR({ wave: "noise", c_tr: -12, sweep: 0.25, table: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], crel: 2 }, "свип шума вверх"),
 };
