@@ -1262,3 +1262,34 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
   .fd-player { width: auto; border-left: 0; border-bottom: 1px solid var(--glass-border); max-height: 45%; }
   .fd-vote.bump, .fd-vote.dump { padding: 5px 7px; }
 }
+
+/* ===== DAWN · 👾 Chip ===== */
+.dw-chipbox { position: relative; display: flex; align-items: center; }
+.dw-chipbadge { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px 8px; border-radius: 8px; cursor: pointer;
+  font: 600 10px/1.15 ui-monospace, monospace; border: 2px solid #5fd49a; background: #0f2a1d; color: #9ef5c8; image-rendering: pixelated; }
+.dw-chipbadge b { font-size: 11px; letter-spacing: .5px; }
+.dw-chipbadge.strict { box-shadow: 0 0 0 2px #0f2a1d, 0 0 10px #5fd49a88; }
+.dw-chipbadge.fx { border-color: #c3a6ff; background: #221a33; color: #e2d4ff; }
+.dw-chipbadge.off { border-color: #888; background: transparent; color: #999; }
+.dw-chipbadge.warn span:nth-of-type(1) { color: #ffd59e; }
+.dw-chippop { position: absolute; top: 100%; left: 0; z-index: 50; min-width: 260px; margin-top: 4px; padding: 8px; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 6px; background: var(--dw-bg, #1b1b24); border: 2px solid #5fd49a; box-shadow: 0 6px 20px #0006; }
+.dw-chip { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.dw-chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dw-chip-row > .dw-dim:first-child { min-width: 120px; }
+.dw-chip-steps { border-radius: 6px; cursor: crosshair; image-rendering: pixelated; touch-action: none; }
+.dw-chip-in { width: 140px; font: 12px ui-monospace, monospace; }
+.dw-chip-knobs { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* ===== DAWN · 🧱 конструктор композиции ===== */
+.dw-blk-pal { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.dw-blk-row { display: flex; gap: 3px; min-height: 46px; padding: 4px; border-radius: 10px; background: rgba(127,127,127,0.1); overflow-x: auto; }
+.dw-blk { flex: 1 1 0; min-width: 38px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 3px 4px;
+  border: 2px solid transparent; border-radius: 8px; cursor: pointer; font-size: 10px; color: #333; background: var(--bc, #ddd); }
+.dw-blk b { font-size: 14px; } .dw-blk i { font-style: normal; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.dw-blk.sel { border-color: var(--dw-ink, #222); transform: translateY(-2px); box-shadow: 0 3px 8px #0003; }
+.dw-blk-I { --bc: #9fd3ff; } .dw-blk-B { --bc: #ffb3b3; } .dw-blk-D { --bc: #ffd59e; } .dw-blk-X { --bc: #c3a6ff; } .dw-blk-O { --bc: #b8f59e; }
+.dw-blk-F { --bc: #ffc6e0; } .dw-blk-S { --bc: #e6e6e6; } .dw-blk-W { --bc: #8fe8cf; } .dw-blk-M { --bc: #d9c8ff; } .dw-blk-R { --bc: #fff09e; } .dw-blk-G { --bc: #ff9ec7; }
+.dw-btn.dw-blk-I, .dw-btn.dw-blk-B, .dw-btn.dw-blk-D, .dw-btn.dw-blk-X, .dw-btn.dw-blk-O, .dw-btn.dw-blk-F, .dw-btn.dw-blk-S, .dw-btn.dw-blk-W, .dw-btn.dw-blk-M, .dw-btn.dw-blk-R, .dw-btn.dw-blk-G {
+  background: var(--bc); color: #333; }
+.dw-blk-str { flex: 1; min-width: 200px; font: 12px ui-monospace, monospace; }

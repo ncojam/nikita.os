@@ -1,6 +1,7 @@
 import { fxDefaults } from "./fx.js";
 import { GF_PRESETS, gfDefaults } from "./grapefruit.js";
 import { UserLib } from "./userlib.js";
+import { CHIP_PRESETS, chipDefaults } from "./chip.js";
 
 /* ================= DAWN — пресеты звуков =================
  * Пресет = параметры инструмента + (необязательно) цепочка эффектов, которую он ставит на свой инсерт:
@@ -129,6 +130,7 @@ export function presetsFor(type) {
   const own = UserLib.names("synth").filter(n => UserLib.get("synth", n).type === type).map(n => USER + n);
   if (type === "osc3") return [...own, ...Object.keys(OSC3_PRESETS)];
   if (type === "grapefruit") return [...own, ...Object.keys(GF_PRESETS)];
+  if (type === "chip") return [...own, ...Object.keys(CHIP_PRESETS)];
   return own;
 }
 /* применить пресет к каналу: параметры + эффекты на его инсерт (если инсерт только его) */
@@ -142,6 +144,11 @@ export function applyPreset(Engine, ch, name) {
   } else if (ch.type === "osc3" && OSC3_PRESETS[name]) {
     Object.assign(ch.params, JSON.parse(JSON.stringify(OSC3_PRESETS[name].params)));
     fxChain = OSC3_PRESETS[name].fx;
+  } else if (ch.type === "chip" && CHIP_PRESETS[name]) {
+    // чип-пресет — только звук: эффекты инсерта не трогаем (строгий режим их и не хочет)
+    const slot = ch.params.slot;
+    ch.params = { ...chipDefaults(), ...JSON.parse(JSON.stringify(CHIP_PRESETS[name].params)) };
+    if (slot && slot !== "auto" && !CHIP_PRESETS[name].params.slot) ch.params.slot = slot;
   } else if (ch.type === "grapefruit" && GF_PRESETS[name]) {
     Object.assign(ch.params, gfDefaults(name));
     fxChain = GF_FX[name] || [];
@@ -157,7 +164,7 @@ export function applyPreset(Engine, ch, name) {
   }
   // модуляция пресета: старая (от прошлого пресета этого канала) уходит; «fx.N.x» — эффект на инсерте канала, «ch.x» — сам канал
   P.mods = (P.mods || []).filter(m => m.presetOf !== ch.id);
-  if (!own) mods = ch.type === "osc3" ? OSC3_PRESETS[name].mods : GF_MODS[name];
+  if (!own) mods = ch.type === "osc3" ? OSC3_PRESETS[name].mods : ch.type === "chip" ? null : GF_MODS[name];
   if (mods && alone) for (const [k, m] of mods.entries()) {
     P.mods.push({ id: `p${ch.id}${k}`.slice(0, 24), presetOf: ch.id, type: m.type, name: m.name, color: ch.color, value: m.value ?? 0.5,
       trig: { ch: ch.id, att: 5, hold: 40, rel: 250, vel: true, ...m.trig }, meter: { mix: i, gain: 1.5 },

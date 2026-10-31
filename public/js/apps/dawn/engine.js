@@ -3,6 +3,7 @@ import { fitOps, fitParams, stretchParams } from "./wubs.js";
 import { PASTEL, barLen, fromFile, newInsert, patLen, slug, toFile } from "./format.js";
 import { BUILTIN, DEFAULT_PARAMS, TYPES, ensureSample, playOsc3, playSampler, sampleNow } from "./instruments.js";
 import { playGrapefruit } from "./grapefruit.js";
+import { chipFxGuard, chipNewChannel, chipSteal, playChip } from "./chip.js";
 import { computeOver, effOf, effParams } from "./modcore.js";
 import { DEMO } from "./demo.js";
 import { c4 } from "./tuning.js";
@@ -162,17 +163,19 @@ function buildGraph(ctx, P) {
       if (!G.audible(ch)) return;
       const out = G.strip(ch).gain, edo = ch.edo || 12;
       let p = effParams(ch, G.over);
-      if (stretch !== 1 && ch.type !== "sampler") p = stretchParams(p, ch.type, stretch);   // удлинённая нота: атака растянута так же
+      if (stretch !== 1 && ch.type !== "sampler" && ch.type !== "chip") p = stretchParams(p, ch.type, stretch);   // удлинённая нота: атака растянута так же
       if (ch.type === "grapefruit") p = fitOps(p, durSec, 60 / (P.bpm || 120));   // ⇔ у отдельных операторов — пропорционально ноте
-      if (p.fit && ch.type !== "sampler") p = fitParams(p, ch.type, durSec);   // ⇔ огибающая под длину ноты
+      if (p.fit && ch.type !== "sampler" && ch.type !== "chip") p = fitParams(p, ch.type, durSec);   // ⇔ огибающая под длину ноты
       const h = ch.type === "osc3" ? playOsc3(ctx, out, p, t, durSec, n, v, edo, bend)
         : ch.type === "grapefruit" ? playGrapefruit(ctx, out, p, t, durSec, n, v, edo, bend)
+        : ch.type === "chip" ? playChip(ctx, out, p, t, durSec, n, v, edo, bend)
         : playSampler(ctx, out, p, t, durSec, n, v, sampleNow(p.path), edo, bend);
       // сайдчейн: эффекты Sidechain, слушающие этот канал, ныряют ровно в момент ноты
       P.mixer.forEach((m, i) => m.fx.forEach((f, k) => { if (f.on && f.type === "side" && f.p.src === ch.id) G.inserts[i]?.fx[k]?.duck?.(t); }));
       for (const pd of P.pedals || []) if (pd.on && pd.type === "side" && pd.p.src === ch.id) G.pedals.get(pd.id)?.fx.duck?.(t);
       G.onNote?.(ch, t, v);
       if (!h) return;
+      if (ch.type === "chip") chipSteal(G, P, ch, t, h);   // лимит каналов консоли: занятый слот уступает новой ноте
       const now = ctx.currentTime, list = (G.active[ch.id] = (G.active[ch.id] || []).filter(x => x.end > now));
       const sounding = list.filter(x => x.end > t);
       for (let k = sounding.length - Math.max(1, ch.poly || 16) + 1; k > 0; k--) sounding.shift().kill(t);
@@ -304,6 +307,7 @@ export const Engine = {
       scale: { root: 0, mode: "chromatic", snap: false }, params: { ...DEFAULT_PARAMS[type](), ...(params || {}) } };
     if (mix) P.mixer[mix].name = ch.name.slice(0, 20);
     P.channels.push(ch);
+    if (type === "chip") { ch.poly = 1; chipNewChannel(P); }   // чип моно, как на приставке; первый чип-канал включает чиптюн-режим
     this.G.refresh();
     this.touch({ channels: true, mixer: true });
     return ch;
@@ -411,6 +415,7 @@ export const Engine = {
         p.src = (C.find(c => /kick|бочк/i.test(c.id + c.name)) || C.find(c => c.type === "sampler") || C[0])?.id || "";
       }
       if (k >= fx.length) fx.push({ type, on: true, p }); else fx[k] = { type, on: true, p };
+      chipFxGuard(this.project, i);
     }
     this.G.rebuildFx(i);
     this.touch({ mixer: true });
@@ -426,6 +431,7 @@ export const Engine = {
   attachPedal(id, i) {
     const P = this.project, pd = (P.pedals || []).find(x => x.id === id);
     if (!pd || !P.mixer[i] || P.mixer[i].fx.length >= 4) return false;
+    chipFxGuard(P, i);
     P.mixer[i].fx.push({ type: pd.type, on: pd.on, p: pd.p });
     P.pedals = P.pedals.filter(x => x !== pd);
     this.G.rebuildFx(i); this.G.rebuildPedals();
@@ -434,13 +440,14 @@ export const Engine = {
   },
   addPedal(type) {
     const p = fxDefaults(type);
+    chipFxGuard(this.project, "pedal");
     if (type === "side") p.src = (this.project.channels.find(c => /kick/i.test(c.id)) || this.project.channels[0])?.id || "";
     const src = this.project.channels.find(c => c.type !== "sampler") || this.project.channels[0];
     (this.project.pedals ||= []).push({ id: "pd" + Date.now().toString(36).slice(-5), type, on: true, p, in: src ? "ch:" + src.id : "mix:1", out: "mix:0" });
     this.G.rebuildPedals(); this.touch({ pedals: true });
   },
   pedalsChanged() { this.G.rebuildPedals(); this.touch({ pedals: true }); },
-  fxToggle(i, k) { const f = this.project.mixer[i].fx[k]; f.on = !f.on; this.G.rebuildFx(i); this.touch({ mixer: true }); },   // без param — микшер перерисуется и кружок погаснет
+  fxToggle(i, k) { const f = this.project.mixer[i].fx[k]; f.on = !f.on; if (f.on) chipFxGuard(this.project, i); this.G.rebuildFx(i); this.touch({ mixer: true }); },   // без param — микшер перерисуется и кружок погаснет
   fxParam(i, k) { this.G.fxSet(i, k); },
   applyInsert(i) { this.G.applyInsert(i); },
   /* живые данные для модуляции: уровни, ноты, время */

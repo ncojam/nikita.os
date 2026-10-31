@@ -6,7 +6,8 @@ import { aiPackage, aiDoc } from "./schema.js";
 import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults, shapeAt, snapRatio } from "./grapefruit.js";
 import { MODS } from "./mod.js";
 import { MAGIC } from "./magic.js";
-import { DRUMS, GENRES, KITS, LIB_MIME, MELODIC, instantiate } from "./library.js";
+import { CHIP_KIT, DRUMS, GENRES, KITS, LIB_MIME, MELODIC, ensureChipDrum, instantiate } from "./library.js";
+import { chipBadge, chipPanel } from "./chipui.js";
 const libClosed = new Set(["odd"]);   // свёрнутые жанры библиотеки
 import { USER, applyPreset, presetsFor } from "./presets.js";
 import { UserLib, captureSound, capturePattern } from "./userlib.js";
@@ -96,6 +97,7 @@ const transport = {
     bpm.ondblclick = () => { const v = +prompt("Темп (BPM):", Engine.project.bpm); if (v >= 40 && v <= 300) { Engine.setBpm(v); showBpm(); Engine.touch({ param: true }); } };
 
     const patBox = el("div", { className: "dw-patbox" });
+    const chipB = chipBadge();   // 👾 индикатор чиптюн-режима: консоль, каналы, строго / + FX
     const master = knob({ spec: "vol", label: "Master", color: "var(--dw-pink)",
       get: () => Engine.project.mixer[0].vol, set: v => { Engine.project.mixer[0].vol = v; Engine.applyInsert(0); }, done: () => Engine.touch({ param: true }) });
     const swing = knob({ spec: { min: 0, max: 0.6, def: 0, label: "Swing" }, color: "var(--dw-peach)",
@@ -118,7 +120,7 @@ const transport = {
     }, { title: "Экспорт в WAV: песня из плейлиста (или текущий паттерн)" });
 
     root.append(el("div", { className: "dw-logo" }, el("b", { textContent: "DAWN" }), el("span", { textContent: "pastel daw" })),
-      el("div", { className: "dw-tbtns" }, playB, stopB), seg, pos, bpm, patBox, master.node, swing.node, scope,
+      el("div", { className: "dw-tbtns" }, playB, stopB), seg, pos, bpm, patBox, chipB, master.node, swing.node, scope,
       el("div", { className: "dw-mods" },
         mod("🎛 Стойка", "rack", "Стойка каналов"), mod("🎹 Пиано ролл", "piano", "Ноты канала"),
         mod("🎞 Плейлист", "playlist", "Общий таймлайн"), mod("🎚 Микшер", "mixer", "Микшер и эффекты"),
@@ -187,7 +189,7 @@ const transport = {
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    return () => { cancelAnimationFrame(raf); offs.forEach(f => f()); };
+    return () => { cancelAnimationFrame(raf); offs.forEach(f => f()); chipB._off?.(); };
   },
 };
 
@@ -228,7 +230,7 @@ const rack = {
       const steps = Math.round(len * 4), group = Math.max(1, 16 / pat.sig[1]), barSteps = Math.round(Engine.barLen(pat) * 4);
       cols = Array.from({ length: steps }, () => []);
       // стойка по категориям: ударные (сэмплы) и синты
-      const drums = P.channels.filter(c => c.type === "sampler"), synths = P.channels.filter(c => c.type !== "sampler");
+      const isD = c => c.type === "sampler" || !!c.params?.drum, drums = P.channels.filter(isD), synths = P.channels.filter(c => !isD(c));
       const sec = (t, list) => list.length ? [el("div", { className: "dw-rack-sec", textContent: t }), ...list.map(ch => row(ch, steps, group, barSteps))] : [];
       body.replaceChildren(...sec("🥁 Ударные", drums), ...sec("🎹 Синты", synths));
       foot.replaceChildren(
@@ -236,6 +238,8 @@ const rack = {
         dwBtn("📚 Библиотека", () => Dawn.open("lib"), { title: "Готовые грувы и паттерны в ладу — одной кнопкой" }),
         dwBtn("＋ Grapefruit", () => { const ch = Engine.addChannel("grapefruit"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }),
         dwBtn("＋ Sampler", () => { const ch = Engine.addChannel("sampler", "Sampler"); Dawn.open("inst", ch.id); }),
+        dwBtn("＋ 👾 Chip", () => { const ch = Engine.addChannel("chip"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }, { title: "8-битный синт: пульсы, треугольник, wavetable Game Boy, шум" }),
+        select([["", "＋ 👾 Чип-ударные…"], ...Object.entries(CHIP_KIT)], "", v => { if (v) Dawn.open("inst", ensureChipDrum(v).id); }, "Ударные на чип-каналах — считаются в лимит консоли"),
         select([["", "＋ Ударные…"], ...Object.entries(BUILTIN)], "", v => {
           if (!v) return;
           const ch = Engine.addChannel("sampler", BUILTIN[v], { path: "builtin:" + v });
@@ -588,7 +592,7 @@ function samplerPanel(ch, Dawn) {
 const inst = {
   title: id => { const ch = Engine.chan(id); return ch ? `${TYPES[ch.type].icon} ${ch.name}` : "Инструмент"; },
   icon: "🎚", color: id => Engine.chan(id)?.color || "var(--dw-lav)",
-  size: id => ({ sampler: [560, 400], grapefruit: [760, 640] })[Engine.chan(id)?.type] || [620, 640],
+  size: id => ({ sampler: [560, 400], grapefruit: [760, 640], chip: [640, 560] })[Engine.chan(id)?.type] || [620, 640],
   render(c, win, id, Dawn) {
     DawnRef = Dawn;
     const ch = Engine.chan(id);
@@ -609,7 +613,7 @@ const inst = {
           if (!v) return;
           applyPreset(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
         }, "Готовый звук (вместе с эффектами на инсерте)") : "",
-        ch.type !== "sampler" ? dwBtn("⇔", e => { ch.params.fit = !ch.params.fit; e.target.classList.toggle("on", ch.params.fit); Engine.touch({ param: true }); },
+        ch.type !== "sampler" && ch.type !== "chip" ? dwBtn("⇔", e => { ch.params.fit = !ch.params.fit; e.target.classList.toggle("on", ch.params.fit); Engine.touch({ param: true }); },
           { className: "dw-btn" + (ch.params.fit ? " on" : ""), title: "Огибающая под длину ноты: атака, спад и релиз ужимаются на коротких нотах — частые вубы слышны" }) : "",
         ch.type === "osc3" || ch.type === "grapefruit" ? select([["", "🪄 Улучшить…"], ...Object.entries(ENHANCE).filter(([k]) => k !== "fit").map(([k, l]) => [k, l])], "", v => {
           if (!v) return;
@@ -617,7 +621,7 @@ const inst = {
           if (said.length) notify("🪄 " + said.join(" · "), 4500);
         }, "Улучшайзер: металл, бас, модуляция, реверс атаки, случайный риддим-вуб") : "",
         // кнопки-продюсеры: одна кнопка — одно улучшение
-        el("span", { className: "dw-seg" }, ...Object.entries(PRODUCE).filter(([, d]) => d.for(ch)).map(([k, d]) => dwBtn(d.icon, () => {
+        el("span", { className: "dw-seg" }, ...Object.entries(PRODUCE).filter(([, d]) => ch.type !== "chip" && d.for(ch)).map(([k, d]) => dwBtn(d.icon, () => {
           const said = produce(k, ch); Engine.preview(ch, null, 0.85, 0.6); build();
           if (said?.length) notify(d.icon + " " + said.join(" · "), 5000);
         }, { title: d.title }))),
@@ -627,7 +631,7 @@ const inst = {
           if (saved) { ch.preset = USER + saved; build(); }
         }, { title: "Сохранить этот звук как свой пресет" }) : "",
         ch.preset?.startsWith(USER) ? dwBtn("🗑", () => { if (UserLib.del("synth", ch.preset.slice(USER.length))) { delete ch.preset; build(); } }, { title: "Удалить свой пресет «" + ch.preset.slice(USER.length) + "»", className: "dw-btn dw-x" }) : "");
-      panel = ch.type === "osc3" ? osc3Panel(ch) : ch.type === "grapefruit" ? gfPanel(ch, build) : samplerPanel(ch, Dawn);
+      panel = ch.type === "osc3" ? osc3Panel(ch) : ch.type === "grapefruit" ? gfPanel(ch, build) : ch.type === "chip" ? chipPanel(ch, build) : samplerPanel(ch, Dawn);
       root.replaceChildren(head, panel, miniKeys(ch));
     }
     build();

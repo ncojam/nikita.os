@@ -1,5 +1,6 @@
 import { hz } from "./tuning.js";
 import { gfDefaults } from "./grapefruit.js";
+import { CHIP_SPECS, chipDefaults } from "./chip.js";
 
 /* ================= DAWN — инструменты =================
  * Голос = функция (ctx, out, params, t, dur, n, v, edo, bend) → ручка голоса
@@ -37,6 +38,8 @@ export const SPECS = {
   uspr:  { min: 0, max: 1, def: 0.6, label: "Spread" },
   // общие для любого инструмента
   poly:  { min: 1, max: 32, def: 16, label: "Poly", step: 1 },
+  // 👾 Chip — кадры, таблицы, биты (см. chip.js)
+  ...CHIP_SPECS,
 };
 
 export const WAVES = ["sine", "triangle", "sawtooth", "square", "noise"];
@@ -54,12 +57,14 @@ export const DEFAULT_PARAMS = {
   }),
   sampler: () => ({ path: null, root: 60, tune: 0, start: 0, att: 0.001, rel: 0.08, oneshot: true, rev: false }),
   grapefruit: () => gfDefaults(),
+  chip: () => chipDefaults(),
 };
 
 export const TYPES = {
   osc3: { name: "3XOSC", icon: "🌈", color: "#c3a6ff" },
   grapefruit: { name: "Grapefruit", icon: "🍊", color: "#ffb3b3" },
   sampler: { name: "Sampler", icon: "🎧", color: "#8fe8cf" },
+  chip: { name: "Chip", icon: "👾", color: "#9ef5c8" },
 };
 
 let noiseBuf = null;
