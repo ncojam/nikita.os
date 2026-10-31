@@ -29,11 +29,18 @@ export async function openShare() {
     const drop = el("div", { className: "shr-drop", textContent: "Отпусти, чтобы загрузить" });
     const input = el("input", { type: "file", multiple: true, hidden: true });
     const add = el("button", { className: "shr-add", title: "Добавить файлы", textContent: "+" });
-    const root = el("div", { className: "shr" },
+    const clip = el("textarea", { className: "shr-clip", rows: 3, placeholder: "Общий буфер: текст отсюда виден на всех твоих устройствах. Ctrl+V вне поля — вставит сюда или загрузит картинку/файл." });
+    const clipBtn = (text, title, run) => el("button", { className: "shr-cbtn", textContent: text, title, onclick: run });
+    const clipBar = el("div", { className: "shr-clipbar" },
+      clipBtn("📋 Вставить", "Взять текст из буфера устройства", () => pasteFromDevice()),
+      clipBtn("📄 Копировать", "Положить текст в буфер устройства", () => copyText(clip.value)),
+      clipBtn("🗑", "Очистить", () => { clip.value = ""; saveClip(); }));
+    const root = el("div", { className: "shr", tabIndex: -1 },
       el("div", { className: "shr-head" }, el("div", { className: "shr-title", textContent: "📤 Мои файлы" }), info, add),
-      list, drop, input);
+      clip, clipBar, list, drop, input);
     c.append(root);
 
+    let copyFileFn = () => {};
     const url = n => "/api/share/file/" + encodeURIComponent(n);
     const api = async (path, opt) => {
       const r = await fetch(path, { cache: "no-store", ...opt });
@@ -58,6 +65,7 @@ export async function openShare() {
       const download = () => { const a = el("a", { href: url(f.name), download: f.name }); document.body.append(a); a.click(); a.remove(); };
       const menu = (x, y) => showMenu(x, y, [
         ["⬇ Скачать", download],
+        ["📋 Копировать в буфер", () => copyFileFn(f)],
         ["↗ Открыть в новой вкладке", () => window.open(url(f.name) + "?inline=1", "_blank", "noopener")],
         ["🗑 Удалить", async () => {
           if (!confirm(`Удалить «${f.name}»?`)) return;
@@ -109,6 +117,67 @@ export async function openShare() {
       refresh();
     }
 
+    /* ----- буфер обмена ----- */
+    const stamp = () => new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    async function copyText(text) {
+      if (!text) return notify("Буфер пуст");
+      try { await navigator.clipboard.writeText(text); notify("Скопировано"); }
+      catch { clip.focus(); clip.select(); notify("Не вышло — выделил, нажми Ctrl+C"); }
+    }
+    let clipT = 0, lastSaved = "";
+    async function saveClip() {
+      clearTimeout(clipT);
+      try { await api("/api/share/clip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clip.value }) }); lastSaved = clip.value; }
+      catch (e) { notify("⚠ Буфер: " + e.message); }
+    }
+    async function loadClip() {
+      if (document.activeElement === clip) return;      // не затираем то, что сейчас печатаешь
+      try { const j = await api("/api/share/clip"); clip.value = lastSaved = j.text; } catch {}
+    }
+    clip.addEventListener("input", () => { clearTimeout(clipT); clipT = setTimeout(saveClip, 600); });
+    clip.addEventListener("blur", () => { if (clip.value !== lastSaved) saveClip(); });
+    async function pasteFromDevice() {
+      try {
+        const items = await navigator.clipboard.read?.();
+        const files = [];
+        for (const it of items || []) for (const t of it.types) if (t.startsWith("image/")) {
+          const b = await it.getType(t); files.push(new File([b], `paste-${stamp()}.${t.split("/")[1].replace("jpeg", "jpg")}`, { type: t }));
+        }
+        if (files.length) return upload(files);
+        clip.value = await navigator.clipboard.readText();
+        await saveClip(); notify("Вставлено");
+      } catch { clip.focus(); notify("Браузер не дал прочитать буфер — нажми Ctrl+V в поле"); }
+    }
+    // Ctrl+V в окне: файлы/картинки → загрузка; текст вне поля → в общий буфер
+    root.addEventListener("paste", e => {
+      const cd = e.clipboardData; if (!cd) return;
+      const files = [...cd.files].map((f, i) => /^image\//.test(f.type) && (!f.name || /^image\.\w+$/i.test(f.name))
+        ? new File([f], `paste-${stamp()}${i ? "-" + i : ""}.${f.type.split("/")[1].replace("jpeg", "jpg")}`, { type: f.type }) : f);
+      if (files.length) { e.preventDefault(); return upload(files); }
+      const text = cd.getData("text/plain");
+      if (text && e.target !== clip) { e.preventDefault(); clip.value = text; saveClip(); notify("Вставлено в буфер"); }
+    });
+    window.addEventListener("focus", loadClip);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) loadClip(); });
+
+    // «Копировать в буфер» для текстовых файлов и картинок
+    const TEXT_EXT = /\.(txt|md|json|csv|log|js|py|html|css|xml|ya?ml|ini|cfg|toml|sh|ps1)$/i, IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
+    async function copyFile(f) {
+      try {
+        if (TEXT_EXT.test(f.name) && f.size <= 1048576) {
+          const t = await (await fetch(url(f.name))).text(); await navigator.clipboard.writeText(t); return notify("Текст скопирован");
+        }
+        if (IMG_EXT.test(f.name) && f.size <= 15728640) {
+          const bmp = await createImageBitmap(await (await fetch(url(f.name))).blob());
+          const cv = el("canvas", { width: bmp.width, height: bmp.height }); cv.getContext("2d").drawImage(bmp, 0, 0);
+          const png = await new Promise(r => cv.toBlob(r, "image/png"));
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]); return notify("Картинка скопирована");
+        }
+        notify("Копировать можно текст (до 1 МБ) и картинки");
+      } catch (e) { notify("⚠ Не вышло скопировать: " + (e.message || e)); }
+    }
+    copyFileFn = copyFile;
+
     add.onclick = () => input.click();
     input.onchange = () => { upload(input.files); input.value = ""; };
     let depth = 0;
@@ -118,6 +187,6 @@ export async function openShare() {
     root.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; root.classList.remove("drag"); } });
     root.addEventListener("drop", e => { if (!hasFiles(e)) return; e.preventDefault(); e.stopPropagation(); depth = 0; root.classList.remove("drag"); upload(e.dataTransfer.files); });
 
-    refresh();
+    refresh(); loadClip(); setTimeout(() => root.focus({ preventScroll: true }), 50);   // чтобы Ctrl+V сразу попадал в окно
   }});
 }

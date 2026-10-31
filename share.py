@@ -5,6 +5,7 @@
   POST /api/share/upload            multipart, поле(я) "file" — потоково, по одному файлу за раз
   GET  /api/share/file/{name}       -> файл (Range работает); ?inline=1 — показать картинку/аудио/видео/PDF
   POST /api/share/delete {name}
+  GET/POST /api/share/clip          -> {text, t} / {text}: общий буфер обмена (один текст, до 256 КБ)
 
 Всё — только для вошедшего под ником OWNER. Проверка на сервере (скрытие кнопки в UI — лишь удобство).
 Файлы лежат в NOS_DATA/share (плоская папка, без подпапок), наружу через /fs не торчат.
@@ -26,6 +27,7 @@ OWNER = os.environ.get("NOS_SHARE_OWNER", "cojam").lower()
 MAX_FILE = int(os.environ.get("NOS_SHARE_MAX_MB", "500")) * 1024 * 1024     # один файл
 QUOTA = int(os.environ.get("NOS_SHARE_QUOTA_MB", "5000")) * 1024 * 1024     # всё вместе
 INLINE_OK = ("image/png", "image/jpeg", "image/gif", "image/webp", "audio/", "video/", "application/pdf")
+CLIP_MAX = 256 * 1024                                                       # текст общего буфера
 NAME_BAD = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
 
 
@@ -154,7 +156,31 @@ class Share:
         log.info("share: -%s", p.name)
         return web.json_response({"ok": True}, headers={"Cache-Control": "no-store"})
 
+    # ---------- общий буфер обмена (один текст, виден со всех устройств) ----------
+    async def api_clip_get(self, request):
+        if (d := self.deny(request)):
+            return d
+        f = self.root / ".clip.txt"
+        text = f.read_text(encoding="utf-8", errors="replace") if f.is_file() else ""
+        return web.json_response({"text": text, "t": int(f.stat().st_mtime) if f.is_file() else 0},
+                                 headers={"Cache-Control": "no-store"})
+
+    async def api_clip_set(self, request):
+        if (d := self.deny(request)):
+            return d
+        try:
+            body = await request.json()
+        except (ValueError, TypeError):
+            body = {}
+        text = body.get("text")
+        if not isinstance(text, str) or len(text.encode("utf-8")) > CLIP_MAX:
+            return web.json_response({"error": "текст слишком большой"}, status=413)
+        (self.root / ".clip.txt").write_text(text, encoding="utf-8")
+        return web.json_response({"ok": True}, headers={"Cache-Control": "no-store"})
+
     def routes(self, app):
+        app.router.add_get("/api/share/clip", self.api_clip_get)
+        app.router.add_post("/api/share/clip", self.api_clip_set)
         app.router.add_get("/api/share/list", self.api_list)
         app.router.add_post("/api/share/upload", self.api_upload)
         app.router.add_get("/api/share/file/{name}", self.api_file)
