@@ -3,7 +3,7 @@ import { notify } from "../../ui/notify.js";
 import { Engine, PASTEL } from "./engine.js";
 import { fxDefaults } from "./fx.js";
 import { DRUMS, ensureChipDrum, ensureDrum } from "./library.js";
-import { chipNewChannel } from "./chip.js";
+import { CHIP_PRESETS, chipNewChannel } from "./chip.js";
 import { OSC3_PRESETS, applyPreset } from "./presets.js";
 import { answerNotes, gfVariant, like, pickFriend, sauce } from "./sauce.js";
 import { c4, scaleSet } from "./tuning.js";
@@ -364,8 +364,9 @@ function withSub(A, notes, subCh) {
 export function drumsForStyle(style) {
   const A = analyze(), P = Engine.project, pat = A.pat, L = A.L;
   if (style === "auto") style = A.style;
-  CHIP = style === "chip";
-  try { return drumsInner(style, A, P, pat, L); } finally { CHIP = false; }
+  const was = CHIP;
+  CHIP = was || style === "chip";
+  try { return drumsInner(style, A, P, pat, L); } finally { CHIP = was; }
 }
 function drumsInner(style, A, P, pat, L) {
   const out = {};
@@ -694,7 +695,8 @@ export const LEVELS = {
   holes: ["Брейки и дыры", "как часто брейки и выпадения — чем больше, тем «дырявее» трек"],
 };
 export function compose(opt) {
-  try { return composeInner(opt); } finally { CHIP = false; }
+  const was = CHIP;
+  try { return composeInner(opt); } finally { CHIP = was; }
 }
 function composeInner(opt) {
   const base = basePattern(opt.basis, opt.regionBars);
@@ -1082,9 +1084,13 @@ const BASS_RHY = {
     [[0, 0.5], [0.5, 0.25, 1], [0.75, 0.25], [1.5, 0.5, 1], [2.5, 0.5], [3, 0.25, 1], [3.5, 0.5]]],
   riddim: [[[0, 0.75], [0.75, 0.25], [1, 0.5], [2, 1], [3, 0.5], [3.5, 0.5]], [[0, 1], [1, 1], [2, 1], [3, 0.5], [3.5, 0.5]]],
   other: [[[0, 1], [1.5, 0.5], [2, 1], [3, 1]]],
+  // 👾 треугольный бас: восьмые с октавой, «галоп» и Sunsoft-подпрыгивания
+  chip: [[[0, 0.5], [0.5, 0.5, 1], [1, 0.5], [1.5, 0.5, 1], [2, 0.5], [2.5, 0.5, 1], [3, 0.5], [3.5, 0.5, 1]],
+    [[0, 0.75], [0.75, 0.25], [1, 0.5, 1], [1.5, 0.5], [2, 0.75], [2.75, 0.25], [3, 0.5, 1], [3.5, 0.5]],
+    [[0, 0.25], [0.25, 0.25], [0.5, 0.5, 1], [1, 0.25], [1.25, 0.25], [1.5, 0.5, 1], [2, 0.25], [2.25, 0.25], [2.5, 0.5, 1], [3, 0.5], [3.5, 0.5, 1]]],
 };
 function bassLine(A, lead, style, amount) {
-  const E = lead.ch.edo || 12, low = c4(E) - 2 * E, rhy = pick(BASS_RHY[["dnb", "jungle"].includes(style) ? "dnb" : style === "riddim" ? "riddim" : "other"]), out = [];
+  const E = lead.ch.edo || 12, low = c4(E) - 2 * E, rhy = pick(BASS_RHY[["dnb", "jungle"].includes(style) ? "dnb" : style === "riddim" || style === "chip" ? style : "other"]), out = [];
   for (let b = 0; b < A.L - 1e-9; b += 4) {
     const inB = lead.notes.filter(n => n.s >= b - 1e-6 && n.s < b + 4 - 1e-6);
     const pc = inB.length ? Math.min(...inB.map(n => n.n)) : A.key.root, n0 = low + (((pc - low) % E) + E) % E;
@@ -1093,18 +1099,28 @@ function bassLine(A, lead, style, amount) {
   return sauce(out, { bar: A.bar, L: A.L, E, amount: amount * 0.6, R: rnd, only: ["oct", "ratchet", "chop"] }).notes;
 }
 function newSynth(name, label, like, vol) {
-  const ch = Engine.addChannel(synthType(name), label);
+  const chip = !!CHIP_PRESETS[name], ch = Engine.addChannel(chip ? "chip" : synthType(name), chip ? "👾 " + label.replace(/ ✨$/, "") : label);
   applyPreset(Engine, ch, name);
   Object.assign(ch, { edo: like?.edo || 12, scale: { ...(like?.scale || {}) }, vol });
-  ch.params.fit = true;
+  if (!chip) ch.params.fit = true;
   return ch;
 }
 export function complete(opt = {}) {
+  const was = CHIP;
+  try { return completeInner(opt); } finally { CHIP = was; }
+}
+function completeInner(opt) {
   let A = analyze();
   const P = Engine.project, pat = A.pat, said = [], nodes = [], sz = opt.sauce ?? 0.5;
   if (!A.synths.length && !Object.keys(A.drums).length) return { said: ["нарисуй хоть что-нибудь — мелодию синтом или ударные, остальное доделаю"], nodes };
   const style = opt.style && opt.style !== "auto" ? opt.style : A.style, pr = prof(style);
   nodes.push("s:" + style);
+  CHIP = style === "chip";   // 👾 все новые партии — чип-каналы, без эффектов
+  if (CHIP) {
+    for (const r of Object.keys(A.drums)) if (A.drums[r].type !== "chip") delete A.drums[r];
+    if (opt.console) { chipNewChannel(P); Object.assign(P.chip, { on: true, console: opt.console, ...(opt.voices ? { voices: opt.voices } : {}) }); }
+  }
+  const BASSES = CHIP ? CHIP_BASSES : pr.bass || DNB.bass, LEADS = CHIP ? CHIP_LEADS : pr.lead || DNB.lead;
   if (opt.style && opt.style !== "auto" && opt.tempo !== false && pr.bpm && Math.abs(P.bpm - pr.bpm) > 12) { P.bpm = pr.bpm; said.push(`темп ${pr.bpm} BPM`); }
   // 1. ударные
   if (!Object.keys(A.drums).length) {
@@ -1118,14 +1134,14 @@ export function complete(opt = {}) {
   let bassCh = A.bass?.ch || null;
   // 2. бас по корням мелодии
   if (!A.bass && first) {
-    const name = pickFriend(["s:" + style, first.ch.preset], pr.bass || DNB.bass, rnd, [first.ch.preset]);
+    const name = pickFriend(["s:" + style, first.ch.preset], BASSES, rnd, [first.ch.preset]);
     bassCh = newSynth(name, "Bass ✨", first.ch, 0.75);
     pat.notes[bassCh.id] = bassLine(A, first, style, sz);
     nodes.push(name); said.push(`бас «${name}»: ритм стиля по корням мелодии`);
   }
   // 3. есть только бас — лид
   if (!first && A.bass) {
-    const name = pickFriend(["s:" + style, A.bass.ch.preset], pr.lead || DNB.lead, rnd);
+    const name = pickFriend(["s:" + style, A.bass.ch.preset], LEADS, rnd);
     const ch = newSynth(name, "Lead ✨", A.bass.ch, 0.5), notes = sauce(arpNotes(A, ch, A.L, 0.7), { bar: A.bar, L: A.L, E: ch.edo || 12, amount: sz, R: rnd }).notes;
     pat.notes[ch.id] = notes; first = { ch, notes };
     nodes.push(name); said.push(`лид «${name}»: арпеджио по аккордам + соус`);
@@ -1140,8 +1156,9 @@ export function complete(opt = {}) {
       Object.assign(ch.params, gv.params); ch.preset = undefined; ch.vol = (src.vol ?? 0.8) * 0.85;
       nodes.push(gv.preset); said.push(`ответ «${ch.name}»: ` + gv.said.join(", "));
     } else {
-      const name = pickFriend(["s:" + style, src.preset], (pr.lead || DNB.lead).concat(pr.osc3 || []), rnd, [src.preset]);
-      ch = newSynth(name, (src.name + " ⇄ " + name).slice(0, 24), src, (src.vol ?? 0.8) * 0.85);
+      const name = pickFriend(["s:" + style, src.preset], CHIP ? CHIP_LEADS.filter(n => n !== src.preset) : LEADS.concat(pr.osc3 || []), rnd, [src.preset]);
+      ch = newSynth(name, (src.name.replace(/^👾 /, "") + " ⇄ " + name).slice(0, 24), src, (src.vol ?? 0.8) * 0.85);
+      if (ch.type === "chip" && src.type === "chip") ch.params.c_tr = src.params.c_tr ?? 0;
       nodes.push(name); said.push(`ответ «${name}»`);
     }
     const an = answerNotes(first.notes, { bar: A.bar, L: A.L, key: A.key, R: rnd, amount: sz });
@@ -1149,8 +1166,9 @@ export function complete(opt = {}) {
     said.push("второй синт отвечает в паузах первого (мотив на терцию/квинту/октаву) — с соусом");
   }
   // 5. саб под бас, жир на ударные
-  if (bassCh && !P.channels.some(c => c.subOf === bassCh.id)) addSub(bassCh, said);
-  for (const ch of P.channels) if (roleOf(ch) && pat.notes[ch.id]?.length && (ch.mix || 0) > 0 && !P.mixer[ch.mix]?.fx.length) fatten(ch, said);
+  if (CHIP) said.push("👾 без саба и «жира»: треугольник сам держит низ, эффекты не вешаю — строгий 8-бит (ревер можно добавить в микшере)");
+  else if (bassCh && !P.channels.some(c => c.subOf === bassCh.id)) addSub(bassCh, said);
+  if (!CHIP) for (const ch of P.channels) if (roleOf(ch) && pat.notes[ch.id]?.length && (ch.mix || 0) > 0 && !P.mixer[ch.mix]?.fx.length) fatten(ch, said);
   Engine.touch({ channels: true, patterns: true, notes: true, mixer: true });
   // 6. трек целиком
   if (opt.track === false) return { said, nodes };
