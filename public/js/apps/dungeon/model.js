@@ -7,6 +7,7 @@
  * Рисуем в отдельный WebGL-холст и копируем его в общий 2D-холст, чтобы полоса HP и нотка оставались поверх.
  */
 const VIEW_FOV = 30, VIEW_DIST = 4.2, FIT_SIZE = 1.45;
+export const MODEL_FILL = FIT_SIZE / (2 * VIEW_DIST * Math.tan(VIEW_FOV / 2 * Math.PI / 180));   // доля картинки, занятая моделью
 const SMOOTH = 0.35;          // сглаживание: новый удар посреди старого не должен дёргать голову
 const decay = (t, k) => Math.exp(-t * k);
 
@@ -55,7 +56,8 @@ export class EnemyModel {
   }
 
   constructor(T, root) {
-    this.renderer = new T.WebGLRenderer({ alpha: true, antialias: true });
+    // сглаживание — рендер с запасом в view.js: WebGL не даёт выбрать число сэмплов своего antialias
+    this.renderer = new T.WebGLRenderer({ alpha: true, antialias: false });
     this.scene = new T.Scene();
     this.camera = new T.PerspectiveCamera(VIEW_FOV, 1, 0.1, 50);
     this.camera.position.z = VIEW_DIST;
@@ -63,6 +65,13 @@ export class EnemyModel {
     const sun = new T.DirectionalLight(0xffffff, 1.6);
     sun.position.set(0.6, 1, 2);
     this.scene.add(sun);
+    root.traverse(o => {         // текстура без фильтрации: крупные чёткие тексели, как на старых приставках
+      for (const m of [o.material].flat()) for (const tex of Object.values(m || {})) if (tex?.isTexture) {
+        tex.magFilter = tex.minFilter = T.NearestFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+      }
+    });
     const box = new T.Box3().setFromObject(root), size = box.getSize(new T.Vector3()), c = box.getCenter(new T.Vector3());
     const k = FIT_SIZE / Math.max(size.x, size.y, size.z);
     root.scale.multiplyScalar(k);

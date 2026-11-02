@@ -2,11 +2,15 @@
  * Игроки пока прямоугольники внизу. Враг — 3D-модель (model.js), а если её файла нет, тоже прямоугольник.
  * Состояния врага: idle / hit / attack / death.
  */
-import { EnemyModel, pose } from "./model.js";
+import { EnemyModel, MODEL_FILL, pose } from "./model.js";
 
 const ENEMY_W = 0.42, ENEMY_H = 0.36, ENEMY_Y = 0.36;   // доли холста
 const STATE_SEC = { hit: 0.5, attack: 0.45, death: 1.3 };
-const MODEL_ROOM = 1.45;      // картинка модели больше рамки врага: чтобы отлёты и наклоны не обрезались
+const MODEL_TOP = 70, MODEL_BOTTOM = 70;   // сверху — нотка и полоса HP, снизу — игроки
+const MODEL_WIDTH = 1.55;     // сторона картинки относительно ширины холста: голова уже картинки и занимает около 70% ширины
+const MODEL_BOX_W = 0.5;      // рамка для нажатий и полосы HP, доля картинки
+const MODEL_AA = 2;           // сглаживание: рендер вдвое крупнее и уменьшение
+const MODEL_MAX_PX = 1600;    // потолок рендера, чтобы не перегрузить телефон
 const models = new Map();     // вид врага → Promise<модель или null>
 
 export class BattleView {
@@ -38,6 +42,10 @@ export class BattleView {
     this.scale = d; this.W = r.width; this.H = r.height;
   }
   enemyBox() {
+    if (this.model) {
+      const side = Math.min(this.W * MODEL_WIDTH, (this.H - MODEL_TOP - MODEL_BOTTOM) / MODEL_FILL), w = side * MODEL_BOX_W;
+      return { x: this.W / 2 - w / 2, y: MODEL_TOP, w, h: side * MODEL_FILL, side };
+    }
     const w = Math.min(this.W * ENEMY_W, this.H * 0.5), h = this.H * ENEMY_H;
     return { x: this.W / 2 - w / 2, y: this.H * ENEMY_Y - h / 2, w, h };
   }
@@ -114,8 +122,9 @@ export class BattleView {
 
   drawModel(g, e, t, now) {
     const heard = this.music.heardStep(), beat = heard >= 0 ? heard / 4 : now * 2;
-    const side = Math.max(e.w, e.h) * MODEL_ROOM, px = Math.round(side * this.scale);
+    const side = e.side, px = Math.min(MODEL_MAX_PX, Math.round(side * this.scale * MODEL_AA));
     const pic = this.model.draw(pose(this.state, t, beat), px);
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
     g.globalAlpha = this.state === "death" ? Math.max(0, 1 - t / STATE_SEC.death) : 1;
     g.drawImage(pic, e.x + e.w / 2 - side / 2, e.y + e.h / 2 - side / 2, side, side);
     g.globalAlpha = 1;
