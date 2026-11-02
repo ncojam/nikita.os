@@ -1,10 +1,13 @@
 /* ================= Clown Dungeon — картинка боя =================
- * Пока всё абстрактно: враг — прямоугольник, игроки — маленькие прямоугольники внизу.
- * Вся отрисовка врага — в drawEnemy: состояния idle / hit / attack / death называются так же, как экшены модели
- * из Blender (docs/dungeon.md), поэтому модель встанет на её место, не трогая остальное.
+ * Игроки пока прямоугольники внизу. Враг — 3D-модель (model.js), а если её файла нет, тоже прямоугольник.
+ * Состояния врага: idle / hit / attack / death.
  */
+import { EnemyModel, pose } from "./model.js";
+
 const ENEMY_W = 0.42, ENEMY_H = 0.36, ENEMY_Y = 0.36;   // доли холста
-const STATE_SEC = { hit: 0.28, attack: 0.45, death: 1.3 };
+const STATE_SEC = { hit: 0.5, attack: 0.45, death: 1.3 };
+const MODEL_ROOM = 1.45;      // картинка модели больше рамки врага: чтобы отлёты и наклоны не обрезались
+const models = new Map();     // вид врага → Promise<модель или null>
 
 export class BattleView {
   constructor(canvas, music) {
@@ -16,7 +19,15 @@ export class BattleView {
   }
   start() { if (this.live) return; this.live = true; requestAnimationFrame(t => this.frame(t)); }
   stop() { this.live = false; this.state = "idle"; this.floats = []; }
-  set(b, me) { this.b = b; this.me = me; }
+  set(b, me) {
+    this.b = b; this.me = me;
+    const kind = b?.enemy.kind;
+    if (kind && kind !== this.kind) {
+      this.kind = kind; this.model = null;
+      if (!models.has(kind)) models.set(kind, EnemyModel.load(kind));
+      models.get(kind).then(m => { if (this.kind === kind) this.model = m; });
+    }
+  }
 
   play(state) { this.state = state; this.stateAt = performance.now() / 1000; }
 
@@ -88,10 +99,29 @@ export class BattleView {
     }
   }
 
-  /* сюда встанет модель: состояние this.state, прошло t секунд */
+  /* состояние this.state, прошло t секунд */
   drawEnemy(g, now) {
     const e = this.enemyBox(), t = now - this.stateAt, b = this.b.enemy;
     if (this.state !== "idle" && this.state !== "death" && t > STATE_SEC[this.state]) this.state = "idle";
+    if (this.model) this.drawModel(g, e, t, now);
+    else this.drawBox(g, e, t, now);
+    g.fillStyle = "#ece6f5"; g.font = "13px system-ui"; g.textAlign = "center";
+    const bw = e.w, k = Math.max(0, b.hp / b.maxhp);
+    g.fillText(`${b.name} · ур. ${b.level}`, this.W / 2, e.y - 28);
+    g.fillStyle = "#352c44"; g.fillRect(this.W / 2 - bw / 2, e.y - 20, bw, 6);
+    g.fillStyle = k < 0.35 ? "#ff6b6b" : "#ff9ecf"; g.fillRect(this.W / 2 - bw / 2, e.y - 20, bw * k, 6);
+  }
+
+  drawModel(g, e, t, now) {
+    const heard = this.music.heardStep(), beat = heard >= 0 ? heard / 4 : now * 2;
+    const side = Math.max(e.w, e.h) * MODEL_ROOM, px = Math.round(side * this.scale);
+    const pic = this.model.draw(pose(this.state, t, beat), px);
+    g.globalAlpha = this.state === "death" ? Math.max(0, 1 - t / STATE_SEC.death) : 1;
+    g.drawImage(pic, e.x + e.w / 2 - side / 2, e.y + e.h / 2 - side / 2, side, side);
+    g.globalAlpha = 1;
+  }
+
+  drawBox(g, e, t, now) {
     let x = e.x, y = e.y + Math.sin(now * 2.2) * 6, a = 1, fill = "#b84a6e";
     if (this.state === "hit") { x += Math.sin(t * 90) * 7 * (1 - t / STATE_SEC.hit); fill = "#fff"; }
     if (this.state === "attack") y += Math.sin(Math.min(1, t / STATE_SEC.attack) * Math.PI) * this.H * 0.26;
@@ -99,11 +129,6 @@ export class BattleView {
     g.globalAlpha = a; g.fillStyle = fill;
     g.fillRect(x, y, e.w, e.h);
     g.globalAlpha = 1;
-    g.fillStyle = "#ece6f5"; g.font = "13px system-ui"; g.textAlign = "center";
-    g.fillText(`${b.name} · ур. ${b.level}`, this.W / 2, e.y - 28);
-    const bw = e.w, k = Math.max(0, b.hp / b.maxhp);
-    g.fillStyle = "#352c44"; g.fillRect(this.W / 2 - bw / 2, e.y - 20, bw, 6);
-    g.fillStyle = k < 0.35 ? "#ff6b6b" : "#ff9ecf"; g.fillRect(this.W / 2 - bw / 2, e.y - 20, bw * k, 6);
   }
 
   /* нотка крутится над врагом, пока идёт комбо: один оборот на две доли, на сильной ноте вспыхивает */

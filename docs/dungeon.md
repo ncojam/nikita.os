@@ -7,7 +7,8 @@ Mini App: страница `/dungeon.html`, сервер `dungeon.py`, клие�
 |---|---|
 | `dungeon.py` | Вся игра: таблицы `ITEMS`, `ENEMIES`, `LOCATIONS`, бой, земля, сохранение (`data/dungeon.json`), WS `/api/dungeon/ws` |
 | `public/js/apps/dungeon/index.js` | Экраны, связь, тапы |
-| `public/js/apps/dungeon/view.js` | Холст боя. Враг рисуется только в `drawEnemy` |
+| `public/js/apps/dungeon/view.js` | Холст боя |
+| `public/js/apps/dungeon/model.js` | 3D-модель врага и её анимации (покачивание, удар, атака, смерть) |
 | `public/js/apps/dungeon/music.js` | Играет паттерн через граф DAWN (`dawn/graph.js`), судит попадание в такт |
 | `public/js/apps/dungeon/sfx.js` | Шаги, урон, подбор, хихиканье, победа, рюкзак: всё синтезируется, с эхом пещеры |
 | `public/js/apps/dungeon/arrange.js` | Общий пресет аранжировки и разбор правил |
@@ -51,17 +52,14 @@ Mini App: страница `/dungeon.html`, сервер `dungeon.py`, клие�
 
 ## Модель врага из Blender
 
-Формат — `.glb` (glTF Binary), файл `public/dungeon/enemies/<kind>.glb`. Он один содержит геометрию, текстуры и все анимации.
+Файл: `public/dungeon/enemies/<вид врага>.glb` (для головы `head.glb`). Если его нет, вместо врага рисуется прямоугольник.
 
-- Масштаб: голова примерно 1 м, центр объекта в центре головы, смотрит на камеру по −Y. Scale применён (Ctrl+A).
-- До 10 000 треугольников, текстура 1024 максимум, файл до 2 МБ. Материал — Principled BSDF: нодовые эффекты в glTF не переносятся.
-- Каждая анимация — отдельный экшен в Action Editor с таким именем: `idle` (цикл), `hit`, `hit_heavy`, `attack`, `death`, `intro`. Те же имена у состояний в `drawEnemy`. Нужно больше — добавляй, лишние не мешают.
-- Двигать через арматуру, shape keys или сам объект — всё поддерживается. Драйверы и симуляции нужно запечь (Bake Action).
-- `idle` сделай с совпадающими первым и последним кадром. Точное число кадров неважно: при подключении растянем цикл под темп.
-- У `attack` момент удара отметь маркером `impact`: враг бьёт в долю музыки, старт анимации подгоним по нему.
-- Экспорт: File → Export → glTF 2.0, формат glTF Binary; Include: Selected Objects; Mesh: Apply Modifiers; Animation: Mode **Actions**, Shape Keys включить, Sampling включить. Draco не включать (нужен отдельный декодер).
+- Из Blender нужна только геометрия с текстурой. Анимации сдвигом и поворотом живут в коде (`pose()` в `model.js`), экшены не нужны.
+- Масштаб и положение неважны: модель сама встаёт по центру и в нужный размер. Смотреть должна по −Y (вид Numpad 1 показывает лицо), Scale применён (Ctrl+A).
+- Текстура через Image Texture в Base Color у Principled BSDF, до 1024 пикселей. Файл до 2 МБ. Нодовые эффекты в glTF не переносятся.
+- Экспорт: File → Export → glTF 2.0. Format: glTF Binary (.glb); Include: Selected Objects; Transform: +Y Up; Data → Mesh: Apply Modifiers, UVs, Normals; Material: Export; Animation: выключить; Compression: выключить (иначе нужен отдельный декодер).
 
-Показ модели ещё не подключён: это будет three.js, навендоренный в `public/vendor/`, вместо прямоугольника в `drawEnemy`.
+three.js лежит в `public/vendor/three/` и грузится только когда модель есть.
 
 ## На сайте
 
