@@ -169,13 +169,13 @@ export class BattleMusic {
    * иначе с задержкой наушников больше окна он никогда бы не попал и поправка не сработала */
   learn(err) { if (Math.abs(err) > LEARN_LIMIT) return; this.calib = Math.max(-0.05, Math.min(0.3, this.calib + err * 0.15)); }
 
-  /* удар в комбо звучит нотой этой же доли — комбо само играет мелодию */
+  /* удар в комбо — тихая копия колокольчиков этой доли октавой выше того, что звучит сейчас */
   hitTone(step) {
     if (!this.G || !this.lead) return;
     const local = ((step % this.steps) + this.steps) % this.steps;
     const hit = this.buckets[local].find(b => b.ch === this.lead) || this.buckets.find(l => l.some(b => b.ch === this.lead))?.[0];
     if (!hit) return;
     const edo = this.lead.edo || 12, shift = this.plan?.shift[this.A.roleOf(this.lead.id)] || 0;
-    this.G.voice(this.lead, this.ctx.currentTime + 0.005, 0.25, hit.n.n + Math.round(shift * edo / 12), 0.7);
+    this.G.voice(this.lead, this.ctx.currentTime + 0.005, 0.25, hit.n.n + edo + Math.round(shift * edo / 12), 0.4);
   }
 }
