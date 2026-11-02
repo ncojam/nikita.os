@@ -15,7 +15,7 @@ import { arrangement } from "./arrange.js";
 const SAMPLE_RATE = 32000;        // хватает для этой музыки и вдвое легче 44100 в загрузке
 const HIT_SEC = 1.5, HIT_SHIFT_SEC = 0.25;
 const CHUNK = 48000;              // байт: nginx сайта пропускает тела запросов до 64 КБ
-const STEP = 0.25;
+const BENCH_SEC = 2, BENCH_OK = 0.25;   // рендер обязан быть вчетверо быстрее реального времени
 
 /* все дорожки трека: каждая роль без сдвига + сдвиги, которые встречаются в правилах */
 function stemList(A) {
@@ -62,7 +62,7 @@ async function upload(track, name, bytes) {
 }
 
 /* отрендерить notes(G) в новом контексте той же проектной модели */
-async function render(raw, sec, cur, notes) {
+async function render(raw, sec, cur, notes, timing) {
   const P = fromFile(JSON.parse(JSON.stringify(raw)));
   if (cur) P.cur = cur;
   const oc = new OfflineAudioContext(2, Math.ceil(SAMPLE_RATE * sec), SAMPLE_RATE);
@@ -70,7 +70,21 @@ async function render(raw, sec, cur, notes) {
   if (P.mixer.some(m => m.fx.some(f => f.type === "math" || f.type === "code"))) await loadCodeWorklet(oc);
   const G = buildGraph(oc, P);
   notes(G, P);
-  return oc.startRendering();
+  const t = performance.now(), buf = await oc.startRendering();
+  if (timing) timing.ms = performance.now() - t;
+  return buf;
+}
+
+/* тянет ли устройство синтез в реальном времени: рендерим кусок трека целиком и смотрим, насколько быстрее
+ * настоящего времени это вышло. Запас большой: в бою рендер делит процессор с картинкой, а хвосты нот копятся */
+export async function benchSynth(raw, rules) {
+  const sec = BENCH_SEC, timing = {};
+  await render(raw, sec, rules.pattern, (G, P) => {
+    const pat = P.patterns.find(p => p.id === P.cur) || P.patterns[0], beat = 60 / P.bpm;
+    for (const ch of P.channels) for (const n of pat.notes[ch.id] || [])
+      if (n.s * beat < sec) G.voice(ch, n.s * beat, n.l * beat, n.n, n.v, n.b || 0, n.x || 1);
+  }, timing);
+  return timing.ms / (sec * 1000) < BENCH_OK;
 }
 
 /* собрать и отправить один трек; say(текст) — ход работы */

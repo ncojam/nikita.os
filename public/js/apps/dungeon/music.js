@@ -2,27 +2,39 @@ import { buildGraph } from "../dawn/graph.js";
 import { loadCodeWorklet } from "../dawn/fx.js";
 import { barLen, fromFile, patLen } from "../dawn/format.js";
 import { ensureSample } from "../dawn/instruments.js";
+import { store } from "../../core/util.js";
 import { arrangement, planBar } from "./arrange.js";
+import { benchSynth } from "./stems.js";
 
 /* ================= Clown Dungeon — боевая музыка =================
  * Играет один паттерн проекта DAWN по кругу. Что именно звучит в такте, решает arrange.js, а звук бывает двух видов:
  *  • кеш: заранее отрендеренные дорожки (stems.js), зацикленные и включаемые по тактам. Почти не нагружает процессор;
- *  • синтез: тот же граф, что в самом DAWN (graph.js). Запасной путь, пока кеша нет. На слабых телефонах не тянет.
+ *  • синтез: тот же граф, что в самом DAWN (graph.js). Звучит лучше, но слабым телефонам не под силу.
+ * Выбор: короткий замер рендера (benchSynth), результат запоминается. Если синтез всё же не успевает в бою,
+ * переходим на кеш на ходу и больше на этом устройстве синтез не включаем.
  *
  * Время. Сервер объявляет t0 — момент доли 0 по своим часам. Шаг сетки — 1/16 (как в DAWN). Участники боя
  * считают шаг от t0, поэтому присоединившийся попадает в ту же долю, а не начинает трек сначала.
- * Попадание в такт судит клиент: только он знает, что слышит игрок. Задержку наушников учитываем через
- * ctx.outputLatency и подстраиваем на лету по тому, куда игрок на самом деле стабильно попадает.
+ * Попадание в такт судит клиент: только он знает, что слышит игрок. На телефонах звук и касание запаздывают на
+ * 100–250 мс, а браузер сообщает 8 мс, поэтому верить можно только самому игроку: поправка (calib) считается по тому,
+ * где он стабильно нажимает, и запоминается на устройстве. Без неё окно попадания уезжает почти на долю назад,
+ * и в такт приходится жать «с опозданием», между нотами.
  */
 const LOOKAHEAD = 0.2, TIMER_MS = 25, STEP = 0.25;
 const OPEN = 22000;
-const HEAVY_FX = new Set(["reverb", "ott"]);   // самое дорогое для процессора: в лёгком режиме без них
-const LITE_POLY = 4;
 const WINDOW = 0.055;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
-const LEARN_LIMIT = 0.16;  // промах дальше этого — ошибка игрока, а не задержка наушников
+const TOUCH_CALIB = 0.13;  // с: типичная задержка телефона, пока поправка не выучена
+const CALIB_MIN = -0.05, CALIB_MAX = 0.4;
+const LEARN_TAPS = 7, LEARN_FROM = 3, LEARN_RATE = 0.6;   // медиана последних нажатий: случайный тап её не сдвинет
+const BENCH_WAIT = 800;    // мс: дольше ждать замер нельзя, бой уже идёт; слабое устройство сюда и упрётся
+const SLOW_SPEED = 0.9, SLOW_CHECKS = 2;   // время звука идёт медленнее реального: столько проверок подряд — и на кеш
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export class BattleMusic {
-  constructor() { this.ctx = null; this.cache = new Map(); this.G = null; this.timer = null; this.calib = 0; }
+  constructor() {
+    this.ctx = null; this.cache = new Map(); this.G = null; this.timer = null; this.taps = [];
+    this.calib = store.get("dungeon.calib", navigator.maxTouchPoints > 0 ? TOUCH_CALIB : 0);
+  }
 
   /* разбудить звук: только из обработчика нажатия, иначе браузер не даст.
    * Пустой звук нужен iOS: там контекст оживает, только если в момент нажатия что-то запущено */
@@ -46,17 +58,28 @@ export class BattleMusic {
     return this.cache.get(track.file);
   }
 
-  /* b: { music (правила трека от сервера), t0, seed }; now — часы сервера, мс */
-  async start(b, now) {
+  /* тянет ли устройство синтез: ответ запоминается, замер не дольше BENCH_WAIT */
+  async useSynth(raw, track) {
+    const known = store.get("dungeon.synth", null);
+    if (known !== null) return known;
+    this.bench ||= benchSynth(raw, track).then(ok => { store.set("dungeon.synth", ok); return ok; }, () => false);
+    return Promise.race([this.bench, sleep(BENCH_WAIT).then(() => false)]);
+  }
+
+  /* b: { music (правила трека от сервера), t0, seed }; clock() — часы сервера, мс */
+  async start(b, clock) {
     this.stop(0.05);
     this.unlock();
     const token = this.token = {};
+    this.current = { b, clock };
     const track = b.music, raw = await this.fetchTrack(track);
     if (token !== this.token) return;
     const P = fromFile(JSON.parse(JSON.stringify(raw)));
     if (track.pattern) P.cur = track.pattern;
     const pat = P.patterns.find(p => p.id === P.cur) || P.patterns[0];
-    const bank = await this.loadStems(track).catch(e => { console.warn("кеш музыки", e); return null; });
+    const synth = !track.stems || await this.useSynth(raw, track);
+    if (token !== this.token) return;
+    const bank = synth ? null : await this.loadStems(track).catch(e => { console.warn("кеш музыки", e); return null; });
     if (!bank) {
       await Promise.all(P.channels.filter(c => c.type === "sampler" && c.params.path).map(c => ensureSample(this.ctx, c.params.path)));
       if (P.mixer.some(m => m.fx.some(f => f.type === "math" || f.type === "code"))) await loadCodeWorklet(this.ctx);
@@ -76,10 +99,6 @@ export class BattleMusic {
       if (Math.abs(n.s / grid - Math.round(n.s / grid)) < 1e-6) strong.add(Math.round(n.s / STEP));
     if (!strong.size) for (let i = 0; i < steps; i += 4) strong.add(i);
 
-    if (this.lite && !bank) {
-      for (const m of P.mixer) m.fx = m.fx.filter(f => !HEAVY_FX.has(f.type));
-      for (const c of P.channels) c.poly = Math.min(c.poly || LITE_POLY, LITE_POLY);
-    }
     const G = bank ? null : buildGraph(this.ctx, P);
     const beatSec = 60 / P.bpm;
     this.P = P; this.G = G; this.A = A; this.pat = pat;
@@ -90,7 +109,8 @@ export class BattleMusic {
     this.state ||= { enemyHp: 1, myHp: 1, combo: 0 };
     this.lead = P.channels.find(c => A.roleOf(c.id) === "lead") || null;
 
-    this.aT0 = this.ctx.currentTime + (b.t0 - now) / 1000;   // доля 0 на часах аудио
+    this.aT0 = this.ctx.currentTime + (b.t0 - clock()) / 1000;   // доля 0 на часах аудио; часы читаем здесь: загрузка заняла время
+    this.watch = { at: 0, ct: 0, slow: 0 };
     this.step = Math.max(0, Math.ceil((this.ctx.currentTime - this.aT0) / this.stepSec));
     if (bank) this.mountStems(bank, track.stems);
     this.timer = setInterval(() => this.tick(), TIMER_MS);
@@ -205,7 +225,7 @@ export class BattleMusic {
       for (const x of b) if (Math.abs(x) > peak) peak = Math.abs(x);
     }
     const lat = this.ctx.outputLatency || this.ctx.baseLatency || 0;
-    return `${this.mix ? "кеш" : "синтез"} · ${this.ctx.state} · ход ${speed.toFixed(2)} · сигнал ${peak.toFixed(2)} · опозданий ${this.late || 0} · ${this.ctx.sampleRate} Гц · ${Math.round(lat * 1000)} мс`;
+    return `${this.mix ? "кеш" : "синтез"} · ${this.ctx.state} · ход ${speed.toFixed(2)} · сигнал ${peak.toFixed(2)} · задержка ${Math.round(lat * 1000)} мс · поправка ${Math.round(this.calib * 1000)} мс`;
   }
 
   setState(s) { this.state = { ...this.state, ...s }; }
@@ -213,9 +233,23 @@ export class BattleMusic {
   tick() {
     const until = this.ctx.currentTime + LOOKAHEAD;
     for (let t = this.timeOf(this.step); t < until; t = this.timeOf(this.step)) {
-      if (t >= this.ctx.currentTime) this.playStep(this.step, t); else this.late = (this.late || 0) + 1;
+      if (t >= this.ctx.currentTime) this.playStep(this.step, t);
       this.step++;
     }
+    if (this.G && this.current.b.music.stems) this.watchSynth();
+  }
+
+  /* синтез не успевает: время звука отстаёт от настоящего. Дальше на этом устройстве только кеш */
+  watchSynth() {
+    const w = this.watch, now = performance.now(), ct = this.ctx.currentTime;
+    if (now - w.at < 1000) return;
+    const speed = w.at ? (ct - w.ct) * 1000 / (now - w.at) : 1;
+    w.at = now; w.ct = ct;
+    if (document.hidden || this.ctx.state !== "running") { w.slow = 0; return; }
+    w.slow = speed < SLOW_SPEED ? w.slow + 1 : 0;
+    if (w.slow < SLOW_CHECKS) return;
+    store.set("dungeon.synth", false);
+    this.start(this.current.b, this.current.clock).catch(e => console.warn("кеш музыки", e));
   }
   timeOf(step) { return this.aT0 + step * this.stepSec; }
 
@@ -277,9 +311,16 @@ export class BattleMusic {
       if (this.isStrong(s) && (best === null || Math.abs(pos - s) < Math.abs(pos - best))) best = s;
     return best === null ? null : { step: best, err: (pos - best) * this.stepSec };
   }
-  /* подтягиваем поправку к стабильной ошибке игрока, и по попаданиям, и по близким промахам:
-   * иначе с задержкой наушников больше окна он никогда бы не попал и поправка не сработала */
-  learn(err) { if (Math.abs(err) > LEARN_LIMIT) return; this.calib = Math.max(-0.05, Math.min(0.3, this.calib + err * 0.15)); }
+  /* поправка — медиана того, где игрок нажимал на самом деле, и по попаданиям, и по промахам:
+   * при задержке больше окна он иначе никогда бы не попал и выучить было бы нечего */
+  learn(err) {
+    this.taps.push(this.calib + err);
+    if (this.taps.length > LEARN_TAPS) this.taps.shift();
+    if (this.taps.length < LEARN_FROM) return;
+    const mid = [...this.taps].sort((a, b) => a - b)[this.taps.length >> 1];
+    this.calib = Math.max(CALIB_MIN, Math.min(CALIB_MAX, this.calib + (mid - this.calib) * LEARN_RATE));
+    store.set("dungeon.calib", this.calib);
+  }
 
   /* удар в комбо — тихая копия колокольчиков этой доли октавой выше того, что звучит сейчас */
   hitTone(step) {

@@ -14,7 +14,6 @@ try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); } catch { /* в�
 const app = document.getElementById("app");
 const music = new BattleMusic();
 const sfx = new Sfx(() => music.ctx);
-music.lite = store.get("dungeon.lite", false);
 let attackAt = 0;
 const ATTACK_GUARD = 180;   // мс: второй тап сразу после атаки — дрожь пальца, а не удар в такт
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
@@ -96,7 +95,7 @@ function onState() {
   if (b) {
     lastBattle = b; holdBattle = 0;
     music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0 });
-    if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.error = null; music.start(b, srvNow()).catch(e => { console.warn("музыка", e); music.error = String(e.message || e); render(); }); }
+    if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.error = null; music.start(b, srvNow).catch(e => { console.warn("музыка", e); music.error = String(e.message || e); render(); }); }
     view.set(b, me);
   } else if (musicBattle !== null) {
     musicBattle = null;
@@ -259,21 +258,9 @@ function renderSheet() {
   document.body.append(wrap);
 }
 
-/* ---------- диагностика звука: временная, пока разбираемся с Android ---------- */
-const audioText = el("span");
-const liteBtn = el("button", { className: "small", onclick: toggleLite });
-const audioInfo = el("div", { className: "audio-info" }, audioText, liteBtn);
-function showAudio() {
-  audioText.textContent = music.stats() + " ";
-  liteBtn.textContent = music.lite ? "Лёгкий звук: вкл" : "Лёгкий звук: выкл";
-}
-function toggleLite() {
-  music.lite = !music.lite;
-  store.set("dungeon.lite", music.lite);
-  showAudio();
-  if (S?.battle) music.start(S.battle, srvNow()).catch(e => { music.error = String(e.message || e); render(); });
-}
-setInterval(() => { if (S?.battle) showAudio(); }, 700);
+/* ---------- диагностика звука: временная, пока проверяем такт на телефоне ---------- */
+const audioInfo = el("div", { className: "audio-info" });
+setInterval(() => { if (S?.battle) audioInfo.textContent = music.stats(); }, 700);
 
 /* ---------- атака и тапы в такт: по врагу и кнопкой — одно и то же ---------- */
 function attackPress() {
