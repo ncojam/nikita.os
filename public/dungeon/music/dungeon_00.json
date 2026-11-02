@@ -1,0 +1,14 @@
+{
+  "_about": "Правила боевого трека: общий пресет — public/js/apps/dungeon/arrange.js, здесь только отличия. Описание — docs/dungeon.md",
+  "file": "/dungeon/music/Dungeon_00.dawn",
+  "pattern": "pattern",
+  "roles": {
+    "grapefruit": "lead",
+    "grapefruit2": "bass",
+    "kick": "kick",
+    "snare": "snare",
+    "hat": "hat",
+    "hat2": "tension"
+  },
+  "strong": { "channels": ["grapefruit"], "grid": 1 }
+}

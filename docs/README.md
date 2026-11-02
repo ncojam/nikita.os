@@ -17,6 +17,7 @@
 | [apps.md](apps.md) | Остальные приложения: плеер, GBA, Flash, Джус, «загрузчик», настройки |
 | [dawn.md](dawn.md) | DAWN — пастельная DAW: окна-модули, движок, модуляция и проводки, педали, Магия, свои пресеты, общие проекты |
 | [dawn-format.md](dawn-format.md) | Формат проекта `.dawn` (`dawn/2`) — для людей и нейросетей |
+| [dungeon.md](dungeon.md) | Clown Dungeon — игра для Telegram: правила, музыкальные правила, модель из Blender |
 | [deploy.md](deploy.md) | Запуск локально, Docker, nginx/Caddy, переменные окружения |
 | [code-rules.md](code-rules.md) | Правила и соглашения по коду |
 

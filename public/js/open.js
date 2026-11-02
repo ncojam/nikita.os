@@ -1,5 +1,5 @@
 import { Player } from "./apps/player.js";
-import { openAirHockey, openBrowser, openChat, openDawn, openExplorer, openFakeDL, openFinds, openPost, openSettings, openShare, openTrip } from "./apps/lazy.js";
+import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFakeDL, openFinds, openPost, openSettings, openShare, openTrip } from "./apps/lazy.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";
@@ -94,6 +94,7 @@ const APPS = {
   explorer: l => openExplorer(l.path || "/home/nikita"),
   fakedl: l => openFakeDL(l),
   airhockey: () => openAirHockey(),
+  dungeon: () => openDungeon(),
   share: () => openShare(),
   trip: () => openTrip(),
   browser: l => openBrowser(l.path),

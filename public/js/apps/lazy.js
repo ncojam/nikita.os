@@ -27,6 +27,7 @@ export const openPost = lazy("./post.js", "openPost");
 export const createPost = lazy("./post.js", "createPost");
 export const reportPostByPath = lazy("./post.js", "reportPostByPath");
 export const openAirHockey = lazy("./airhockey.js", "openAirHockey");
+export const openDungeon = lazy("./dungeon/window.js", "openDungeon");
 export const openDawn = lazy("./dawn/index.js", "openDawn");
 export const openShare = lazy("./share.js", "openShare");
 export const openFinds = lazy("./finds.js", "openFinds");

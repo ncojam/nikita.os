@@ -12,6 +12,7 @@
 | `userfs.py` | `Folders` | `ufs/folders.json` + реальные каталоги в `ufs/` | Общие пользовательские папки |
 | `forum.py` | `Forum` | `ufs/.meta/forum.json`, `.meta/forum_media/` | Форум Kursk Artists |
 | `airhockey.py` | `AirHockey` | `NOS_DATA` (таблица рекордов) | Арена «Джус» |
+| `dungeon.py` | `Dungeon` | `NOS_DATA` (`dungeon.json`) | Clown Dungeon, см. [dungeon.md](dungeon.md) |
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
 | `share.py` | `Share` | `NOS_DATA/share/` (плоская папка файлов) | Файлообменник владельца: `GET /api/share/list`, `POST /api/share/upload` (multipart, потоково), `GET /api/share/file/{name}`, `POST /api/share/delete`, `GET/POST /api/share/clip` (общий текстовый буфер); всё только для ника `cojam` |
 | `trip.py` | `Trip` | `NOS_DATA/trip.json`, `trip_legs.json`; старт и обновления плана — `trip_seed.py` | План поездки: `GET /api/trip`, `GET /api/trip/leg/{a}/{b}` (всем; пеший путь из OSRM FOSSGIS и высоты Open-Meteo, сервер кэширует навсегда; адреса — `NOS_TRIP_ROUTER`, `NOS_TRIP_ELEVATION`), `POST /api/trip/card`, `/api/trip/card/delete`, `/api/trip/day`, `/api/trip/stay`, `/api/trip/stay/delete` (только ник `cojam`, та же проверка, что в `share.py`) |
@@ -43,6 +44,7 @@
 | GET/POST | `/api/mod/reports`, `/api/mod/show/{id}?token=` | posts | Модерация, только с `NOS_ADMIN_TOKEN` (без него — 404) |
 | * | `/api/forum/...`, `/media/f/{id}` | forum | См. [browser.md](browser.md) |
 | * | маршруты `AirHockey.routes` | airhockey | WS арены, таблица рекордов |
+| * | маршруты `Dungeon.routes` | dungeon | WS игры `/api/dungeon/ws` |
 | GET | `/finds/...` | server | `index.html` — «Находки»; `/finds/<id>` — публичный плейлист |
 | GET | `/api/finds/mine` | finds | Кто я, мои плейлисты, лимит |
 | POST/PATCH/DELETE | `/api/finds/pl`, `/api/finds/pl/{id}` | finds | Плейлист `{name, descr, examples:[url]}` (только владелец) |

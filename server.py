@@ -74,6 +74,7 @@ DEFAULT_DESKTOP = {
     "08 Джус.lnk": {"name": "Джус", "icon": "🍒", "app": "airhockey"},
     "07 Браузер.lnk": {"name": "Браузер", "icon": "🌐", "app": "browser"},
     "06 DAWN.lnk": {"name": "DAWN", "icon": "🌸", "app": "dawn"},
+    "10 Clown Dungeon.lnk": {"name": "Clown Dungeon", "icon": "🤡", "app": "dungeon"},
     "09 Настройки.lnk": {"name": "Настройки", "icon": "⚙️", "app": "settings"},
 }
 
@@ -665,10 +666,12 @@ async def serve_browser(request):
 async def add_headers(request, response):
     h = response.headers
     # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки).
-    # Без неё: /tg.html (Telegram Mini App грузит telegram.org) и /finds… — «Находки» встраивают
+    # Без неё: /tg.html и /dungeon.html (Telegram Mini App грузят telegram.org; но в iframe на сайте изоляция обязательна,
+    # иначе браузер не покажет страницу внутри изолированной ОС) и /finds… — «Находки» встраивают
     # плееры YouTube/SoundCloud, а Firefox не умеет iframe credentialless. GBA в такой вкладке не стартует.
     p = request.path
-    if p != "/tg.html" and p != "/finds" and not p.startswith("/finds/"):
+    mini_app = p == "/tg.html" or (p == "/dungeon.html" and "site" not in request.query)   # ?site=1 — окно на сайте
+    if not mini_app and p != "/finds" and not p.startswith("/finds/"):
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Cross-Origin-Embedder-Policy"] = "require-corp"
     h["Cross-Origin-Resource-Policy"] = "same-origin"
@@ -771,6 +774,10 @@ def make_app():
     from airhockey import AirHockey
     app["air"] = AirHockey(app["chat"].user_by_token, DATA_DIR, app["chat"].nick_exists)
     app["air"].routes(app)
+    # Clown Dungeon — игра для Telegram Mini App (цикл боёв спит, пока никого нет)
+    from dungeon import Dungeon
+    app["dungeon"] = Dungeon(app["chat"].user_by_token, DATA_DIR, PUBLIC, FS_ROOT, app["folders"].real, app["projects"])
+    app["dungeon"].routes(app)
     app["endless"] = Endless(DATA_DIR, client_ip)
     app["endless"].routes(app)
     # файлообменник владельца (ник cojam) — NOS_DATA/share
