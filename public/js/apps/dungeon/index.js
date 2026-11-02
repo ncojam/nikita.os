@@ -14,6 +14,9 @@ try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); } catch { /* в�
 const app = document.getElementById("app");
 const music = new BattleMusic();
 const sfx = new Sfx(() => music.ctx);
+music.lite = store.get("dungeon.lite", false);
+let attackAt = 0;
+const ATTACK_GUARD = 180;   // мс: второй тап сразу после атаки — дрожь пальца, а не удар в такт
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
 
@@ -176,9 +179,10 @@ function renderBattle() {
     el("div", { className: "turn", textContent: text }),
     ...(music.error ? [el("div", { className: "sound", textContent: "Музыка не запустилась: " + music.error.slice(0, 80) })]
       : music.ctx && !music.audible ? [el("div", { className: "sound", textContent: `Нажми куда угодно, чтобы включить звук (${music.ctx.state})` })] : []),
+    audioInfo,
     el("div", { className: "blog" }, ...b.log.map(l => el("div", { textContent: l }))),
     el("div", { className: "row" },
-      btn("Атака", () => { lastStep = -1; send({ t: "act", a: "attack" }); }, "main", !choose),
+      el("button", { textContent: "Атака", className: "main", disabled: !(choose || (mine && t.phase === "combo")), onpointerdown: attackPress }),
       btn("Рюкзак", () => openSheet("bag")),
       ...(b.party.length > 1 ? [btn("Помешать", () => askHinder(b.id, b.party))] : []),
       btn("Бежать", () => send({ t: "act", a: "flee" }), "", !choose)),
@@ -231,12 +235,39 @@ function renderSheet() {
   document.body.append(wrap);
 }
 
-/* ---------- тапы в такт ---------- */
-canvas.addEventListener("pointerdown", e => {
+/* ---------- диагностика звука: временная, пока разбираемся с Android ---------- */
+const audioText = el("span");
+const liteBtn = el("button", { className: "small", onclick: toggleLite });
+const audioInfo = el("div", { className: "audio-info" }, audioText, liteBtn);
+function showAudio() {
+  audioText.textContent = music.stats() + " ";
+  liteBtn.textContent = music.lite ? "Лёгкий звук: вкл" : "Лёгкий звук: выкл";
+}
+function toggleLite() {
+  music.lite = !music.lite;
+  store.set("dungeon.lite", music.lite);
+  showAudio();
+  if (S?.battle) music.start(S.battle, srvNow()).catch(e => { music.error = String(e.message || e); render(); });
+}
+setInterval(() => { if (S?.battle) showAudio(); }, 700);
+
+/* ---------- атака и тапы в такт: по врагу и кнопкой — одно и то же ---------- */
+function attackPress() {
   const b = S?.battle;
-  if (!b || b.turn.who !== me || b.turn.phase !== "combo") return;
+  if (!b || b.turn.who !== me) return;
+  if (b.turn.phase === "choose") {
+    lastStep = -1;
+    attackAt = performance.now();
+    send({ t: "act", a: "attack" });
+  } else if (b.turn.phase === "combo") rhythmTap();
+}
+canvas.addEventListener("pointerdown", e => {
   const r = canvas.getBoundingClientRect();
-  if (!view.overEnemy(e.clientX - r.left, e.clientY - r.top)) return;
+  if (view.overEnemy(e.clientX - r.left, e.clientY - r.top)) attackPress();
+});
+
+function rhythmTap() {
+  if (performance.now() - attackAt < ATTACK_GUARD) return;
   const j = music.judge();
   if (!j) return;
   const inTime = Math.abs(j.err) <= music.window;
@@ -251,7 +282,7 @@ canvas.addEventListener("pointerdown", e => {
     view.say("мимо такта", "#ff6b6b");
     send({ t: "miss" });
   }
-});
+}
 
 /* Браузер не даёт звука до первого нажатия. На телефоне нажатием считается только отпускание пальца,
  * поэтому pointerdown мало: с ним звук работал бы только с мышью. */

@@ -15,6 +15,8 @@ import { arrangement, planBar } from "./arrange.js";
  */
 const LOOKAHEAD = 0.2, TIMER_MS = 25, STEP = 0.25;
 const OPEN = 22000;
+const HEAVY_FX = new Set(["reverb", "ott"]);   // самое дорогое для процессора: в лёгком режиме без них
+const LITE_POLY = 4;
 const WINDOW = 0.055;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
 const LEARN_LIMIT = 0.16;  // промах дальше этого — ошибка игрока, а не задержка наушников
 
@@ -70,6 +72,10 @@ export class BattleMusic {
       if (Math.abs(n.s / grid - Math.round(n.s / grid)) < 1e-6) strong.add(Math.round(n.s / STEP));
     if (!strong.size) for (let i = 0; i < steps; i += 4) strong.add(i);
 
+    if (this.lite) {
+      for (const m of P.mixer) m.fx = m.fx.filter(f => !HEAVY_FX.has(f.type));
+      for (const c of P.channels) c.poly = Math.min(c.poly || LITE_POLY, LITE_POLY);
+    }
     const G = buildGraph(this.ctx, P);
     const beatSec = 60 / P.bpm;
     this.P = P; this.G = G; this.A = A; this.pat = pat;
@@ -107,12 +113,28 @@ export class BattleMusic {
     this.plan = null;
   }
 
+  /* для диагностики на экране боя: идёт ли время звука, есть ли сигнал, не опаздывает ли расписание */
+  stats() {
+    if (!this.ctx) return "нет контекста";
+    const now = performance.now(), at = this.ctx.currentTime, last = this.statAt;
+    const speed = last ? (at - last.at) * 1000 / Math.max(1, now - last.now) : 1;
+    this.statAt = { now, at };
+    let peak = 0;
+    if (this.G) {
+      const b = new Float32Array(this.G.analyser.fftSize);
+      this.G.analyser.getFloatTimeDomainData(b);
+      for (const x of b) if (Math.abs(x) > peak) peak = Math.abs(x);
+    }
+    const lat = this.ctx.outputLatency || this.ctx.baseLatency || 0;
+    return `${this.ctx.state} · ход ${speed.toFixed(2)} · сигнал ${peak.toFixed(2)} · опозданий ${this.late || 0} · ${this.ctx.sampleRate} Гц · ${Math.round(lat * 1000)} мс`;
+  }
+
   setState(s) { this.state = { ...this.state, ...s }; }
 
   tick() {
     const until = this.ctx.currentTime + LOOKAHEAD;
     for (let t = this.timeOf(this.step); t < until; t = this.timeOf(this.step)) {
-      if (t >= this.ctx.currentTime) this.playStep(this.step, t);
+      if (t >= this.ctx.currentTime) this.playStep(this.step, t); else this.late = (this.late || 0) + 1;
       this.step++;
     }
   }
