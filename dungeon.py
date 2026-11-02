@@ -6,7 +6,7 @@
 только он знает, что звучит у него в наушниках. Сервер проверяет, что нота сильная, новая и близка по времени.
 
 Протокол (WS /api/dungeon/ws, JSON). Клиент → сервер: auth, ping, wander, use, equip, unequip, pick, join,
-hinder, act (attack/item/flee), tap, miss. Сервер → клиент: hello, pong, state (снимок мира глазами игрока),
+throw, hinder, act (attack/item/flee), tap, miss. Сервер → клиент: hello, pong, state (снимок мира глазами игрока),
 ev (событие для анимации), log (строка в журнал), error.
 
 Данные игры (вещи, враги, локации) — таблицы ниже: новый враг или уровень — это новая запись.
@@ -61,6 +61,15 @@ MUSIC_LEAD = 1.0         # с от появления врага до перво
 
 BASE_HP = 30
 BASE_DMG = (4, 7)
+# уровни: опыт за победу делят не поровну, а дают каждому участнику целиком
+XP_KILL = 10             # за врага 1 уровня, дальше +XP_KILL_LVL за каждый уровень
+XP_KILL_LVL = 5
+XP_LEVEL = 30            # до следующего уровня нужно XP_LEVEL × уровень
+LEVEL_HP = 4             # игроку за уровень
+LEVEL_DMG_EVERY = 2      # +1 к урону раз в столько уровней
+# враг растёт чуть медленнее игрока: его уровень равен уровню того, кто на него наткнулся
+ENEMY_HP_LVL = 0.12      # +12% здоровья за уровень
+ENEMY_ATK_EVERY = 2      # +1 к атаке раз в столько уровней
 
 ITEMS = {
     "mushroom": {"name": "Светящийся гриб", "kind": "heal", "heal": 8},
@@ -278,7 +287,8 @@ class Dungeon:
         p = self.players.get(pid)
         if p is None:
             p = self.players[pid] = {"nick": nick, "hp": BASE_HP, "maxhp": BASE_HP, "coins": 0, "inv": dict(STARTER),
-                                     "eq": {"weapon": None, "armor": None}, "loc": START_LOC, "kills": 0, "deaths": 0}
+                                     "eq": {"weapon": None, "armor": None}, "loc": START_LOC, "kills": 0, "deaths": 0,
+                                     "level": 1, "xp": 0}
         p["nick"] = nick
         if p.get("loc") not in LOCATIONS:
             p["loc"] = START_LOC
@@ -293,7 +303,7 @@ class Dungeon:
 
     def atk_of(self, p):
         w = p["eq"].get("weapon")
-        return ITEMS[w]["atk"] if w in ITEMS else 0
+        return (ITEMS[w]["atk"] if w in ITEMS else 0) + (p.get("level", 1) - 1) // LEVEL_DMG_EVERY
 
     def def_of(self, p):
         a = p["eq"].get("armor")
@@ -349,12 +359,13 @@ class Dungeon:
         return {
             "t": "state", "srv": now_ms(),
             "me": {"id": pid, "nick": p["nick"], "hp": p["hp"], "maxhp": p["maxhp"], "coins": p["coins"],
+                   "level": p.get("level", 1), "xp": p.get("xp", 0), "xpNext": XP_LEVEL * p.get("level", 1),
                    "atk": self.atk_of(p), "def": self.def_of(p),
                    "eq": {k: self.item_view(v) if v else None for k, v in p["eq"].items()},
                    "inv": [{**self.item_view(k), "qty": v} for k, v in sorted(p["inv"].items())]},
             "loc": {"id": loc, "name": LOCATIONS[loc]["name"], "players": here[:30],
                     "ground": [{"id": g["id"], "name": g["name"], "from": g.get("from")} for g in self.ground.get(loc, [])],
-                    "battles": [{"id": x["id"], "enemy": x["enemy"]["name"], "hp": x["enemy"]["hp"] / x["enemy"]["maxhp"],
+                    "battles": [{"id": x["id"], "enemy": x["enemy"]["name"], "level": x["enemy"]["level"], "hp": x["enemy"]["hp"] / x["enemy"]["maxhp"],
                                  "party": [{"id": i, "nick": self.players[i]["nick"]} for i in x["party"]],
                                  "mine": pid in x["party"]}
                                 for x in self.battles.values() if x["loc"] == loc]},
@@ -369,7 +380,8 @@ class Dungeon:
         t = b["turn"]
         c = t.get("combo")
         return {"id": b["id"], "track": b["track"]["id"], "music": b["track"]["rules"], "t0": b["t0"], "seed": b["seed"],
-                "enemy": {"kind": b["enemy"]["kind"], "name": b["enemy"]["name"], "hp": b["enemy"]["hp"], "maxhp": b["enemy"]["maxhp"]},
+                "enemy": {"kind": b["enemy"]["kind"], "name": b["enemy"]["name"], "level": b["enemy"]["level"],
+                          "hp": b["enemy"]["hp"], "maxhp": b["enemy"]["maxhp"]},
                 "party": [{"id": i, "nick": self.players[i]["nick"], "hp": self.players[i]["hp"], "maxhp": self.players[i]["maxhp"]}
                           for i in b["party"]],
                 "turn": {"who": t["who"], "phase": t["phase"], "left": max(0, t["until"] - time.time()),
@@ -452,6 +464,14 @@ class Dungeon:
         p["eq"][d["kind"]] = item
         self.mark(p["loc"])
 
+    async def throw(self, pid, item):
+        """Выкинуть одну вещь: она ложится на локацию, подобрать может кто угодно. Не тратит ход."""
+        p = self.players[pid]
+        if item not in ITEMS or not self.inv_take(p, item):
+            return
+        self.drop(p["loc"], ITEMS[item]["name"], source=p["nick"], item=item)
+        await self.say(pid, f"Выброшено: {ITEMS[item]['name']}.")
+
     async def unequip(self, pid, slot):
         p = self.players[pid]
         if slot not in ("weapon", "armor") or not p["eq"].get(slot):
@@ -465,10 +485,13 @@ class Dungeon:
         p = self.players[pid]
         e = ENEMIES[kind]
         track = await self.pick_track(e)
+        lvl = p.get("level", 1)
+        hp = round(e["hp"] * (1 + ENEMY_HP_LVL * (lvl - 1)))
+        up = (lvl - 1) // ENEMY_ATK_EVERY
         bid = self.uid()
         now = time.time()
         b = {"id": bid, "loc": p["loc"], "party": [pid], "order": [pid], "i": -1, "trip": set(), "gone": {},
-             "enemy": {"kind": kind, "name": e["name"], "hp": e["hp"], "maxhp": e["hp"]},
+             "enemy": {"kind": kind, "name": e["name"], "level": lvl, "hp": hp, "maxhp": hp, "atk": (e["atk"][0] + up, e["atk"][1] + up)},
              "track": track, "t0": now_ms() + int(MUSIC_LEAD * 1000), "seed": random.getrandbits(31),
              "turn": {"who": None, "phase": "wait", "until": now}, "log": [f"{e['name']} вылетает из темноты!"]}
         self.battles[bid] = b
@@ -619,7 +642,7 @@ class Dungeon:
         e = ENEMIES[b["enemy"]["kind"]]
         pid = random.choice(alive)
         p = self.players[pid]
-        dmg = max(1, random.randint(*e["atk"]) - self.def_of(p))
+        dmg = max(1, random.randint(*b["enemy"]["atk"]) - self.def_of(p))
         p["hp"] = max(0, p["hp"] - dmg)
         self.dirty_save = True
         self.blog(b, f"{e['name']} {random.choice(e['hits'])} {p['nick']}: −{dmg}.")
@@ -664,7 +687,8 @@ class Dungeon:
     async def win(self, b, pid):
         e = ENEMIES[b["enemy"]["kind"]]
         nick = self.players[pid]["nick"]
-        coins = random.randint(*e["coins"])
+        lvl = b["enemy"]["level"]
+        coins = random.randint(*e["coins"]) + lvl - 1
         self.drop(b["loc"], f"{coins} мон.", source=e["name"], coins=coins)
         item = weighted(e["drops"])
         self.drop(b["loc"], ITEMS[item]["name"], source=e["name"], item=item)
@@ -674,7 +698,21 @@ class Dungeon:
         await self.to_party(b, {"t": "ev", "e": "win", "by": nick, "enemy": e["name"]})
         for i in b["party"]:
             await self.say(i, "Победа! Добыча упала на пол: кто успел, того и вещи.")
+            await self.add_xp(i, XP_KILL + XP_KILL_LVL * (lvl - 1))
         self.mark(b["loc"])
+
+    async def add_xp(self, pid, xp):
+        p = self.players[pid]
+        p["level"] = p.get("level", 1)
+        p["xp"] = p.get("xp", 0) + xp
+        while p["xp"] >= XP_LEVEL * p["level"]:
+            p["xp"] -= XP_LEVEL * p["level"]
+            p["level"] += 1
+            p["maxhp"] += LEVEL_HP
+            p["hp"] = p["maxhp"]
+            await self.say(pid, f"Новый уровень: {p['level']}! Здоровье восстановлено, враги тоже подрастут.")
+            await self.to_player(pid, {"t": "ev", "e": "level", "level": p["level"]})
+        self.dirty_save = True
 
     # ---------- таймеры ----------
     async def step_battle(self, b, now):
@@ -772,6 +810,8 @@ class Dungeon:
             await self.equip(pid, d.get("item"))
         elif t == "unequip":
             await self.unequip(pid, d.get("slot"))
+        elif t == "throw":
+            await self.throw(pid, d.get("item"))
         elif t == "pick":
             await self.pick(pid, d.get("id"))
         elif t == "join":

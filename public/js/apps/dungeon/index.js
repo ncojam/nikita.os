@@ -78,6 +78,7 @@ function onEvent(d) {
   }
   else if (d.e === "enemy_hit") view.enemyHit(d.who, d.dmg);
   else if (d.e === "trip") view.trip(d.who);
+  else if (d.e === "level") banner(`Уровень ${d.level}!`);
   else if (d.e === "win") { view.play("death"); holdBattle = performance.now() + 1700; banner(`Победа! ${d.enemy} повержена`); setTimeout(render, 1750); }
   else if (d.e === "dead") { holdBattle = performance.now() + 1200; banner("Ты повержен"); setTimeout(render, 1250); }
 }
@@ -96,7 +97,7 @@ const hpBar = (hp, max) => {
 };
 const btn = (text, fn, cls = "", off = false) => el("button", { textContent: text, className: cls, disabled: off, onclick: fn });
 const top = () => el("div", { className: "top" }, el("div", { className: "place", textContent: S.loc.name }),
-  el("div", { textContent: `🪙 ${S.me.coins}` }), hpBar(S.me.hp, S.me.maxhp));
+  el("div", { textContent: `ур. ${S.me.level} · 🪙 ${S.me.coins}` }), hpBar(S.me.hp, S.me.maxhp));
 
 function render() {
   if (!S) { app.replaceChildren(el("div", { textContent: "Спускаемся в пещеру…" })); return; }
@@ -109,7 +110,7 @@ function renderWorld() {
   const log = el("div", { className: "log" }, ...logLines.map(t => el("div", { textContent: t })));
   const rows = [];
   for (const b of S.loc.battles) rows.push(el("div", { className: "card" },
-    el("span", { textContent: `⚔ ${b.party.map(p => p.nick).join(", ")} против: ${b.enemy} (${Math.round(b.hp * 100)}%)` }),
+    el("span", { textContent: `⚔ ${b.party.map(p => p.nick).join(", ")} против: ${b.enemy}, ур. ${b.level} (${Math.round(b.hp * 100)}%)` }),
     btn("В бой", () => send({ t: "join", id: b.id }), "small", b.party.length >= 4),
     btn("Помешать", () => askHinder(b.id, b.party), "small")));
   for (const g of S.loc.ground) rows.push(el("div", { className: "card" },
@@ -171,7 +172,7 @@ function renderSheet() {
     for (const p of sheet.data.targets) box.append(btn(p.nick, () => { send({ t: "hinder", id: sheet.data.id, target: p.id }); closeSheet(); }));
   } else {
     const b = S.battle, myTurn = b && b.turn.who === me && b.turn.phase === "choose";
-    box.append(el("h3", { textContent: `Рюкзак · урон +${S.me.atk} · защита +${S.me.def}` }));
+    box.append(el("h3", { textContent: `Рюкзак · урон +${S.me.atk} · защита +${S.me.def} · опыт ${S.me.xp}/${S.me.xpNext}` }));
     for (const slot of ["weapon", "armor"]) {
       const it = S.me.eq[slot];
       if (it) box.append(el("div", { className: "card" }, el("span", { textContent: `Надето: ${it.name}` }),
@@ -185,7 +186,8 @@ function renderSheet() {
         gear ? btn("Надеть", () => send({ t: "equip", item: it.id }), "small")
           : btn(b ? "Применить (ход)" : "Применить", () => {
             if (b) { send({ t: "act", a: "item", item: it.id }); closeSheet(); } else send({ t: "use", item: it.id });
-          }, "small", !!b && !myTurn)));
+          }, "small", !!b && !myTurn),
+        btn("Выкинуть", () => send({ t: "throw", item: it.id }), "small")));
     }
     if (!S.me.inv.length) box.append(el("div", { className: "here", textContent: "Пусто." }));
   }

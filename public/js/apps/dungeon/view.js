@@ -100,7 +100,7 @@ export class BattleView {
     g.fillRect(x, y, e.w, e.h);
     g.globalAlpha = 1;
     g.fillStyle = "#ece6f5"; g.font = "13px system-ui"; g.textAlign = "center";
-    g.fillText(b.name, this.W / 2, e.y - 28);
+    g.fillText(`${b.name} · ур. ${b.level}`, this.W / 2, e.y - 28);
     const bw = e.w, k = Math.max(0, b.hp / b.maxhp);
     g.fillStyle = "#352c44"; g.fillRect(this.W / 2 - bw / 2, e.y - 20, bw, 6);
     g.fillStyle = k < 0.35 ? "#ff6b6b" : "#ff9ecf"; g.fillRect(this.W / 2 - bw / 2, e.y - 20, bw * k, 6);
