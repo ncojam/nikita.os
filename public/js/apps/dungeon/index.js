@@ -315,7 +315,7 @@ function rhythmTap(j = music.judge()) {
     setTimeout(() => landTap(j), -j.err * 1000);
   } else {
     music.learn(j.err);
-    view.say("мимо такта", "#ff6b6b");
+    view.say(j.err < 0 ? "слишком рано" : "слишком поздно", "#ff6b6b");
     send({ t: "miss" });
   }
 }
