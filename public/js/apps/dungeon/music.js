@@ -22,7 +22,8 @@ import { benchSynth } from "./stems.js";
  */
 const LOOKAHEAD = 0.2, TIMER_MS = 25, STEP = 0.25;
 const OPEN = 22000;
-const WINDOW = 0.055;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
+const WINDOW = 0.075;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
+const WINDOW_WEAK = 0.1;   // на слабых устройствах: задержка там больше и плавает
 const TOUCH_CALIB = 0.13;  // с: типичная задержка телефона, пока поправка не выучена
 const CALIB_MIN = -0.05, CALIB_MAX = 0.4;
 const LEARN_TAPS = 7, LEARN_FROM = 3, LEARN_RATE = 0.6;   // медиана последних нажатий: случайный тап её не сдвинет
@@ -103,7 +104,8 @@ export class BattleMusic {
     const beatSec = 60 / P.bpm;
     this.P = P; this.G = G; this.A = A; this.pat = pat;
     this.steps = steps; this.barSteps = barSteps; this.buckets = buckets; this.strong = strong;
-    this.beatSec = beatSec; this.stepSec = beatSec * STEP; this.seed = b.seed; this.window = track.window || WINDOW;
+    this.beatSec = beatSec; this.stepSec = beatSec * STEP; this.seed = b.seed; this.window = track.window || (bank ? WINDOW_WEAK : WINDOW);
+    this.weak = !!bank;
     this.filters = new Map();
     this.plan = null;
     this.state ||= { enemyHp: 1, myHp: 1, combo: 0 };

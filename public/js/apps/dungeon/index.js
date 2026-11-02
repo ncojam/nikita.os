@@ -16,6 +16,9 @@ const music = new BattleMusic();
 const sfx = new Sfx(() => music.ctx);
 let attackAt = 0;
 const ATTACK_GUARD = 180;   // мс: второй тап сразу после атаки — дрожь пальца, а не удар в такт
+const ATTACK_WAIT = 600;    // мс: столько после атаки ждём ответа сервера, тап за это время не пропадает
+const EARLY_BUFFER = 0.09;  // с: на слабых устройствах чуть ранний тап придерживается до самой ноты
+let waitingTap = null;      // оценка тапа, сделанного до того, как сервер открыл комбо
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
 
@@ -94,6 +97,7 @@ function onState() {
   const b = S.battle;
   if (b) {
     lastBattle = b; holdBattle = 0;
+    if (b.turn.who === me && b.turn.phase === "combo") setTimeout(flushTap);
     music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0 });
     if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.error = null; music.start(b, srvNow).catch(e => { console.warn("музыка", e); music.error = String(e.message || e); render(); }); }
     view.set(b, me);
@@ -267,27 +271,46 @@ function attackPress() {
   const b = S?.battle;
   if (!b || b.turn.who !== me) return;
   if (b.turn.phase === "choose") {
+    const since = performance.now() - attackAt;
+    if (since < ATTACK_WAIT) {      // атака ушла, ответа ещё нет: запоминаем тап и засчитаем его, когда комбо откроется
+      if (since >= ATTACK_GUARD) waitingTap = { j: music.judge(), at: performance.now() };
+      return;
+    }
     lastStep = -1;
+    waitingTap = null;
     attackAt = performance.now();
     send({ t: "act", a: "attack" });
   } else if (b.turn.phase === "combo") rhythmTap();
+}
+/* сервер открыл комбо: отдаём тап, сделанный, пока ответ был в пути */
+function flushTap() {
+  const w = waitingTap;
+  if (!w) return;
+  waitingTap = null;
+  if (performance.now() - w.at < ATTACK_WAIT) rhythmTap(w.j);
 }
 canvas.addEventListener("pointerdown", e => {
   const r = canvas.getBoundingClientRect();
   if (view.overEnemy(e.clientX - r.left, e.clientY - r.top)) attackPress();
 });
 
-function rhythmTap() {
-  if (performance.now() - attackAt < ATTACK_GUARD) return;
-  const j = music.judge();
+function landTap(j) {
+  music.learn(j.err);
+  music.hitTone(j.step);
+  send({ t: "tap", step: j.step });
+}
+function rhythmTap(j = music.judge()) {
+  if (arguments.length === 0 && performance.now() - attackAt < ATTACK_GUARD) return;
   if (!j) return;
   const inTime = Math.abs(j.err) <= music.window;
-  if (inTime && j.step === lastStep) return;  // второй тап по той же ноте не считаем
+  if (j.step === lastStep && inTime) return;  // второй тап по той же ноте не считаем
+  const held = music.weak && j.err < 0 && j.err >= -(music.window + EARLY_BUFFER);
   if (inTime) {
     lastStep = j.step;
-    music.learn(j.err);
-    music.hitTone(j.step);
-    send({ t: "tap", step: j.step });
+    landTap(j);
+  } else if (held && j.step !== lastStep) {     // рановато: зачтём ровно в момент ноты
+    lastStep = j.step;
+    setTimeout(() => landTap(j), -j.err * 1000);
   } else {
     music.learn(j.err);
     view.say("мимо такта", "#ff6b6b");
