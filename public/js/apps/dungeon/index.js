@@ -18,7 +18,7 @@ let attackAt = 0;
 const ATTACK_GUARD = 180;   // мс: второй тап сразу после атаки — дрожь пальца, а не удар в такт
 const ATTACK_WAIT = 600;    // мс: столько после атаки ждём ответа сервера, тап за это время не пропадает
 // с: чуть ранний тап придерживается до самой ноты. Люди и так жмут немного раньше звука
-const EARLY_BUFFER = 0.06, EARLY_BUFFER_WEAK = 0.09;
+const EARLY_BUFFER = 0.025, EARLY_BUFFER_WEAK = 0.045;
 let waitingTap = null;      // оценка тапа, сделанного до того, как сервер открыл комбо
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;

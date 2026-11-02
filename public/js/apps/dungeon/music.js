@@ -21,8 +21,8 @@ import { benchSynth } from "./stems.js";
  */
 const LOOKAHEAD = 0.2, TIMER_MS = 25, STEP = 0.25;
 const OPEN = 22000;
-const WINDOW = 0.075;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
-const WINDOW_WEAK = 0.1;   // на слабых устройствах: задержка там больше и плавает
+const WINDOW = 0.055;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
+const WINDOW_WEAK = 0.075;   // на слабых устройствах: задержка там больше и плавает
 const TOUCH_CALIB = 0.13;  // с: типичная задержка телефона, пока поправка не выучена
 const CALIB_MIN = -0.05, CALIB_MAX = 0.4, CALIB_MAX_DESK = 0.2;
 const CALIB_KEY = "dungeon.calib2";   // новый ключ: старая поправка считалась поверх заявленной задержки
