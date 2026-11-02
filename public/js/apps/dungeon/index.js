@@ -93,7 +93,7 @@ function onState() {
   if (b) {
     lastBattle = b; holdBattle = 0;
     music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0 });
-    if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.start(b, srvNow()).catch(e => console.warn("музыка", e)); }
+    if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.error = null; music.start(b, srvNow()).catch(e => { console.warn("музыка", e); music.error = String(e.message || e); render(); }); }
     view.set(b, me);
   } else if (musicBattle !== null) {
     musicBattle = null;
@@ -174,7 +174,8 @@ function renderBattle() {
     : mine ? "Твой ход" : t.phase === "combo" ? `${who} бьёт в такт…` : `Ходит ${who}…`;
   const tail = [
     el("div", { className: "turn", textContent: text }),
-    ...(music.running && !music.audible ? [el("div", { className: "sound", textContent: "Нажми куда угодно, чтобы включить звук" })] : []),
+    ...(music.error ? [el("div", { className: "sound", textContent: "Музыка не запустилась: " + music.error.slice(0, 80) })]
+      : music.ctx && !music.audible ? [el("div", { className: "sound", textContent: `Нажми куда угодно, чтобы включить звук (${music.ctx.state})` })] : []),
     el("div", { className: "blog" }, ...b.log.map(l => el("div", { textContent: l }))),
     el("div", { className: "row" },
       btn("Атака", () => { lastStep = -1; send({ t: "act", a: "attack" }); }, "main", !choose),
@@ -252,12 +253,13 @@ canvas.addEventListener("pointerdown", e => {
   }
 });
 
-/* браузер не даёт звука до первого нажатия */
-addEventListener("pointerdown", () => {
-  const was = music.audible;
-  music.unlock();
-  if (!was && S?.battle) { music.resync(S.battle.t0, srvNow()); setTimeout(render, 150); }
-}, true);
+/* Браузер не даёт звука до первого нажатия. На телефоне нажатием считается только отпускание пальца,
+ * поэтому pointerdown мало: с ним звук работал бы только с мышью. */
+for (const ev of ["pointerdown", "pointerup", "touchend", "click"]) addEventListener(ev, () => music.unlock(), true);
+addEventListener("visibilitychange", () => { if (!document.hidden && music.ctx) music.ctx.resume(); });
+music.onWake = () => {
+  if (S?.battle) { music.resync(S.battle.t0, srvNow()); render(); }
+};
 
 render();
 connect();

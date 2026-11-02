@@ -21,10 +21,19 @@ const LEARN_LIMIT = 0.16;  // промах дальше этого — ошиб�
 export class BattleMusic {
   constructor() { this.ctx = null; this.cache = new Map(); this.G = null; this.timer = null; this.calib = 0; }
 
-  /* разбудить звук: только из обработчика нажатия, иначе браузер не даст */
+  /* разбудить звук: только из обработчика нажатия, иначе браузер не даст.
+   * Пустой звук нужен iOS: там контекст оживает, только если в момент нажатия что-то запущено */
   unlock() {
-    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
-    if (this.ctx.state === "suspended") this.ctx.resume();
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+      this.ctx.onstatechange = () => this.onWake?.();
+    }
+    if (this.ctx.state === "running") return;
+    this.ctx.resume();
+    const s = this.ctx.createBufferSource();
+    s.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+    s.connect(this.ctx.destination);
+    s.start();
   }
   get running() { return !!this.timer; }
   get audible() { return this.ctx?.state === "running"; }
