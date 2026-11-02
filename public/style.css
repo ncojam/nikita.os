@@ -1326,3 +1326,44 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .shr-clipbar { display: flex; gap: 6px; flex-wrap: wrap; }
 .shr-cbtn { border: 0; border-radius: 8px; padding: 7px 12px; background: rgba(255,255,255,0.12); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 .shr-cbtn:hover { background: rgba(255,255,255,0.22); }
+
+/* ================= поездка ================= */
+.trp { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; background: var(--glass-bg-strong); }
+.trp-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--glass-border); flex: none; }
+.trp-title { font-weight: 700; margin-right: auto; }
+.trp-btn { padding: 6px 10px; border: 1px solid var(--glass-border); border-radius: 9px; background: rgba(255,255,255,0.06); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.trp-btn:hover { background: rgba(255,255,255,0.14); }
+.trp-btn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.trp-list { flex: 1; overflow: auto; padding: 8px 10px 14px; }
+.trp-day { display: flex; align-items: baseline; gap: 8px; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px 10px; border: 0; border-left: 3px solid var(--day); border-radius: 8px; background: rgba(255,255,255,0.05); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.trp-day:hover { background: rgba(255,255,255,0.11); }
+.trp-day.on { background: color-mix(in srgb, var(--day) 26%, transparent); }
+.trp-day b { flex: none; }
+.trp-day span { color: var(--muted); font-size: 13px; }
+.trp-day .trp-edit { margin-left: auto; }
+.trp-card { display: grid; grid-template-columns: 22px 46px 1fr; gap: 2px 8px; margin: 6px 0 0 8px; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; background: rgba(0,0,0,0.16); cursor: pointer; }
+.trp-card:hover { background: rgba(255,255,255,0.07); }
+.trp-card.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.trp-card.flash { animation: trp-flash .9s var(--ease); }
+@keyframes trp-flash { 30% { background: color-mix(in srgb, var(--accent) 45%, transparent); } }
+.trp-num { width: 20px; height: 20px; border-radius: 50%; background: var(--day); color: #0c0c11; font-size: 11px; font-weight: 700; line-height: 20px; text-align: center; }
+.trp-time { font-variant-numeric: tabular-nums; color: var(--muted); line-height: 20px; }
+.trp-place { font-weight: 600; line-height: 20px; }
+.trp-comment { grid-column: 3; color: var(--muted); font-size: 13px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.trp-actions { grid-column: 3; display: flex; gap: 6px; margin-top: 4px; }
+.trp-edit { padding: 0 4px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.trp-edit:hover { color: var(--text); }
+.trp-empty { padding: 30px 10px; text-align: center; color: var(--muted); }
+.trp-form { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 0 8px; padding: 10px; border: 1px solid var(--accent); border-radius: 10px; background: rgba(0,0,0,0.22); }
+.trp-row { display: flex; gap: 6px; }
+.trp-row > * { min-width: 0; flex: 1; }
+.trp-form input, .trp-form textarea { box-sizing: border-box; width: 100%; padding: 7px 9px; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: rgba(0,0,0,0.2); color: var(--text); font: inherit; font-size: 14px; color-scheme: dark; }
+.trp-form textarea { min-height: 70px; resize: vertical; }
+.trp-hint { color: var(--muted); font-size: 12px; }
+.trp-map { height: 100%; isolation: isolate; background: #15151b; font: inherit; }
+.trp-map.pick { cursor: crosshair; }
+.trp-map.pick .leaflet-interactive, .trp-map.pick .leaflet-marker-icon { cursor: crosshair; }
+.trp-pin { display: flex; align-items: center; justify-content: center; box-sizing: border-box; height: 24px; min-width: 24px; padding: 0 6px; width: max-content; border: 2px solid #fff; border-radius: 12px; background: var(--day); color: #0c0c11; font: 700 11px/1 system-ui, sans-serif; box-shadow: 0 1px 6px rgba(0,0,0,0.6); }
+.trp-pin.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+.trp-menu { max-width: min(340px, calc(100vw - 16px)); }
+.trp-menu span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
