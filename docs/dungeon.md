@@ -39,7 +39,7 @@ Mini App: страница `/dungeon.html`, сервер `dungeon.py`, клие�
   "strong": { "channels": ["канал"], "grid": 1 },
   "addLayers": [{ "role": "pad", "at": 6 }],
   "rules": [{ "when": { "enemyHpBelow": 0.5 }, "add": ["pad"] }],
-  "window": 0.09
+  "window": 0.055
 }
 ```
 

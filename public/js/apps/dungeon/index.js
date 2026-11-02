@@ -210,6 +210,7 @@ canvas.addEventListener("pointerdown", e => {
     music.hitTone(j.step);
     send({ t: "tap", step: j.step });
   } else {
+    music.learn(j.err);
     view.say("мимо такта", "#ff6b6b");
     send({ t: "miss" });
   }

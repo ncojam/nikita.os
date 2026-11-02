@@ -15,6 +15,8 @@ import { arrangement, planBar } from "./arrange.js";
  */
 const LOOKAHEAD = 0.2, TIMER_MS = 25, STEP = 0.25;
 const OPEN = 22000;
+const WINDOW = 0.055;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
+const LEARN_LIMIT = 0.16;  // промах дальше этого — ошибка игрока, а не задержка наушников
 
 export class BattleMusic {
   constructor() { this.ctx = null; this.cache = new Map(); this.G = null; this.timer = null; this.calib = 0; }
@@ -63,7 +65,7 @@ export class BattleMusic {
     const beatSec = 60 / P.bpm;
     this.P = P; this.G = G; this.A = A; this.pat = pat;
     this.steps = steps; this.barSteps = barSteps; this.buckets = buckets; this.strong = strong;
-    this.beatSec = beatSec; this.stepSec = beatSec * STEP; this.seed = b.seed; this.window = track.window || 0.09;
+    this.beatSec = beatSec; this.stepSec = beatSec * STEP; this.seed = b.seed; this.window = track.window || WINDOW;
     this.filters = new Map();
     this.plan = null;
     this.state ||= { enemyHp: 1, myHp: 1, combo: 0 };
@@ -163,16 +165,17 @@ export class BattleMusic {
       if (this.isStrong(s) && (best === null || Math.abs(pos - s) < Math.abs(pos - best))) best = s;
     return best === null ? null : { step: best, err: (pos - best) * this.stepSec };
   }
-  /* попал: подтягиваем поправку к его стабильной ошибке — так наушники по блютузу не мешают играть */
-  learn(err) { this.calib = Math.max(-0.05, Math.min(0.3, this.calib + err * 0.15)); }
+  /* подтягиваем поправку к стабильной ошибке игрока, и по попаданиям, и по близким промахам:
+   * иначе с задержкой наушников больше окна он никогда бы не попал и поправка не сработала */
+  learn(err) { if (Math.abs(err) > LEARN_LIMIT) return; this.calib = Math.max(-0.05, Math.min(0.3, this.calib + err * 0.15)); }
 
-  /* удар в комбо звучит нотой этой же доли октавой выше — комбо само играет мелодию */
+  /* удар в комбо звучит нотой этой же доли — комбо само играет мелодию */
   hitTone(step) {
     if (!this.G || !this.lead) return;
     const local = ((step % this.steps) + this.steps) % this.steps;
     const hit = this.buckets[local].find(b => b.ch === this.lead) || this.buckets.find(l => l.some(b => b.ch === this.lead))?.[0];
     if (!hit) return;
     const edo = this.lead.edo || 12, shift = this.plan?.shift[this.A.roleOf(this.lead.id)] || 0;
-    this.G.voice(this.lead, this.ctx.currentTime + 0.005, 0.25, hit.n.n + edo + Math.round(shift * edo / 12), 0.7);
+    this.G.voice(this.lead, this.ctx.currentTime + 0.005, 0.25, hit.n.n + Math.round(shift * edo / 12), 0.7);
   }
 }
