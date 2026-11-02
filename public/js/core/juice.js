@@ -8,7 +8,8 @@ import { store } from "./util.js";
  *     nodes — узел или список (появляются по очереди); opts: { sound: false } — без звука, если их несколько групп.
  * Правила: только свойства scale / rotate / translate / opacity — они не спорят с transform, которым
  * двигают элементы WM и Leaflet; анимации не остаются после окончания (без fill "forwards").
- * Анимации выключаются сами при prefers-reduced-motion и на слабых устройствах (html.fx-calm).
+ * Анимации выключаются при prefers-reduced-motion и в настройках. Новая анимация сменяет предыдущую,
+ * поэтому быстрые клики подряд не теряются.
  */
 const DEFAULTS = { sound: true, volume: 0.35, motion: true, power: 1 };
 const cfg = { ...DEFAULTS, ...store.get("juice", {}) };
@@ -54,8 +55,12 @@ function click({ freq, to = freq * 0.55, cut, len, gain = 1 }) {
   osc.onended = () => out.disconnect();
 }
 
-const canMove = () => cfg.motion && !REDUCED && !document.documentElement.classList.contains("fx-calm");
-const play = (node, frames, opts) => (canMove() ? node.animate(frames, { easing: EASE, ...opts }) : null);
+const canMove = () => cfg.motion && !REDUCED;
+const play = (node, frames, opts) => {
+  if (!canMove()) return null;
+  node._juice?.cancel();
+  return (node._juice = node.animate(frames, { easing: EASE, ...opts }));
+};
 
 export const Juice = {
   cfg,
@@ -64,17 +69,13 @@ export const Juice = {
     store.set("juice", cfg);
   },
 
-  // поза «в руке»; lift — на сколько окно приподнято, пока его держат
-  grab(node, side = 0) {
+  // поза «в руке»: сразу 95%, с изингом к норме; lift — на сколько окно приподнято, пока его держат
+  grab(node) {
     const p = cfg.power, lift = 1 + 0.008 * p;
     click({ freq: 1250, cut: 2800, len: 0.045 });
     node.style.setProperty("--juice-lift", canMove() ? lift : 1);
     node.classList.add("grabbed");
-    play(node, [
-      { scale: 1, rotate: "0deg" },
-      { scale: 1 + 0.022 * p, rotate: 0.45 * p * side + "deg", offset: 0.4 },
-      { scale: lift, rotate: "0deg" },
-    ], { duration: 190 });
+    play(node, [{ scale: 1 - 0.05 * p }, { scale: lift }], { duration: 240, easing: SPRING });
   },
 
   drop(node) {

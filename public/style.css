@@ -1362,10 +1362,30 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .trp-form textarea { min-height: 70px; resize: vertical; }
 .trp-hint { color: var(--muted); font-size: 12px; }
 .trp-map { height: 100%; isolation: isolate; background: #15151b; font: inherit; }
-.trp-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.6); }   /* тёмная тема из обычных тайлов OSM */
-.trp-map.pick { cursor: crosshair; }
-.trp-map.pick .leaflet-interactive, .trp-map.pick .leaflet-marker-icon { cursor: crosshair; }
-.trp-pin { display: flex; align-items: center; justify-content: center; box-sizing: border-box; height: 24px; min-width: 24px; padding: 0 6px; width: max-content; border: 2px solid #fff; border-radius: 12px; background: var(--day); color: #0c0c11; font: 700 11px/1 system-ui, sans-serif; box-shadow: 0 1px 6px rgba(0,0,0,0.6); }
+.trp-map .pick, .trp-map .pick canvas { cursor: crosshair !important; }
+.trp-pin { cursor: pointer; display: flex; align-items: center; justify-content: center; box-sizing: border-box; height: 24px; min-width: 24px; padding: 0 6px; width: max-content; border: 2px solid #fff; border-radius: 12px; background: var(--day); color: #0c0c11; font: 700 11px/1 system-ui, sans-serif; box-shadow: 0 1px 6px rgba(0,0,0,0.6); }
 .trp-pin.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+.trp-pin.stay { font-size: 13px; }
+.trp-leg { display: flex; align-items: center; gap: 8px; width: fit-content; margin: 4px 0 0 40px; padding: 2px 8px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 12px; }
+button.trp-leg { cursor: pointer; }
+button.trp-leg:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+.trp-spark { width: 92px; height: 22px; fill: color-mix(in srgb, var(--accent) 55%, transparent); }
+.trp-total { margin: 4px 0 0 12px; color: var(--muted); font-size: 12px; }
+.trp-stays { margin: 4px 0 0 8px; }
+.trp-stays-head { display: flex; justify-content: space-between; width: 100%; box-sizing: border-box; padding: 5px 10px; border: 0; border-radius: 8px; background: rgba(255,255,255,0.03); color: var(--muted); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.trp-stays-head:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+.trp-stays-head i { font-style: normal; }
+.trp-stays-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px 8px; align-items: flex-start; }
+.trp-stay { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; background: rgba(0,0,0,0.16); cursor: pointer; }
+.trp-stay:hover { background: rgba(255,255,255,0.07); }
+.trp-stay.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.trp-stay.flash { animation: trp-flash .9s var(--ease); }
+.trp-stay .trp-comment { grid-column: auto; }
+.trp-price { font-size: 13px; color: var(--text); }
+.trp-link { display: inline-block; margin-top: 3px; color: var(--accent); font-size: 13px; }
+.trp-select { padding: 7px 9px; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: #15151b; color: var(--text); font: inherit; font-size: 14px; }
+.trp-checks { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.trp-check { display: flex; align-items: center; gap: 5px; font-size: 13px; }
+.trp-check input { width: auto; }
 .trp-menu { max-width: min(340px, calc(100vw - 16px)); }
 .trp-menu span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

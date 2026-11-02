@@ -396,8 +396,7 @@ const WM = {
       }
       const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop;
       handle.setPointerCapture(e.pointerId);
-      // наклон — в сторону, за которую взяли
-      Juice.grab(n, (e.clientX - n.offsetLeft) / n.offsetWidth < 0.5 ? -1 : 1);
+      Juice.grab(n);
       const move = ev => {
         this.breakArrange(); // окно сдвинули руками — раскладка больше не «сетка»
         const x = Math.min(Math.max(ev.clientX - sx, -n.offsetWidth + 80), innerWidth - 80);

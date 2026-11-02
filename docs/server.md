@@ -14,7 +14,7 @@
 | `airhockey.py` | `AirHockey` | `NOS_DATA` (таблица рекордов) | Арена «Джус» |
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
 | `share.py` | `Share` | `NOS_DATA/share/` (плоская папка файлов) | Файлообменник владельца: `GET /api/share/list`, `POST /api/share/upload` (multipart, потоково), `GET /api/share/file/{name}`, `POST /api/share/delete`, `GET/POST /api/share/clip` (общий текстовый буфер); всё только для ника `cojam` |
-| `trip.py` | `Trip` | `NOS_DATA/trip.json`, старт из `trip_seed.py` | План поездки: `GET /api/trip` (всем), `POST /api/trip/card`, `/api/trip/card/delete`, `/api/trip/day` (только ник `cojam`, та же проверка, что в `share.py`) |
+| `trip.py` | `Trip` | `NOS_DATA/trip.json`, `trip_legs.json`; старт и обновления плана — `trip_seed.py` | План поездки: `GET /api/trip`, `GET /api/trip/leg/{a}/{b}` (всем; пеший путь из OSRM FOSSGIS и высоты Open-Meteo, сервер кэширует навсегда; адреса — `NOS_TRIP_ROUTER`, `NOS_TRIP_ELEVATION`), `POST /api/trip/card`, `/api/trip/card/delete`, `/api/trip/day`, `/api/trip/stay`, `/api/trip/stay/delete` (только ник `cojam`, та же проверка, что в `share.py`) |
 | `finds.py` | `Finds` | `NOS_DATA/finds.db` (SQLite, WAL) | «Находки»: плейлисты по настроениям (до 6 на аккаунт), лента от домашнего воркера ([worker/README.md](../worker/README.md)), bump/dump. Сам никуда не ходит |
 
 ## Эндпоинты
