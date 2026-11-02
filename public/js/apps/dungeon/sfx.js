@@ -115,6 +115,29 @@ export class Sfx {
       o.start(t); o.stop(t + 0.1);
     }
   }
+  /* плач: три всхлипа вниз с дрожью, голос сквозь полосовой фильтр */
+  cry() {
+    const c = this.ctx;
+    if (!c) return;
+    const f = c.createBiquadFilter(), g = c.createGain(), e = c.createGain();
+    f.type = "bandpass"; f.frequency.value = 1150; f.Q.value = 3;
+    g.gain.value = 0.9; e.gain.value = 0.45;
+    f.connect(g); g.connect(this.master); g.connect(e); e.connect(this.echo);
+    [[0, 0.42, 620], [0.46, 0.42, 560], [0.92, 0.75, 500]].forEach(([at, dur, hz]) => {
+      const t = c.currentTime + 0.02 + at, o = c.createOscillator(), v = c.createOscillator(), depth = c.createGain(), env = c.createGain();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(hz, t);
+      o.frequency.exponentialRampToValueAtTime(hz * 0.62, t + dur);
+      v.frequency.value = 9; depth.gain.value = hz * 0.05;
+      v.connect(depth); depth.connect(o.frequency);
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(0.5, t + 0.03);
+      env.gain.setValueAtTime(0.5, t + dur * 0.6);
+      env.gain.linearRampToValueAtTime(0, t + dur);
+      o.connect(env); env.connect(f);
+      o.start(t); v.start(t); o.stop(t + dur + 0.02); v.stop(t + dur + 0.02);
+    });
+  }
   /* победа: восходящая фанфара в ре, как в боевых треках */
   win() {
     const c = this.ctx;

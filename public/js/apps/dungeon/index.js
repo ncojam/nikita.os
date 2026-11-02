@@ -17,7 +17,8 @@ const sfx = new Sfx(() => music.ctx);
 let attackAt = 0;
 const ATTACK_GUARD = 180;   // мс: второй тап сразу после атаки — дрожь пальца, а не удар в такт
 const ATTACK_WAIT = 600;    // мс: столько после атаки ждём ответа сервера, тап за это время не пропадает
-const EARLY_BUFFER = 0.09;  // с: на слабых устройствах чуть ранний тап придерживается до самой ноты
+// с: чуть ранний тап придерживается до самой ноты. Люди и так жмут немного раньше звука
+const EARLY_BUFFER = 0.06, EARLY_BUFFER_WEAK = 0.09;
 let waitingTap = null;      // оценка тапа, сделанного до того, как сервер открыл комбо
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
@@ -119,6 +120,7 @@ function onEvent(d) {
   else if (d.e === "level") { banner(`Уровень ${d.level}!`); sfx.item(); }
   else if (d.e === "pickup") d.kind === "coins" ? sfx.coin() : sfx.item();
   else if (d.e === "giggle") sfx.giggle();
+  else if (d.e === "cry") { view.cry(); sfx.cry(); }
   else if (d.e === "win") { sfx.win(); view.play("death"); holdBattle = performance.now() + 1700; banner(`Победа! ${d.enemy} повержена`); setTimeout(render, 1750); }
   else if (d.e === "dead") { holdBattle = performance.now() + 1200; banner("Ты повержен"); setTimeout(render, 1250); }
 }
@@ -304,7 +306,7 @@ function rhythmTap(j = music.judge()) {
   if (!j) return;
   const inTime = Math.abs(j.err) <= music.window;
   if (j.step === lastStep && inTime) return;  // второй тап по той же ноте не считаем
-  const held = music.weak && j.err < 0 && j.err >= -(music.window + EARLY_BUFFER);
+  const held = j.err < 0 && j.err >= -(music.window + (music.weak ? EARLY_BUFFER_WEAK : EARLY_BUFFER));
   if (inTime) {
     lastStep = j.step;
     landTap(j);

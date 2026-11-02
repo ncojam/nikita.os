@@ -56,6 +56,7 @@ TURN_OFFLINE = 4         # с на ход, если игрок отключил�
 OFFLINE_LEAVE = 30       # с без связи — и игрок выбывает из боя
 FLEE_CHANCE = 0.6
 COMBO_DECAY = 0.5        # каждый следующий удар комбо слабее: вдвое, минимум 1
+CRY_EVERY = 20           # каждые столько ударов в такт подряд монстр плачет, а сила удара возвращается к половине обычной
 COMBO_START_BEATS = 3.5  # долей на первый удар в такт после атаки
 COMBO_GRACE_BEATS = 2.6  # долей на следующий: одну сильную ноту можно пропустить
 TAP_EARLY = 1.5          # допуск серверных часов, доли
@@ -675,7 +676,7 @@ class Dungeon:
             if b["id"] in self.battles:
                 beat = b["track"]["beat"]
                 b["turn"] = {"who": pid, "phase": "combo", "until": time.time() + COMBO_START_BEATS * beat,
-                             "combo": {"hits": 0, "power": float(dmg), "last": -1}}
+                             "combo": {"hits": 0, "power": float(dmg), "base": float(dmg), "last": -1}}
                 self.mark(b["loc"])
         elif a == "item":
             if await self.use(pid, item):
@@ -714,8 +715,12 @@ class Dungeon:
             return
         c["last"] = step
         c["hits"] += 1
-        c["power"] *= COMBO_DECAY
+        cry = c["hits"] % CRY_EVERY == 0
+        c["power"] = c["base"] * COMBO_DECAY if cry else c["power"] * COMBO_DECAY
         t["until"] = at + COMBO_GRACE_BEATS * tr["beat"]
+        if cry:
+            self.blog(b, f"{b['enemy']['name']} плачет!")
+            await self.to_party(b, {"t": "ev", "e": "cry"})
         await self.strike(b, pid, max(1, round(c["power"])), c["hits"])
 
     async def end_combo(self, b, why=None):

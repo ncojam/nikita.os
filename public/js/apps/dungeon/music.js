@@ -15,17 +15,17 @@ import { benchSynth } from "./stems.js";
  *
  * Время. Сервер объявляет t0 — момент доли 0 по своим часам. Шаг сетки — 1/16 (как в DAWN). Участники боя
  * считают шаг от t0, поэтому присоединившийся попадает в ту же долю, а не начинает трек сначала.
- * Попадание в такт судит клиент: только он знает, что слышит игрок. На телефонах звук и касание запаздывают на
- * 100–250 мс, а браузер сообщает 8 мс, поэтому верить можно только самому игроку: поправка (calib) считается по тому,
- * где он стабильно нажимает, и запоминается на устройстве. Без неё окно попадания уезжает почти на долю назад,
- * и в такт приходится жать «с опозданием», между нотами.
+ * Попадание в такт судит клиент: только он знает, что слышит игрок. Задержке, которую сообщает браузер, верить нельзя:
+ * на телефонах настоящая 100–250 мс при заявленных 8, а завышенная сдвигает окно позже ноты. Поэтому задержка здесь
+ * одна — поправка (calib): она считается по тому, где игрок стабильно нажимает, и запоминается на устройстве.
  */
 const LOOKAHEAD = 0.2, TIMER_MS = 25, STEP = 0.25;
 const OPEN = 22000;
 const WINDOW = 0.075;      // допуск тапа, с: в обе стороны от ноты; у трека можно задать свой (window)
 const WINDOW_WEAK = 0.1;   // на слабых устройствах: задержка там больше и плавает
 const TOUCH_CALIB = 0.13;  // с: типичная задержка телефона, пока поправка не выучена
-const CALIB_MIN = -0.05, CALIB_MAX = 0.4;
+const CALIB_MIN = -0.05, CALIB_MAX = 0.4, CALIB_MAX_DESK = 0.2;
+const CALIB_KEY = "dungeon.calib2";   // новый ключ: старая поправка считалась поверх заявленной задержки
 const LEARN_TAPS = 7, LEARN_FROM = 3, LEARN_RATE = 0.6;   // медиана последних нажатий: случайный тап её не сдвинет
 const BENCH_WAIT = 800;    // мс: дольше ждать замер нельзя, бой уже идёт; слабое устройство сюда и упрётся
 const SLOW_SPEED = 0.9, SLOW_CHECKS = 2;   // время звука идёт медленнее реального: столько проверок подряд — и на кеш
@@ -34,7 +34,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 export class BattleMusic {
   constructor() {
     this.ctx = null; this.cache = new Map(); this.G = null; this.timer = null; this.taps = [];
-    this.calib = store.get("dungeon.calib", navigator.maxTouchPoints > 0 ? TOUCH_CALIB : 0);
+    this.touch = navigator.maxTouchPoints > 0;
+    this.calib = store.get(CALIB_KEY, this.touch ? TOUCH_CALIB : 0);
   }
 
   /* разбудить звук: только из обработчика нажатия, иначе браузер не даст.
@@ -298,8 +299,7 @@ export class BattleMusic {
   /* где сейчас слышит игрок, в шагах 1/16: аудио уходит в наушники с задержкой */
   heardStep() {
     if (!this.running) return -1;
-    const lat = (this.ctx.outputLatency || this.ctx.baseLatency || 0) + this.calib;
-    return (this.ctx.currentTime - lat - this.aT0) / this.stepSec;
+    return (this.ctx.currentTime - this.calib - this.aT0) / this.stepSec;
   }
   isStrong(step) { return this.strong.has(((step % this.steps) + this.steps) % this.steps); }
 
@@ -320,8 +320,9 @@ export class BattleMusic {
     if (this.taps.length > LEARN_TAPS) this.taps.shift();
     if (this.taps.length < LEARN_FROM) return;
     const mid = [...this.taps].sort((a, b) => a - b)[this.taps.length >> 1];
-    this.calib = Math.max(CALIB_MIN, Math.min(CALIB_MAX, this.calib + (mid - this.calib) * LEARN_RATE));
-    store.set("dungeon.calib", this.calib);
+    const top = this.touch ? CALIB_MAX : CALIB_MAX_DESK;
+    this.calib = Math.max(CALIB_MIN, Math.min(top, this.calib + (mid - this.calib) * LEARN_RATE));
+    store.set(CALIB_KEY, this.calib);
   }
 
   /* удар в комбо — тихая копия колокольчиков этой доли октавой выше того, что звучит сейчас */

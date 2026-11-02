@@ -2,7 +2,7 @@
  * Игроки пока прямоугольники внизу. Враг — 3D-модель (model.js), а если её файла нет, тоже прямоугольник.
  * Состояния врага: idle / hit / attack / death.
  */
-import { EnemyModel, MODEL_FILL, pose } from "./model.js";
+import { CRY_SEC, EnemyModel, MODEL_FILL, pose } from "./model.js";
 
 const ENEMY_W = 0.42, ENEMY_H = 0.36, ENEMY_Y = 0.36;   // доли холста
 const STATE_SEC = { hit: 0.5, attack: 0.45, death: 1.3 };
@@ -67,6 +67,7 @@ export class BattleView {
     const p = this.slots().find(s => s.id === who);
     if (p) this.floats.push({ text: "−" + dmg, x: p.x + p.w / 2, y: p.y - 8, t: performance.now() / 1000, color: "#ff6b6b" });
   }
+  cry() { this.cryAt = performance.now() / 1000; this.say("плачет!", "#9fd3ff"); }
   trip(who) { this.trips.set(who, performance.now() / 1000); }
   say(text, color) { this.mark = { text, color, t: performance.now() / 1000 }; }
 
@@ -123,7 +124,7 @@ export class BattleView {
   drawModel(g, e, t, now) {
     const heard = this.music.heardStep(), beat = heard >= 0 ? heard / 4 : now * 2;
     const side = e.side, px = Math.min(MODEL_MAX_PX, Math.round(side * this.scale * MODEL_AA));
-    const pic = this.model.draw(pose(this.state, t, beat), px);
+    const pic = this.model.draw(pose(this.state, t, beat, now - (this.cryAt ?? -99)), px);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
     g.globalAlpha = this.state === "death" ? Math.max(0, 1 - t / STATE_SEC.death) : 1;
     g.drawImage(pic, e.x + e.w / 2 - side / 2, e.y + e.h / 2 - side / 2, side, side);
@@ -132,6 +133,8 @@ export class BattleView {
 
   drawBox(g, e, t, now) {
     let x = e.x, y = e.y + Math.sin(now * 2.2) * 6, a = 1, fill = "#b84a6e";
+    const cry = now - (this.cryAt ?? -99);
+    if (cry < CRY_SEC) { x += Math.sin(cry * 14) * 14; fill = "#7fa8d8"; }
     if (this.state === "hit") { x += Math.sin(t * 90) * 7 * (1 - t / STATE_SEC.hit); fill = "#fff"; }
     if (this.state === "attack") y += Math.sin(Math.min(1, t / STATE_SEC.attack) * Math.PI) * this.H * 0.26;
     if (this.state === "death") { const k = Math.min(1, t / STATE_SEC.death); y += k * k * this.H * 0.3; a = 1 - k; }

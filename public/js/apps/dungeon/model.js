@@ -17,8 +17,17 @@ function idlePose(beat) {
   return { x: 0, y: Math.sin(a) * 0.07, z: 0, rx: Math.sin(a * 0.5 + 1) * 0.05, ry: Math.sin(a * 0.75) * 0.14, rz: Math.sin(a * 0.5) * 0.07 };
 }
 
-export function pose(state, t, beat) {
+export const CRY_SEC = 1.8;
+
+/* cry — секунд с начала плача: он идёт поверх любого состояния, ведь удары в такт продолжаются */
+export function pose(state, t, beat, cry = Infinity) {
   const p = idlePose(beat);
+  if (cry < CRY_SEC) {            // плачет: мотает головой, опустив лицо, и мелко дрожит
+    const k = Math.min(1, cry / 0.15, (CRY_SEC - cry) / 0.4);
+    p.ry += Math.sin(cry * 13) * 0.42 * k;
+    p.rx += 0.2 * k;
+    p.rz += Math.sin(cry * 29) * 0.05 * k;
+  }
   if (state === "hit") {          // удар: отлетает назад, запрокидывается, дрожит и возвращается
     const k = decay(t, 7);
     p.z -= 0.5 * k;
