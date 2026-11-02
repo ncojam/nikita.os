@@ -22,6 +22,7 @@ import math
 import os
 import random
 import re
+import shutil
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl, quote
@@ -36,6 +37,8 @@ MAX_CONNS = int(os.environ.get("NOS_DUNGEON_CONNS", 300))
 MAX_PLAYERS = int(os.environ.get("NOS_DUNGEON_PLAYERS", 20000))
 MUSIC_DIR = os.environ.get("NOS_DUNGEON_MUSIC", "/home/nikita/Projects/ClownDungeon")   # папка треков на сайте
 MAX_TRACK = 2 * 1024 * 1024
+MAX_STEM = 6 * 1024 * 1024    # одна дорожка кеша музыки
+MAX_STEMS = 24                # дорожек на трек
 SAVE_EVERY = 10          # с, как часто сбрасывать прогресс на диск
 TICK = 0.1               # с, шаг таймеров боя
 MSG_RATE = 25            # сообщений в секунду с одного соединения
@@ -106,6 +109,7 @@ START_LOC = "cave"
 STARTER = {"mushroom": 2}
 
 
+STEM_NAME = re.compile(r"[a-z0-9]{1,16}")
 FIELDS = {"item": str, "slot": str, "id": int, "target": str, "a": str}   # поля сообщений клиента
 
 
@@ -195,6 +199,7 @@ class Dungeon:
         self.ufs_real = ufs_real          # виртуальный путь → файл в общих папках
         self.projects = projects          # кто автор общего проекта DAWN
         self.path = Path(data_dir) / "dungeon.json"
+        self.stems_root = Path(data_dir) / "dungeon-stems"
         self.public = public_dir
         self.players = {}        # pid -> запись игрока
         self.conns = {}          # ws -> pid (None до входа)
@@ -270,11 +275,115 @@ class Dungeon:
                 own = Path(self.public) / "dungeon" / "music" / f"{tid}.json"
                 rules = json.loads(own.read_text("utf-8")) if own.is_file() else infer_rules(raw)
                 rules["file"] = f"{url}?v={st.st_mtime_ns}"
-                found[tid] = (stamp, parse_track(tid, raw, rules))
+                found[tid] = (stamp, {**parse_track(tid, raw, rules), "v": str(st.st_mtime_ns)})   # строкой: наносекунды не влезают в число JS
             except (OSError, ValueError, KeyError, TypeError, IndexError):
                 log.warning("dungeon: не прочитать трек %s", path, exc_info=True)
         self.tracks = found
+        for _, t in found.values():
+            self.attach_stems(t)
         return [t for _, t in found.values()]
+
+    # ---------- кеш музыки: дорожки, отрендеренные в браузере владельца (stems.js) ----------
+    def stem_dir(self, tid, v=None):
+        key = hashlib.sha256(tid.encode()).hexdigest()[:16]     # id трека берётся из имени файла: может быть любым
+        return self.stems_root / key if v is None else self.stems_root / key / str(v)
+
+    def attach_stems(self, t):
+        """Кеш привязан к версии файла: трек поправили — играет синтез, пока кеш не соберут заново."""
+        d = self.stem_dir(t["id"], t["v"])
+        try:
+            m = json.loads((d / "manifest.json").read_text("utf-8"))
+            m["base"] = f"/api/dungeon/stem/{d.parent.name}/{t['v']}/"
+            t["rules"]["stems"] = m
+        except (OSError, ValueError):
+            t["rules"].pop("stems", None)
+
+    def owner_track(self, request, tid, v):
+        """Трек для записи кеша. Ошибка — готовый ответ, иначе None и трек."""
+        if not self.is_owner(request):
+            return web.json_response({"error": "нет доступа"}, status=403), None
+        origin = request.headers.get("Origin", "")
+        if origin and origin.split("://", 1)[-1] != request.host:
+            return web.json_response({"error": "Чужой Origin"}, status=403), None
+        t = self.tracks.get(tid)
+        if not t or str(t[1]["v"]) != str(v):
+            return web.json_response({"error": "трек изменился, обнови страницу"}, status=409), None
+        return None, t[1]
+
+    def is_owner(self, request):
+        u = self.user_of(request)
+        return bool(u) and str(u[1]).lower() == OWNER
+
+    async def api_tracks(self, request):
+        if not self.is_owner(request):
+            return web.json_response({"error": "нет доступа"}, status=403)
+        tracks = await asyncio.to_thread(self.scan_tracks)
+        return web.json_response([{"id": t["id"], "v": t["v"], "rules": t["rules"], "ready": "stems" in t["rules"]} for t in tracks])
+
+    async def api_stem_put(self, request):
+        q = request.query
+        err, t = self.owner_track(request, q.get("track", ""), q.get("v", ""))
+        if err:
+            return err
+        name = q.get("name", "")
+        if not STEM_NAME.fullmatch(name) or not q.get("part", "").isdigit():
+            return web.json_response({"error": "плохое имя дорожки"}, status=400)
+        body = await request.read()
+        d, part = self.stem_dir(t["id"], t["v"]), int(q["part"])
+
+        def write():
+            d.mkdir(parents=True, exist_ok=True)
+            tmp = d / f".{name}.part"
+            with open(tmp, "wb" if part == 0 else "ab") as f:
+                f.write(body)
+            if tmp.stat().st_size > MAX_STEM:
+                tmp.unlink()
+                return False
+            if q.get("last") == "1":
+                os.replace(tmp, d / f"{name}.wav.gz")
+            return True
+        if not await asyncio.to_thread(write):
+            return web.json_response({"error": "дорожка слишком большая"}, status=413)
+        return web.json_response({"ok": True})
+
+    async def api_stems_done(self, request):
+        try:
+            data = await request.json()
+            tid, v, stems, hit = data["track"], data["v"], data["stems"], data.get("hit")
+            names = [s["name"] for s in stems] + ([hit["name"]] if hit else [])
+            clean = [{"name": str(s["name"]), "role": str(s["role"])[:40], "shift": int(s["shift"])} for s in stems]
+            hit = {"name": str(hit["name"]), "n": int(hit["n"]), "edo": int(hit["edo"])} if hit else None
+        except (ValueError, KeyError, TypeError):
+            return web.json_response({"error": "плохие данные"}, status=400)
+        err, t = self.owner_track(request, tid, v)
+        if err:
+            return err
+        d = self.stem_dir(t["id"], t["v"])
+        if len(names) > MAX_STEMS or not all(STEM_NAME.fullmatch(n) and (d / f"{n}.wav.gz").is_file() for n in names):
+            return web.json_response({"error": "загружены не все дорожки"}, status=400)
+
+        def finish():
+            tmp = d / ".manifest.tmp"
+            tmp.write_text(json.dumps({"stems": clean, "hit": hit}, ensure_ascii=False), "utf-8")
+            os.replace(tmp, d / "manifest.json")
+            for old in d.parent.iterdir():       # кеш прошлых версий трека больше не нужен
+                if old != d:
+                    shutil.rmtree(old, ignore_errors=True)
+        await asyncio.to_thread(finish)
+        self.attach_stems(t)
+        return web.json_response({"ok": True})
+
+    async def api_stem_get(self, request):
+        key, v, name = (request.match_info[k] for k in ("key", "v", "name"))
+        if not re.fullmatch(r"[0-9a-f]{16}", key) or not v.isdigit() or not STEM_NAME.fullmatch(name):
+            raise web.HTTPNotFound()
+        p = self.stems_root / key / v / f"{name}.wav.gz"
+        try:
+            body = await asyncio.to_thread(p.read_bytes)
+        except OSError:
+            raise web.HTTPNotFound()
+        return web.Response(body=body, headers={"Content-Type": "audio/wav", "Content-Encoding": "gzip",
+                                                 "Cache-Control": "public, max-age=31536000, immutable"})
 
     async def pick_track(self, enemy):
         """Случайный трек на бой; два раза подряд один и тот же не ставим, если есть из чего выбрать."""
@@ -879,7 +988,8 @@ class Dungeon:
                     self.player(pid, who[1])
                     self.conns[ws] = pid
                     self.online.setdefault(pid, set()).add(ws)
-                    await self.send(ws, {"t": "hello", "id": pid, "nick": who[1], "wander": WANDER_CD})
+                    await self.send(ws, {"t": "hello", "id": pid, "nick": who[1], "wander": WANDER_CD,
+                                         "owner": pid.startswith("c:") and self.is_owner(request)})
                     await self.send(ws, self.view(pid))
                     self.mark(self.players[pid]["loc"])
                 elif pid is not None:
@@ -900,6 +1010,10 @@ class Dungeon:
 
     def routes(self, app):
         app.router.add_get("/api/dungeon/ws", self.ws_handler)
+        app.router.add_get("/api/dungeon/tracks", self.api_tracks)
+        app.router.add_post("/api/dungeon/stem", self.api_stem_put)
+        app.router.add_post("/api/dungeon/stems_done", self.api_stems_done)
+        app.router.add_get("/api/dungeon/stem/{key}/{v}/{name}", self.api_stem_get)
         app.on_cleanup.append(self.shutdown)
 
 

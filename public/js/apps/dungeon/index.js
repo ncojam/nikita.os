@@ -84,7 +84,7 @@ function onMsg(d) {
     const t = Date.now(), rtt = t - d.c;
     if (rtt <= bestRtt * 1.2) { bestRtt = Math.min(bestRtt, rtt); clockOff = d.s + rtt / 2 - t; }   // доверяем быстрым ответам
   }
-  else if (d.t === "hello") { me = d.id; walkCd = d.wander || walkCd; }
+  else if (d.t === "hello") { me = d.id; walkCd = d.wander || walkCd; if (d.owner) checkCache(); }
   else if (d.t === "log") { logLines.push(d.text); logLines = logLines.slice(-40); render(); }
   else if (d.t === "state") { S = d; onState(); }
   else if (d.t === "ev") onEvent(d);
@@ -143,9 +143,33 @@ function render() {
   renderSheet();
 }
 
+/* ---------- кеш музыки: только для владельца сайта, на ПК в окне сайта ---------- */
+let cacheMissing = [], cacheBusy = false;
+async function checkCache() {
+  try {
+    const r = await fetch("/api/dungeon/tracks");
+    if (r.ok) { cacheMissing = (await r.json()).filter(t => !t.ready); render(); }
+  } catch { /* не критично: сыграем синтезом */ }
+}
+async function buildCache() {
+  if (cacheBusy) return;
+  cacheBusy = true;
+  const say = t => { logLines.push(t); logLines = logLines.slice(-40); render(); };
+  try {
+    const { buildTrack } = await import("./stems.js");
+    for (const t of [...cacheMissing]) await buildTrack(t, say);
+    say("Кеш музыки собран.");
+  } catch (e) { say("Кеш не собран: " + e.message); }
+  cacheBusy = false;
+  checkCache();
+}
+
 function renderWorld() {
   const log = el("div", { className: "log" }, ...logLines.map(t => el("div", { textContent: t })));
   const rows = [];
+  if (cacheMissing.length) rows.push(el("div", { className: "card" },
+    el("span", { textContent: `Музыка без кеша: ${cacheMissing.map(t => t.id).join(", ")}` }),
+    btn(cacheBusy ? "Собираю…" : "Собрать", buildCache, "small", cacheBusy)));
   for (const b of S.loc.battles) rows.push(el("div", { className: "card" },
     el("span", { textContent: `⚔ ${b.party.map(p => p.nick).join(", ")} против: ${b.enemy}, ур. ${b.level} (${Math.round(b.hp * 100)}%)` }),
     btn("В бой", () => send({ t: "join", id: b.id }), "small", b.party.length >= 4),

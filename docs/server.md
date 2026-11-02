@@ -44,7 +44,7 @@
 | GET/POST | `/api/mod/reports`, `/api/mod/show/{id}?token=` | posts | Модерация, только с `NOS_ADMIN_TOKEN` (без него — 404) |
 | * | `/api/forum/...`, `/media/f/{id}` | forum | См. [browser.md](browser.md) |
 | * | маршруты `AirHockey.routes` | airhockey | WS арены, таблица рекордов |
-| * | маршруты `Dungeon.routes` | dungeon | WS игры `/api/dungeon/ws` |
+| * | маршруты `Dungeon.routes` | dungeon | WS игры `/api/dungeon/ws`, кеш музыки `/api/dungeon/stem*` и `/api/dungeon/tracks` (запись — только владелец) |
 | GET | `/finds/...` | server | `index.html` — «Находки»; `/finds/<id>` — публичный плейлист |
 | GET | `/api/finds/mine` | finds | Кто я, мои плейлисты, лимит |
 | POST/PATCH/DELETE | `/api/finds/pl`, `/api/finds/pl/{id}` | finds | Плейлист `{name, descr, examples:[url]}` (только владелец) |
