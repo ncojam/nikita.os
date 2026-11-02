@@ -15,6 +15,12 @@
   button:active:not(:disabled) { background: var(--line); }
   button:disabled { opacity: .4; }
   button.main { background: var(--accent); border-color: var(--accent); color: #2b0d1e; font-weight: 700; }
+  button.walk { position: relative; overflow: hidden; background: var(--panel); color: var(--text); }
+  button.walk:active:not(:disabled) { background: var(--panel); }
+  button.walk i { position: absolute; inset: 0 auto 0 0; width: 100%; background: var(--accent); }
+  button.walk span { position: relative; }
+  button.walk.ready { color: #2b0d1e; }
+  button.walk.queued span::after { content: " ▸"; }
   button.small { padding: 5px 9px; font-size: 13px; }
   .top { display: flex; align-items: center; gap: 10px; }
   .top .place { font-weight: 700; flex: 1; }

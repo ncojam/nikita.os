@@ -41,7 +41,9 @@ TICK = 0.1               # с, шаг таймеров боя
 MSG_RATE = 25            # сообщений в секунду с одного соединения
 TG_MAX_AGE = 24 * 3600   # initData старше суток не принимаем
 
-WANDER_CD = 1.0          # с между «бродить»
+WANDER_CD = 1.0          # с между «бродить»: столько заполняется кнопка у клиента
+WANDER_SLACK = 0.15      # сервер прощает столько: нажатие в момент готовности не должно теряться из-за сети
+GIGGLE_CHANCE = 0.2      # доля пустых прогулок, когда кто-то хихикает в темноте
 HINDER_CD = 12           # с между помехами
 GROUND_TTL = 15 * 60     # с, сколько вещи лежат на земле
 GROUND_CAP = 30          # вещей на локацию
@@ -50,7 +52,7 @@ TURN_SEC = 30            # с на выбор действия
 TURN_OFFLINE = 4         # с на ход, если игрок отключился
 OFFLINE_LEAVE = 30       # с без связи — и игрок выбывает из боя
 FLEE_CHANCE = 0.6
-COMBO_DECAY = 0.85       # каждый следующий удар комбо слабее во столько раз
+COMBO_DECAY = 0.5        # каждый следующий удар комбо слабее: вдвое, минимум 1
 COMBO_START_BEATS = 3.5  # долей на первый удар в такт после атаки
 COMBO_GRACE_BEATS = 2.6  # долей на следующий: одну сильную ноту можно пропустить
 TAP_EARLY = 1.5          # допуск серверных часов, доли
@@ -95,7 +97,8 @@ LOCATIONS = {
         "coins": (1, 6),
         "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "stick": 2, "pickaxe": 1, "rags": 2, "helmet": 1},
         "enemies": {"head": 1},
-        "nothing": ["Капает вода.", "Где-то вдалеке хихикают.", "Ты споткнулся о камень. Камень не извинился.",
+        "giggle": ["Где-то вдалеке хихикают.", "Из темноты доносится смешок.", "Кто-то хихикает прямо за спиной. Никого."],
+        "nothing": ["Капает вода.", "Ты споткнулся о камень. Камень не извинился.",
                     "Темно. Сыро. Пахнет гримом.", "Эхо повторяет твои шаги, но с опозданием на долю."],
     },
 }
@@ -408,6 +411,7 @@ class Dungeon:
         self.dirty_save = True
         self.mark(p["loc"])
         await self.say(pid, f"Подобрано: {x['name']}.")
+        await self.to_player(pid, {"t": "ev", "e": "pickup", "kind": "item" if x["item"] else "coins"})
 
     # ---------- мир ----------
     async def wander(self, pid):
@@ -415,7 +419,7 @@ class Dungeon:
         if self.battle_of(pid):
             return
         now = time.time()
-        if now - p.get("_wander", 0) < WANDER_CD:
+        if now - p.get("_wander", 0) < WANDER_CD - WANDER_SLACK:
             return
         p["_wander"] = now
         L = LOCATIONS[p["loc"]]
@@ -425,12 +429,17 @@ class Dungeon:
             p["coins"] += n
             self.dirty_save = True
             await self.say(pid, f"Монеты на полу: +{n}.")
+            await self.to_player(pid, {"t": "ev", "e": "pickup", "kind": "coins"})
         elif what == "item":
             item = weighted(L["items"])
             self.inv_add(p, item)
             await self.say(pid, f"Находка: {ITEMS[item]['name']}.")
+            await self.to_player(pid, {"t": "ev", "e": "pickup", "kind": "item"})
         elif what == "monster":
             await self.start_battle(pid, weighted(L["enemies"]))
+        elif random.random() < GIGGLE_CHANCE:
+            await self.say(pid, random.choice(L["giggle"]))
+            await self.to_player(pid, {"t": "ev", "e": "giggle"})
         else:
             await self.say(pid, random.choice(L["nothing"]))
         await self.to_player(pid, self.view(pid))
@@ -870,7 +879,7 @@ class Dungeon:
                     self.player(pid, who[1])
                     self.conns[ws] = pid
                     self.online.setdefault(pid, set()).add(ws)
-                    await self.send(ws, {"t": "hello", "id": pid, "nick": who[1]})
+                    await self.send(ws, {"t": "hello", "id": pid, "nick": who[1], "wander": WANDER_CD})
                     await self.send(ws, self.view(pid))
                     self.mark(self.players[pid]["loc"])
                 elif pid is not None:

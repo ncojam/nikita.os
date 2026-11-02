@@ -1,5 +1,6 @@
 import { el, store } from "../../core/util.js";
 import { BattleMusic } from "./music.js";
+import { Sfx } from "./sfx.js";
 import { BattleView } from "./view.js";
 
 /* ================= Clown Dungeon — клиент Mini App =================
@@ -12,8 +13,38 @@ try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); } catch { /* в�
 
 const app = document.getElementById("app");
 const music = new BattleMusic();
+const sfx = new Sfx(() => music.ctx);
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
+
+/* кнопка «Бродить» живёт отдельно от снимков мира: заполнение не должно сбрасываться при перерисовке.
+ * Нажатие незадолго до готовности не теряется: оно запоминается и срабатывает само, как только кнопка заполнится. */
+const WALK_BUFFER = 0.25;   // с до готовности, в которые нажатие запоминается
+let walkCd = 1, walkUntil = 0, walkQueued = false;
+const walkFill = el("i");
+const walkBtn = el("button", { className: "main walk ready", onpointerdown: pressWalk }, walkFill, el("span", { textContent: "Бродить" }));
+
+function pressWalk() {
+  const left = walkUntil - performance.now() / 1000;
+  if (left <= 0) return walk();
+  if (left > WALK_BUFFER || walkQueued) return;
+  walkQueued = true;
+  walkBtn.classList.add("queued");
+  setTimeout(() => { walkQueued = false; walkBtn.classList.remove("queued"); walk(); }, left * 1000);
+}
+function walk() {
+  if (S?.battle) return;
+  send({ t: "wander" });
+  sfx.steps(walkCd);
+  walkUntil = performance.now() / 1000 + walkCd;
+  walkBtn.classList.remove("ready");
+  requestAnimationFrame(walkFrame);
+}
+function walkFrame() {
+  const left = walkUntil - performance.now() / 1000;
+  walkFill.style.width = 100 * Math.min(1, 1 - left / walkCd) + "%";
+  if (left > 0) requestAnimationFrame(walkFrame); else walkBtn.classList.add("ready");
+}
 
 const canvas = el("canvas");
 const view = new BattleView(canvas, music);
@@ -50,7 +81,7 @@ function onMsg(d) {
     const t = Date.now(), rtt = t - d.c;
     if (rtt <= bestRtt * 1.2) { bestRtt = Math.min(bestRtt, rtt); clockOff = d.s + rtt / 2 - t; }   // доверяем быстрым ответам
   }
-  else if (d.t === "hello") me = d.id;
+  else if (d.t === "hello") { me = d.id; walkCd = d.wander || walkCd; }
   else if (d.t === "log") { logLines.push(d.text); logLines = logLines.slice(-40); render(); }
   else if (d.t === "state") { S = d; onState(); }
   else if (d.t === "ev") onEvent(d);
@@ -74,12 +105,15 @@ function onState() {
 function onEvent(d) {
   if (d.e === "hit") {
     view.hit(d.dmg, d.combo);
+    sfx.hurt(false);
     if (lastBattle) lastBattle.enemy.hp = lastBattle.enemy.maxhp * d.hp;
   }
-  else if (d.e === "enemy_hit") view.enemyHit(d.who, d.dmg);
-  else if (d.e === "trip") view.trip(d.who);
-  else if (d.e === "level") banner(`Уровень ${d.level}!`);
-  else if (d.e === "win") { view.play("death"); holdBattle = performance.now() + 1700; banner(`Победа! ${d.enemy} повержена`); setTimeout(render, 1750); }
+  else if (d.e === "enemy_hit") { view.enemyHit(d.who, d.dmg); sfx.hurt(d.who === me); }
+  else if (d.e === "trip") { view.trip(d.who); sfx.hurt(d.who === me); }
+  else if (d.e === "level") { banner(`Уровень ${d.level}!`); sfx.item(); }
+  else if (d.e === "pickup") d.kind === "coins" ? sfx.coin() : sfx.item();
+  else if (d.e === "giggle") sfx.giggle();
+  else if (d.e === "win") { sfx.win(); view.play("death"); holdBattle = performance.now() + 1700; banner(`Победа! ${d.enemy} повержена`); setTimeout(render, 1750); }
   else if (d.e === "dead") { holdBattle = performance.now() + 1200; banner("Ты повержен"); setTimeout(render, 1250); }
 }
 
@@ -119,7 +153,7 @@ function renderWorld() {
   const others = S.loc.players.filter(n => n !== S.me.nick);
   app.replaceChildren(top(), log, ...(rows.length ? [el("div", { className: "list" }, ...rows)] : []),
     ...(others.length ? [el("div", { className: "here", textContent: "Рядом: " + others.join(", ") })] : []),
-    el("div", { className: "row" }, btn("Бродить", () => send({ t: "wander" }), "main"), btn("Рюкзак", () => openSheet("bag"))));
+    el("div", { className: "row" }, walkBtn, btn("Рюкзак", () => openSheet("bag"))));
   log.scrollTop = log.scrollHeight;
 }
 
@@ -153,8 +187,8 @@ function renderBattle() {
 }
 
 /* ---------- рюкзак и помеха: всплывающий лист ---------- */
-function openSheet(kind, data) { sheet = { kind, data }; renderSheet(); }
-function closeSheet() { sheet = null; renderSheet(); }
+function openSheet(kind, data) { sheet = { kind, data }; sfx.bag(); renderSheet(); }
+function closeSheet() { sheet = null; sfx.bag(false); renderSheet(); }
 
 function askHinder(id, party) {
   const targets = party.filter(p => p.id !== me);
