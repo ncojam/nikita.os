@@ -58,6 +58,7 @@ export class BattleView {
   /* события сервера */
   hit(dmg, combo) {
     this.play("hit");
+    if (dmg == null) return;
     const e = this.enemyBox();
     this.floats.push({ text: String(dmg), x: e.x + e.w * (0.3 + Math.random() * 0.4), y: e.y + e.h * 0.4, t: performance.now() / 1000, color: combo ? "#ffd76a" : "#fff" });
   }

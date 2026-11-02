@@ -16,10 +16,14 @@ const music = new BattleMusic();
 const sfx = new Sfx(() => music.ctx);
 let attackAt = 0;
 const ATTACK_GUARD = 180;   // мс: второй тап сразу после атаки — дрожь пальца, а не удар в такт
-const ATTACK_WAIT = 600;    // мс: столько после атаки ждём ответа сервера, тап за это время не пропадает
 // с: чуть ранний тап придерживается до самой ноты. Люди и так жмут немного раньше звука
 const EARLY_BUFFER = 0.025, EARLY_BUFFER_WEAK = 0.045;
-let waitingTap = null;      // оценка тапа, сделанного до того, как сервер открыл комбо
+const LATE_STATE = 1500;    // мс: столько после атаки снимок мира может быть ещё старым и не должен закрывать комбо
+/* Своё комбо клиент ведёт сам: удар виден и слышен сразу, а не через поездку до сервера и обратно.
+ * Числа считаются по тем же правилам, что на сервере; настоящий урон сервер пришлёт снимком, когда комбо закончится. */
+let rules = { decay: 0.5, cry: 20, grace: 2.6, start: 3.5 };
+let combo = null;           // { hits, power, base, hp, unshown }
+let comboTimer = 0;
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
 
@@ -87,7 +91,7 @@ function onMsg(d) {
     const t = Date.now(), rtt = t - d.c;
     if (rtt <= bestRtt * 1.2) { bestRtt = Math.min(bestRtt, rtt); clockOff = d.s + rtt / 2 - t; }   // доверяем быстрым ответам
   }
-  else if (d.t === "hello") { me = d.id; walkCd = d.wander || walkCd; if (d.owner) checkCache(); }
+  else if (d.t === "hello") { me = d.id; walkCd = d.wander || walkCd; rules = d.combo || rules; if (d.owner) checkCache(); }
   else if (d.t === "log") { logLines.push(d.text); logLines = logLines.slice(-40); render(); }
   else if (d.t === "state") { S = d; onState(); }
   else if (d.t === "ev") onEvent(d);
@@ -98,7 +102,7 @@ function onState() {
   const b = S.battle;
   if (b) {
     lastBattle = b; holdBattle = 0;
-    if (b.turn.who === me && b.turn.phase === "combo") setTimeout(flushTap);
+    syncCombo(b);
     music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0 });
     if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.error = null; music.start(b, srvNow).catch(e => { console.warn("музыка", e); music.error = String(e.message || e); render(); }); }
     view.set(b, me);
@@ -111,16 +115,22 @@ function onState() {
 
 function onEvent(d) {
   if (d.e === "hit") {
+    if (d.by === me && combo && d.combo === 0) { combo.base = d.dmg; combo.power = d.dmg * rules.decay ** combo.hits; }   // первый удар: теперь известна сила, удары вперёд него уже были
+    if (d.by === me && d.combo > 0) {                    // свой удар в такт уже показан
+      if (combo?.unshown.delete(d.combo)) view.hit(d.dmg, d.combo);
+      return;
+    }
     view.hit(d.dmg, d.combo);
     sfx.hurt(false);
     if (lastBattle) lastBattle.enemy.hp = lastBattle.enemy.maxhp * d.hp;
+    if (combo) combo.hp = lastBattle?.enemy.hp;
   }
   else if (d.e === "enemy_hit") { view.enemyHit(d.who, d.dmg); sfx.hurt(d.who === me); }
   else if (d.e === "trip") { view.trip(d.who); sfx.hurt(d.who === me); }
   else if (d.e === "level") { banner(`Уровень ${d.level}!`); sfx.item(); }
   else if (d.e === "pickup") d.kind === "coins" ? sfx.coin() : sfx.item();
   else if (d.e === "giggle") sfx.giggle();
-  else if (d.e === "cry") { view.cry(); sfx.cry(); }
+  else if (d.e === "cry") { if (!combo) { view.cry(); sfx.cry(); } }
   else if (d.e === "win") { sfx.win(); view.play("death"); holdBattle = performance.now() + 1700; banner(`Победа! ${d.enemy} повержена`); setTimeout(render, 1750); }
   else if (d.e === "dead") { holdBattle = performance.now() + 1200; banner("Ты повержен"); setTimeout(render, 1250); }
 }
@@ -202,7 +212,7 @@ function renderBattle() {
   const t = b.turn, mine = S.battle && t.who === me, choose = mine && t.phase === "choose";
   const who = b.party.find(p => p.id === t.who)?.nick;
   const text = !S.battle ? "" : t.who === "enemy" ? "Ход врага…"
-    : mine && t.phase === "combo" ? "Жми по врагу в такт!"
+    : combo ? "Жми по врагу в такт!"
     : mine ? "Твой ход" : t.phase === "combo" ? `${who} бьёт в такт…` : `Ходит ${who}…`;
   const tail = [
     el("div", { className: "turn", textContent: text }),
@@ -211,7 +221,7 @@ function renderBattle() {
     audioInfo,
     el("div", { className: "blog" }, ...b.log.map(l => el("div", { textContent: l }))),
     el("div", { className: "row" },
-      el("button", { textContent: "Атака", className: "main", disabled: !(choose || (mine && t.phase === "combo")), onpointerdown: attackPress }),
+      el("button", { textContent: "Атака", className: "main", disabled: !(choose || combo), onpointerdown: attackPress }),
       btn("Рюкзак", () => openSheet("bag")),
       ...(b.party.length > 1 ? [btn("Помешать", () => askHinder(b.id, b.party))] : []),
       btn("Бежать", () => send({ t: "act", a: "flee" }), "", !choose)),
@@ -272,34 +282,66 @@ setInterval(() => { if (S?.battle) audioInfo.textContent = music.stats(); }, 700
 function attackPress() {
   const b = S?.battle;
   if (!b || b.turn.who !== me) return;
-  if (b.turn.phase === "choose") {
-    const since = performance.now() - attackAt;
-    if (since < ATTACK_WAIT) {      // атака ушла, ответа ещё нет: запоминаем тап и засчитаем его, когда комбо откроется
-      if (since >= ATTACK_GUARD) waitingTap = { j: music.judge(), at: performance.now() };
-      return;
-    }
-    lastStep = -1;
-    waitingTap = null;
-    attackAt = performance.now();
-    send({ t: "act", a: "attack" });
-  } else if (b.turn.phase === "combo") rhythmTap();
+  if (combo) return rhythmTap();
+  if (b.turn.phase !== "choose") return;
+  lastStep = -1;
+  attackAt = performance.now();
+  combo = { hits: 0, power: null, base: null, hp: null, unshown: new Set() };
+  armCombo(rules.start);
+  send({ t: "act", a: "attack" });    // сообщения идут по порядку: тап сразу за атакой сервер поймёт и без ответа
+  render();
 }
-/* сервер открыл комбо: отдаём тап, сделанный, пока ответ был в пути */
-function flushTap() {
-  const w = waitingTap;
-  if (!w) return;
-  waitingTap = null;
-  if (performance.now() - w.at < ATTACK_WAIT) rhythmTap(w.j);
+/* бить перестали: закрываем комбо сами и сразу, сервер ждёт с запасом на сеть */
+function armCombo(beats) {
+  clearTimeout(comboTimer);
+  if (music.running) comboTimer = setTimeout(() => endCombo("stop"), beats * music.beatSec * 1000);
 }
+function endCombo(msg) {
+  clearTimeout(comboTimer);
+  combo = null;
+  if (msg) send({ t: msg });
+  render();
+}
+/* снимок мира приходит с опозданием: он не должен откатывать уже показанные удары */
+function syncCombo(b) {
+  if (!combo) return;
+  const old = b.turn.phase === "choose" && performance.now() - attackAt < LATE_STATE;
+  if (!old && (b.turn.who !== me || b.turn.phase !== "combo")) {
+    clearTimeout(comboTimer);
+    combo = null;
+    return;
+  }
+  b.turn.hits = Math.max(b.turn.hits, combo.hits);
+  b.turn.phase = "combo";
+  if (combo.hp != null) b.enemy.hp = Math.min(b.enemy.hp, combo.hp);
+}
+
 canvas.addEventListener("pointerdown", e => {
   const r = canvas.getBoundingClientRect();
   if (view.overEnemy(e.clientX - r.left, e.clientY - r.top)) attackPress();
 });
 
+/* round из Python: половины — к чётному, иначе показанный урон разойдётся с настоящим */
+function pyRound(x) {
+  const f = Math.floor(x), d = x - f;
+  return d < 0.5 ? f : d > 0.5 ? f + 1 : f % 2 ? f + 1 : f;
+}
 function landTap(j) {
   music.learn(j.err);
   music.hitTone(j.step);
   send({ t: "tap", step: j.step });
+  if (!combo) return;
+  const hits = ++combo.hits, cry = hits % rules.cry === 0;
+  armCombo(rules.grace);
+  sfx.hurt(false);
+  if (cry) { view.cry(); sfx.cry(); }
+  const b = S?.battle;
+  if (b) b.turn.hits = hits;
+  if (combo.power == null) { combo.unshown.add(hits); view.hit(null, hits); return; }   // сила первого удара ещё в пути
+  combo.power = cry ? combo.base * rules.decay : combo.power * rules.decay;
+  const dmg = Math.max(1, pyRound(combo.power));
+  view.hit(dmg, hits);
+  if (b) { b.enemy.hp = Math.max(0, (combo.hp ?? b.enemy.hp) - dmg); combo.hp = b.enemy.hp; }
 }
 function rhythmTap(j = music.judge()) {
   if (arguments.length === 0 && performance.now() - attackAt < ATTACK_GUARD) return;
@@ -316,7 +358,7 @@ function rhythmTap(j = music.judge()) {
   } else {
     music.learn(j.err);
     view.say(j.err < 0 ? "слишком рано" : "слишком поздно", "#ff6b6b");
-    send({ t: "miss" });
+    endCombo("miss");
   }
 }
 

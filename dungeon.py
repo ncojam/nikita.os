@@ -3,10 +3,11 @@
 Игрок бродит по локации: ничего не случилось, нашёл монеты или вещь, напоролся на монстра. Бой — по ходам,
 как в Mother 3: атака запускает комбо, дальше игрок бьёт по врагу в такт сильным нотам боевого трека.
 Вся игра считается здесь, клиент только показывает. Единственное, что решает клиент, — попал ли игрок в такт:
-только он знает, что звучит у него в наушниках. Сервер проверяет, что нота сильная, новая и близка по времени.
+только он знает, что звучит у него в наушниках. Удар клиент показывает сразу, не дожидаясь сети, а сервер потом
+проверяет, что нота сильная, новая и примерно того времени, и считает настоящий урон.
 
 Протокол (WS /api/dungeon/ws, JSON). Клиент → сервер: auth, ping, wander, use, equip, unequip, pick, join,
-throw, hinder, act (attack/item/flee), tap, miss. Сервер → клиент: hello, pong, state (снимок мира глазами игрока),
+throw, hinder, act (attack/item/flee), tap, miss, stop. Сервер → клиент: hello, pong, state (снимок мира глазами игрока),
 ev (событие для анимации), log (строка в журнал), error.
 
 Данные игры (вещи, враги, локации) — таблицы ниже: новый враг или уровень — это новая запись.
@@ -59,8 +60,9 @@ COMBO_DECAY = 0.5        # каждый следующий удар комбо �
 CRY_EVERY = 20           # каждые столько ударов в такт подряд монстр плачет, а сила удара возвращается к половине обычной
 COMBO_START_BEATS = 3.5  # долей на первый удар в такт после атаки
 COMBO_GRACE_BEATS = 2.6  # долей на следующий: одну сильную ноту можно пропустить
+COMBO_NET_SLACK = 0.7    # с сверх этого: тап мог задержаться в сети. Клиент сам закрывает комбо вовремя (stop), это страховка
 TAP_EARLY = 1.5          # допуск серверных часов, доли
-TAP_LATE = 2.0
+TAP_LATE = 6.0           # попадание судит клиент, сервер только отсекает явный обман: на медленном интернете тап идёт долго
 ENEMY_WINDUP = 0.9       # с, замах врага (удар приходится на ближайшую долю после него)
 ENEMY_PAUSE = 0.8        # с после удара врага
 MUSIC_LEAD = 1.0         # с от появления врага до первой доли
@@ -675,7 +677,7 @@ class Dungeon:
             await self.strike(b, pid, dmg, 0)
             if b["id"] in self.battles:
                 beat = b["track"]["beat"]
-                b["turn"] = {"who": pid, "phase": "combo", "until": time.time() + COMBO_START_BEATS * beat,
+                b["turn"] = {"who": pid, "phase": "combo", "until": time.time() + COMBO_START_BEATS * beat + COMBO_NET_SLACK,
                              "combo": {"hits": 0, "power": float(dmg), "base": float(dmg), "last": -1}}
                 self.mark(b["loc"])
         elif a == "item":
@@ -717,7 +719,7 @@ class Dungeon:
         c["hits"] += 1
         cry = c["hits"] % CRY_EVERY == 0
         c["power"] = c["base"] * COMBO_DECAY if cry else c["power"] * COMBO_DECAY
-        t["until"] = at + COMBO_GRACE_BEATS * tr["beat"]
+        t["until"] = at + COMBO_GRACE_BEATS * tr["beat"] + COMBO_NET_SLACK
         if cry:
             self.blog(b, f"{b['enemy']['name']} плачет!")
             await self.to_party(b, {"t": "ev", "e": "cry"})
@@ -945,10 +947,10 @@ class Dungeon:
             await self.act(pid, d.get("a"), d.get("item"))
         elif t == "tap":
             await self.tap(pid, d.get("step"))
-        elif t == "miss":
+        elif t in ("miss", "stop"):      # stop: игрок перестал бить, клиент считает паузу сам
             b = self.battle_of(pid)
             if b and b["turn"]["who"] == pid and b["turn"]["phase"] == "combo":
-                await self.end_combo(b, "мимо такта")
+                await self.end_combo(b, "мимо такта" if t == "miss" else None)
         await self.flush()
 
     async def ws_handler(self, request):
@@ -994,7 +996,9 @@ class Dungeon:
                     self.conns[ws] = pid
                     self.online.setdefault(pid, set()).add(ws)
                     await self.send(ws, {"t": "hello", "id": pid, "nick": who[1], "wander": WANDER_CD,
-                                         "owner": pid.startswith("c:") and self.is_owner(request)})
+                                         "owner": pid.startswith("c:") and self.is_owner(request),
+                                         "combo": {"decay": COMBO_DECAY, "cry": CRY_EVERY, "grace": COMBO_GRACE_BEATS,
+                                                   "start": COMBO_START_BEATS}})
                     await self.send(ws, self.view(pid))
                     self.mark(self.players[pid]["loc"])
                 elif pid is not None:
