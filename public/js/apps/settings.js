@@ -5,6 +5,7 @@ import { IMAGE_EXT, Wallpaper } from "../ui/wallpaper.js";
 import { WM } from "../wm.js";
 import { GLOW_SPEC, Glow } from "../ui/glow.js";
 import { LANGS, lang, setLang } from "../core/i18n.js";
+import { Juice } from "../core/juice.js";
 
 /* ================= настройки ================= */
 /* живой фон: светяшки поверх обоев, вспышки от музыки DAWN */
@@ -36,6 +37,28 @@ function glowSection() {
     slider("count"), slider("hue"), slider("speed"), slider("glow"), slider("size"), slider("flash"),
     qualityRow(),
     el("div", { className: "hint", textContent: "Всё это можно крутить и проводками из DAWN: цели «Живой фон» в окне Модуляция." }));
+}
+/* отклик интерфейса: звуки и анимации окон и новых элементов */
+function juiceSection() {
+  const chk = (key, text) => { const c = el("input", { type: "checkbox", checked: Juice.cfg[key], onchange: () => Juice.set(key, c.checked) });
+    return el("label", { className: "row check" }, c, el("span", { textContent: text })); };
+  const slider = (key, label, min, max) => {
+    const val = el("span", { textContent: Math.round(Juice.cfg[key] * 100) + "%" });
+    const r = el("input", { type: "range", min, max, step: 0.05, value: Juice.cfg[key],
+      oninput: () => { Juice.set(key, +r.value); val.textContent = Math.round(r.value * 100) + "%"; } });
+    return el("div", { className: "row" }, el("span", { className: "lbl", textContent: label }), r, val);
+  };
+  const sample = el("button", { className: "btn", textContent: "▶ Проверить" });
+  sample.onclick = () => { Juice.spawn(sample); };
+  sample.onpointerdown = () => Juice.grab(sample);
+  sample.onpointerup = sample.onpointercancel = () => Juice.drop(sample);
+  return el("section", {}, el("h3", { textContent: "Отклик интерфейса" }),
+    chk("sound", "Звуки: щелчки при захвате окон и появлении нового"),
+    slider("volume", "Громкость", 0, 1),
+    chk("motion", "Анимации: окна в руке, появление новых элементов"),
+    slider("power", "Сила анимаций", 0.25, 2),
+    el("div", { className: "row" }, sample),
+    el("div", { className: "hint", textContent: "Настройки хранятся в этом браузере." }));
 }
 /* разделы: вкладки сверху, каждая показывает свои секции; последняя открытая запоминается */
 function tabs(box, list) {
@@ -101,8 +124,9 @@ function openSettings() {
         el("div", { className: "row lang-row no-i18n" }, ...LANGS.map(([code, name]) =>
           el("button", { className: "btn" + (code === lang ? " on" : ""), textContent: name, onclick: () => code !== lang && setLang(code) }))),
         el("div", { className: "hint", textContent: "Выбор сохраняется в cookie. Без него язык определяется по местоположению (часовому поясу)." })),
+      juiceSection(),
     );
-    c.append(tabs(box, [["🖼 Обои", 0, 1], ["✨ Живой фон", 2], ["🪟 Окна", 3], ["💾 Файлы", 4], ["🌐 Язык", 5]]));
+    c.append(tabs(box, [["🖼 Обои", 0, 1], ["✨ Живой фон", 2], ["🪟 Окна", 3], ["💾 Файлы", 4], ["🌐 Язык", 5], ["🧃 Отклик", 6]]));
     const showUsage = async () => {
       if (!VFS.ready) { vfsInfo.textContent = "Недоступно: нужен HTTPS и поддержка Service Worker"; return; }
       const u = await VFS.usage();

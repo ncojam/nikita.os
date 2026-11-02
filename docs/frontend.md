@@ -8,6 +8,7 @@
 | `types.js` | `EXT` → `kindOf(name)`, иконки `GLYPH`, названия `KIND_NAME`. Новый тип файла — сюда + ветка в `open.js` |
 | `vfs.js` | API личного слоя (см. [filesystem.md](filesystem.md)) |
 | `anim.js` | Константы анимаций, `REDUCED` (prefers-reduced-motion) |
+| `juice.js` | Отклик интерфейса (Настройки → Отклик): звук и анимация захвата окна (`Juice.grab/drop`), шаблон появления нового элемента `Juice.spawn(nodes)` |
 
 ## Оконный менеджер (`wm.js`)
 

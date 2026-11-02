@@ -1,3 +1,4 @@
+import { Juice } from "../core/juice.js";
 import { el } from "../core/util.js";
 import "../i18n/trip.js";
 import { notify } from "../ui/notify.js";
@@ -9,13 +10,13 @@ import { WM } from "../wm.js";
  * меню с ними; «Весь маршрут» → все дни разными цветами. Линии прямые: между точками, не по улицам.
  * Читать могут все. Кнопки правки — только для удобства: право проверяет СЕРВЕР (trip.py).
  * Закрыли одно окно — второе работает, а нужное окно откроется снова при следующем переходе.
- * Тайлы: страница живёт под COEP, поэтому чужие картинки — только с crossOrigin (CORS).
+ * Тайлы: OSM, без ключа; тёмными их делает CSS-фильтр. Страница живёт под COEP, поэтому чужие
+ * картинки — только с crossOrigin (CORS). CARTO не подходит: без ключа отдаёт заглушку с кодом 200.
+ * Новая карточка появляется через шаблон Juice.spawn (карточка, день, если он новый, и точка на карте).
  */
 const DAY_COLORS = ["#8ab4ff", "#ff9ecf", "#8fe8cf", "#ffc59e", "#c3a6ff", "#fff09e", "#9fd3ff"];
-const TILES = [
-  ["https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'],
-  ["https://tile.openstreetmap.org/{z}/{x}/{y}.png", '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'],
-];
+const TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 const ZOOM_CARD = 16;
 const NARROW = "(max-width: 640px)";   // как в style.css: окна на весь экран, видно только верхнее
 
@@ -25,8 +26,10 @@ let selected = null;                   // id выбранной карточки
 let editing = null;                    // {card, node} — открытая форма
 let picking = null;                    // (lat, lng) => void — ждём клик по карте
 let listWin = null, mapWin = null, listBox = null, addBtn = null, allBtn = null;
-let L = null, map = null, layer = null, tiles = null, fitted = false;
+let L = null, map = null, layer = null, fitted = false;
 const pins = new Map();                // id места → маркер
+let fresh = new Set();                 // id только что созданных карточек: им — анимация появления
+let freshDays = new Set();             // то же для дней
 
 const placeOf = id => doc.places.find(p => p.id === id);
 const dates = () => [...new Set(doc.cards.map(c => c.date))].sort();
@@ -42,8 +45,20 @@ async function api(path, body) {
   return j;
 }
 async function change(path, body) {
-  try { doc = await api(path, body); editing = null; refresh(); return true; }
-  catch (e) { notify("⚠ " + e.message, 3000); return false; }
+  try {
+    const cards = new Set(doc.cards.map(c => c.id)), days = new Set(dates());
+    doc = await api(path, body);
+    editing = null;
+    fresh = new Set(doc.cards.filter(c => !cards.has(c.id)).map(c => c.id));
+    freshDays = new Set(dates().filter(d => !days.has(d)));
+    const made = doc.cards.find(c => fresh.has(c.id));
+    if (made) {
+      selected = made.id;
+      if (!view.all) view = { all: false, date: made.date };
+    }
+    refresh();
+    return true;
+  } catch (e) { notify("⚠ " + e.message, 3000); return false; }
 }
 
 /* ----- окна ----- */
@@ -84,7 +99,7 @@ async function ensureMap() {
     c.append(box);
     map = L.map(box, { zoomControl: true, attributionControl: true }).setView([34.85, 135.55], 9);
     map.attributionControl.setPrefix(false);
-    setTiles(0);
+    L.tileLayer(TILES, { maxZoom: 19, crossOrigin: "anonymous", attribution: ATTRIBUTION }).addTo(map);
     layer = L.layerGroup().addTo(map);
     map.on("click", e => {
       if (!picking) return;
@@ -93,19 +108,11 @@ async function ensureMap() {
     });
     const ro = new ResizeObserver(() => map?.invalidateSize());
     ro.observe(box);
-    w.onClose = () => { ro.disconnect(); map.remove(); map = layer = tiles = mapWin = null; fitted = false; pins.clear(); stopPick(); };
+    w.onClose = () => { ro.disconnect(); map.remove(); map = layer = mapWin = null; fitted = false; pins.clear(); stopPick(); };
     w.onRestore = () => setTimeout(() => map?.invalidateSize(), 400);
   }});
   beside(mapWin, "right");
   map.invalidateSize();
-}
-
-// основной источник тайлов не отвечает или не даёт CORS — переходим на запасной
-function setTiles(i) {
-  tiles?.remove();
-  let fails = 0;
-  tiles = L.tileLayer(TILES[i][0], { maxZoom: 19, crossOrigin: "anonymous", attribution: TILES[i][1], subdomains: "abcd" }).addTo(map);
-  if (i + 1 < TILES.length) tiles.on("tileerror", () => { if (++fails === 8) setTiles(i + 1); });
 }
 
 // два окна рядом; на телефоне они и так во весь экран
@@ -128,6 +135,8 @@ function refresh() {
   if (view.date && !dates().includes(view.date)) view = { all: true, date: null };
   renderList();
   drawMap();
+  fresh = new Set();
+  freshDays = new Set();
 }
 
 function showAll() {
@@ -184,6 +193,7 @@ function renderList() {
   for (const d of dates()) {
     const head = el("button", { className: "trp-day" + (view.date === d ? " on" : ""), title: "Показать маршрут дня", onclick: () => showDay(d) },
       el("b", { textContent: dayName(d) }));
+    head.dataset.day = d;
     head.style.setProperty("--day", colorOf(d));
     if (doc.days[d]) head.append(el("span", { className: "no-i18n", textContent: doc.days[d] }));
     if (doc.owner) head.append(el("span", { className: "trp-edit", textContent: "✎", title: "Подпись дня", onclick: e => { e.stopPropagation(); renameDay(d); } }));
@@ -193,6 +203,9 @@ function renderList() {
   if (!kids.length) kids.push(el("div", { className: "trp-empty", textContent: "Пока нет карточек." }));
   listBox.replaceChildren(...kids);
   listBox.scrollTop = scroll;
+  const born = kids.filter(n => fresh.has(n.dataset.card) || freshDays.has(n.dataset.day));
+  born.at(-1)?.scrollIntoView({ block: "nearest" });
+  Juice.spawn(born);
 }
 
 function cardNode(c, n) {
@@ -306,6 +319,7 @@ function drawMap() {
     const m = L.marker([p.lat, p.lng], { icon, title: p.name, zIndexOffset: pid === active ? 1000 : 0 }).addTo(layer);
     m.on("click", e => { if (picking) return map.fire("click", { latlng: e.latlng }); pointClicked(pid, e.originalEvent); });
     pins.set(pid, m);
+    if (cards.some(c => fresh.has(c.id))) Juice.spawn(m.getElement().firstElementChild, { sound: false });
   }
   if (!fitted && shown.length) { fitted = true; fit(); }
 }

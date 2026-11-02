@@ -132,8 +132,9 @@ html, body {
   display: flex; flex-direction: column;
   overflow: hidden;
   will-change: transform, opacity;
-  transition: border-radius .3s, background-color .2s;
+  transition: border-radius .3s, background-color .2s, box-shadow .16s;
 }
+.window.grabbed { scale: var(--juice-lift, 1); box-shadow: 0 26px 70px rgba(0,0,0,0.65), 0 6px 18px rgba(0,0,0,0.45); }
 .window.inactive { --glass-bg: rgba(14,14,18,0.48); }
 .window.inactive .titlebar { color: var(--muted); }
 .window.minimized { visibility: hidden; pointer-events: none; }
@@ -1361,6 +1362,7 @@ html.dw-wiring .wire-hover { outline: 3px solid var(--dw-lemon, #fff59e) !import
 .trp-form textarea { min-height: 70px; resize: vertical; }
 .trp-hint { color: var(--muted); font-size: 12px; }
 .trp-map { height: 100%; isolation: isolate; background: #15151b; font: inherit; }
+.trp-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.6); }   /* тёмная тема из обычных тайлов OSM */
 .trp-map.pick { cursor: crosshair; }
 .trp-map.pick .leaflet-interactive, .trp-map.pick .leaflet-marker-icon { cursor: crosshair; }
 .trp-pin { display: flex; align-items: center; justify-content: center; box-sizing: border-box; height: 24px; min-width: 24px; padding: 0 6px; width: max-content; border: 2px solid #fff; border-radius: 12px; background: var(--day); color: #0c0c11; font: 700 11px/1 system-ui, sans-serif; box-shadow: 0 1px 6px rgba(0,0,0,0.6); }

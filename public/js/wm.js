@@ -1,4 +1,5 @@
 import { D, EASE, REDUCED } from "./core/anim.js";
+import { Juice } from "./core/juice.js";
 import { $, el, px, store } from "./core/util.js";
 import { notify } from "./ui/notify.js";
 
@@ -395,6 +396,8 @@ const WM = {
       }
       const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop;
       handle.setPointerCapture(e.pointerId);
+      // наклон — в сторону, за которую взяли
+      Juice.grab(n, (e.clientX - n.offsetLeft) / n.offsetWidth < 0.5 ? -1 : 1);
       const move = ev => {
         this.breakArrange(); // окно сдвинули руками — раскладка больше не «сетка»
         const x = Math.min(Math.max(ev.clientX - sx, -n.offsetWidth + 80), innerWidth - 80);
@@ -406,10 +409,13 @@ const WM = {
       const up = ev => {
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", up);
-        if (ev.clientY <= 2) this.setMax(w, true, start); // утащил к верху — развернуть
+        handle.removeEventListener("pointercancel", up);
+        Juice.drop(n);
+        if (ev.type === "pointerup" && ev.clientY <= 2) this.setMax(w, true, start); // утащил к верху — развернуть
       };
       handle.addEventListener("pointermove", move);
       handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointercancel", up);
     });
   },
 
