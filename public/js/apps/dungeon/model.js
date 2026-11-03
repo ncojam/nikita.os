@@ -9,7 +9,7 @@
  */
 const VIEW_FOV = 30, VIEW_DIST = 4.2, FIT_SIZE = 1.45;
 export const MODEL_FILL = FIT_SIZE / (2 * VIEW_DIST * Math.tan(VIEW_FOV / 2 * Math.PI / 180));   // доля картинки, занятая моделью
-const WINDUP_SEC = 0.4;
+export const WINDUP_SEC = 0.22;   // замах короткий: голова откидывается прямо перед броском
 const BLINK_BEATS = 13, BLINK_LEN = 0.5;   // моргает раз в столько долей, закрыв глаза на столько
 const SMOOTH = 0.35;          // сглаживание: новый удар посреди старого не должен дёргать голову
 const decay = (t, k) => Math.exp(-t * k);
@@ -49,7 +49,7 @@ export function pose(state, t, beat, cry = Infinity, wail = false) {
     p.x += Math.sin(t * 41) * 0.09 * k;
     m.hit = k;
   } else if (state === "windup") {   // замах: закидывает голову назад и скалится
-    const k = Math.min(1, t / WINDUP_SEC);
+    const k = Math.max(0, Math.min(1, t / WINDUP_SEC));
     p.z -= 0.45 * k;
     p.y += 0.22 * k;
     p.rx -= 0.65 * k;
