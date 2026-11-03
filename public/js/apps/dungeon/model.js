@@ -3,7 +3,8 @@
  * Модель сама становится по центру и в нужный размер, поэтому масштаб в Blender не важен.
  *
  * Движение головы — в коде, сдвиг и поворот. Форма лица — Shape Keys из Blender: это ключевые позы, а силу каждой
- * (0..1) задаёт код. Имена без учёта регистра: idle, attack, hit, cry, wail, death, blink. Ключа нет в файле — не беда.
+ * (0..1) задаёт код. Имена без учёта регистра: attack, hit, cry, wail, death, blink. Ключа нет в файле — не беда, а ключи
+ * с другими именами просто молчат, даже если в Blender ползунок остался на 1.
  * Поза считается в pose() по состоянию idle / windup / attack / hit / death; новая поза — новая ветка там.
  * Рисуем в отдельный WebGL-холст и копируем его в общий 2D-холст, чтобы полоса HP и нотка оставались поверх.
  */
@@ -11,6 +12,8 @@ const VIEW_FOV = 30, VIEW_DIST = 4.2, FIT_SIZE = 1.45;
 export const MODEL_FILL = FIT_SIZE / (2 * VIEW_DIST * Math.tan(VIEW_FOV / 2 * Math.PI / 180));   // доля картинки, занятая моделью
 export const WINDUP_SEC = 0.22;   // замах короткий: голова откидывается прямо перед броском
 const BLINK_BEATS = 13, BLINK_LEN = 0.5;   // моргает раз в столько долей, закрыв глаза на столько
+const MORPH_SMOOTH = 0.5;   // лицо реагирует быстрее, чем движется голова
+const HIT_HOLD = 0.14, HIT_FADE = 0.3;
 const SMOOTH = 0.35;          // сглаживание: новый удар посреди старого не должен дёргать голову
 const decay = (t, k) => Math.exp(-t * k);
 
@@ -24,9 +27,8 @@ export const CRY_SEC = 1.8;
 
 /* cry — секунд с начала плача: он идёт поверх любого состояния, ведь удары в такт продолжаются */
 export function pose(state, t, beat, cry = Infinity, wail = false) {
-  const p = idlePose(beat), m = { idle: 0, attack: 0, hit: 0, cry: 0, wail: wail ? 1 : 0, death: 0, blink: 0 };
+  const p = idlePose(beat), m = { attack: 0, hit: 0, cry: 0, wail: wail ? 1 : 0, death: 0, blink: 0 };
   p.m = m;
-  m.idle = (Math.sin(beat / 4 * Math.PI * 2) + 1) / 2;
   const b = beat % BLINK_BEATS;
   m.blink = b < BLINK_LEN ? 1 - Math.abs(b / BLINK_LEN * 2 - 1) : 0;
   if (cry < CRY_SEC) m.cry = Math.min(1, cry / 0.15, (CRY_SEC - cry) / 0.4);
@@ -47,7 +49,7 @@ export function pose(state, t, beat, cry = Infinity, wail = false) {
     p.rx -= 0.5 * k;
     p.rz += Math.sin(t * 32) * 0.3 * k;
     p.x += Math.sin(t * 41) * 0.09 * k;
-    m.hit = k;
+    m.hit = t < HIT_HOLD ? 1 : Math.max(0, 1 - (t - HIT_HOLD) / HIT_FADE);   // держим подольше, иначе за отлётом головы не видно
   } else if (state === "windup") {   // замах: закидывает голову назад и скалится
     const k = Math.max(0, Math.min(1, t / WINDUP_SEC));
     p.z -= 0.45 * k;
@@ -67,7 +69,6 @@ export function pose(state, t, beat, cry = Infinity, wail = false) {
     p.rx += k * 0.8;
     m.death = Math.min(1, t / 0.6);
   }
-  m.idle *= 1 - Math.max(m.attack, m.hit, m.cry, m.wail, m.death);   // поза важнее покачивания лица
   return p;
 }
 
@@ -117,6 +118,7 @@ export class EnemyModel {
     root.traverse(o => {
       if (!o.morphTargetDictionary) return;
       const keys = Object.fromEntries(Object.entries(o.morphTargetDictionary).map(([k, i]) => [k.toLowerCase(), i]));
+      o.morphTargetInfluences.fill(0);    // Blender сохраняет текущие ползунки, а в покое лицо должно быть обычным
       this.morphs.push({ influences: o.morphTargetInfluences, keys });
     });
   }
@@ -127,7 +129,7 @@ export class EnemyModel {
     const n = this.now;
     for (const k in n) n[k] += (target[k] - n[k]) * SMOOTH;
     for (const [k, v] of Object.entries(target.m)) {
-      const w = this.weights[k] = (this.weights[k] || 0) + (v - (this.weights[k] || 0)) * SMOOTH;
+      const w = this.weights[k] = (this.weights[k] || 0) + (v - (this.weights[k] || 0)) * MORPH_SMOOTH;
       for (const m of this.morphs) if (k in m.keys) m.influences[m.keys[k]] = w;
     }
     this.pivot.position.set(n.x, n.y, n.z);
