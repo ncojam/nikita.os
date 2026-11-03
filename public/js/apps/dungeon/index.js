@@ -24,6 +24,7 @@ const LATE_STATE = 1500;    // мс: столько после атаки сни
 let rules = { decay: 0.5, cry: 20, grace: 2.6, start: 3.5 };
 let combo = null;           // { hits, power, base, hp, unshown }
 let comboTimer = 0;
+let wailKey = null;         // какое завывание сейчас звучит
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
 
@@ -103,14 +104,27 @@ function onState() {
   if (b) {
     lastBattle = b; holdBattle = 0;
     syncCombo(b);
-    music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0 });
+    music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0, wail: b.turn.wail });
+    syncWail(b.turn.wail);
     if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.error = null; music.start(b, srvNow).catch(e => { console.warn("музыка", e); music.error = String(e.message || e); render(); }); }
     view.set(b, me);
   } else if (musicBattle !== null) {
     musicBattle = null;
+    music.setState({ wail: null });
+    syncWail(null);
     music.stop();
   }
   render();
+}
+
+/* завывание приходит снимком мира: так его услышат и присоединившиеся, и вернувшиеся после обрыва связи */
+function syncWail(w) {
+  const key = w ? `${w.from}.${w.end}` : null;
+  if (key === wailKey) return;
+  if (!w) { wailKey = null; sfx.wailStop(); return; }
+  if (!music.running) return;      // музыка ещё грузится: подхватим следующим снимком
+  wailKey = key;
+  sfx.wail(music.timeOf(w.from), music.timeOf(w.quiet), music.timeOf(w.end));
 }
 
 function onEvent(d) {
@@ -126,6 +140,8 @@ function onEvent(d) {
     if (combo) combo.hp = lastBattle?.enemy.hp;
   }
   else if (d.e === "enemy_hit") { view.enemyHit(d.who, d.dmg); sfx.hurt(d.who === me); }
+  else if (d.e === "spell") sfx.spell();
+  else if (d.e === "backlash") { view.enemyHit(d.who, d.dmg); sfx.hurt(d.who === me); banner(`Печаль забрала ${d.heal} здоровья`); }
   else if (d.e === "trip") { view.trip(d.who); sfx.hurt(d.who === me); }
   else if (d.e === "level") { banner(`Уровень ${d.level}!`); sfx.item(); }
   else if (d.e === "pickup") d.kind === "coins" ? sfx.coin() : sfx.item();
@@ -142,14 +158,16 @@ function banner(text) {
 }
 
 /* ---------- экраны ---------- */
-const hpBar = (hp, max) => {
-  const bar = el("div", { className: "bar" + (hp / max < 0.3 ? " low" : "") }, el("i"));
+const hpBar = (hp, max, label = "HP", cls = hp / max < 0.3 ? " low" : "") => {
+  const bar = el("div", { className: "bar" + cls }, el("i"));
   bar.firstChild.style.width = 100 * hp / max + "%";
-  return el("div", { className: "hp", textContent: `HP ${hp}/${max}` }, bar);
+  return el("div", { className: "hp", textContent: `${label} ${hp}/${max}` }, bar);
 };
+const mpBar = () => hpBar(S.me.mp, S.me.maxmp, "MP", " mp");
+const fxLine = () => S.me.fx.length ? [el("div", { className: "fx", textContent: S.me.fx.map(f => `Резист: ${f.school}, ${Math.ceil(f.left / 60)} мин`).join(" · ") })] : [];
 const btn = (text, fn, cls = "", off = false) => el("button", { textContent: text, className: cls, disabled: off, onclick: fn });
 const top = () => el("div", { className: "top" }, el("div", { className: "place", textContent: S.loc.name }),
-  el("div", { textContent: `ур. ${S.me.level} · 🪙 ${S.me.coins}` }), hpBar(S.me.hp, S.me.maxhp));
+  el("div", { textContent: `ур. ${S.me.level} · 🪙 ${S.me.coins}` }), hpBar(S.me.hp, S.me.maxhp), mpBar());
 
 function render() {
   if (!S) { app.replaceChildren(el("div", { textContent: "Спускаемся в пещеру…" })); return; }
@@ -193,7 +211,7 @@ function renderWorld() {
     el("span", { textContent: g.name }, ...(g.from ? [el("small", { textContent: `  от: ${g.from}` })] : [])),
     btn("Взять", () => send({ t: "pick", id: g.id }), "small")));
   const others = S.loc.players.filter(n => n !== S.me.nick);
-  app.replaceChildren(top(), log, ...(rows.length ? [el("div", { className: "list" }, ...rows)] : []),
+  app.replaceChildren(top(), ...fxLine(), log, ...(rows.length ? [el("div", { className: "list" }, ...rows)] : []),
     ...(others.length ? [el("div", { className: "here", textContent: "Рядом: " + others.join(", ") })] : []),
     el("div", { className: "row" }, walkBtn, btn("Рюкзак", () => openSheet("bag"))));
   log.scrollTop = log.scrollHeight;
@@ -212,9 +230,13 @@ function renderBattle() {
   const t = b.turn, mine = S.battle && t.who === me, choose = mine && t.phase === "choose";
   const who = b.party.find(p => p.id === t.who)?.nick;
   const text = !S.battle ? "" : t.who === "enemy" ? "Ход врага…"
+    : t.wail?.silent ? "Тишина. Не сбейся!"
+    : t.wail ? `${b.enemy.name} завывает…`
     : combo ? "Жми по врагу в такт!"
     : mine ? "Твой ход" : t.phase === "combo" ? `${who} бьёт в такт…` : `Ходит ${who}…`;
   const tail = [
+    el("div", { className: "vitals" }, hpBar(S.me.hp, S.me.maxhp), mpBar()),
+    ...fxLine(),
     el("div", { className: "turn", textContent: text }),
     ...(music.error ? [el("div", { className: "sound", textContent: "Музыка не запустилась: " + music.error.slice(0, 80) })]
       : music.ctx && !music.audible ? [el("div", { className: "sound", textContent: `Нажми куда угодно, чтобы включить звук (${music.ctx.state})` })] : []),
@@ -222,9 +244,11 @@ function renderBattle() {
     el("div", { className: "blog" }, ...b.log.map(l => el("div", { textContent: l }))),
     el("div", { className: "row" },
       el("button", { textContent: "Атака", className: "main", disabled: !(choose || combo), onpointerdown: attackPress }),
-      btn("Рюкзак", () => openSheet("bag")),
-      ...(b.party.length > 1 ? [btn("Помешать", () => askHinder(b.id, b.party))] : []),
-      btn("Бежать", () => send({ t: "act", a: "flee" }), "", !choose)),
+      btn("Магия", () => openSheet("magic")),
+      btn("Рюкзак", () => openSheet("bag"))),
+    el("div", { className: "row" },
+      ...(b.party.length > 1 ? [btn("Помешать", () => askHinder(b.id, b.party), "small")] : []),
+      btn("Бежать", () => send({ t: "act", a: "flee" }), "small", !choose)),
   ];
   app.append(...tail);
   app.battleTail = tail;
@@ -248,6 +272,13 @@ function renderSheet() {
   if (sheet.kind === "hinder") {
     box.append(el("h3", { textContent: "Кому поставить подножку?" }));
     for (const p of sheet.data.targets) box.append(btn(p.nick, () => { send({ t: "hinder", id: sheet.data.id, target: p.id }); closeSheet(); }));
+  } else if (sheet.kind === "magic") {
+    const b = S.battle, myTurn = b && b.turn.who === me && b.turn.phase === "choose";
+    box.append(el("h3", { textContent: `Магия · MP ${S.me.mp}/${S.me.maxmp}` }));
+    for (const s of S.me.skills) box.append(s
+      ? el("div", { className: "card" }, el("span", { textContent: `${s.name}  ` }, el("small", { textContent: `${s.mp} MP · ${s.desc}` })),
+        btn("Применить (ход)", () => { send({ t: "act", a: "spell", item: s.id }); closeSheet(); }, "small", !myTurn || S.me.mp < s.mp))
+      : el("div", { className: "card" }, el("span", {}, el("small", { textContent: "Пустой слот" }))));
   } else {
     const b = S.battle, myTurn = b && b.turn.who === me && b.turn.phase === "choose";
     box.append(el("h3", { textContent: `Рюкзак · урон +${S.me.atk} · защита +${S.me.def} · опыт ${S.me.xp}/${S.me.xpNext}` }));
@@ -257,8 +288,8 @@ function renderSheet() {
         btn("Снять", () => send({ t: "unequip", slot }), "small")));
     }
     for (const it of S.me.inv) {
-      const gear = it.kind !== "heal";
-      const note = gear ? (it.kind === "weapon" ? `урон +${it.atk}` : `защита +${it.def}`) : `+${it.heal} HP`;
+      const gear = it.kind === "weapon" || it.kind === "armor";
+      const note = it.desc || (gear ? (it.kind === "weapon" ? `урон +${it.atk}` : `защита +${it.def}`) : `+${it.heal} HP`);
       box.append(el("div", { className: "card" },
         el("span", { textContent: `${it.name}${it.qty > 1 ? " ×" + it.qty : ""}  ` }, el("small", { textContent: note })),
         gear ? btn("Надеть", () => send({ t: "equip", item: it.id }), "small")

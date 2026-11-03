@@ -11,8 +11,10 @@
  *
  * Правило: { when: {...условия...}, add, mute, shift, filter } или { when, pick: [вариант, вариант…] }.
  *   when:   from N (с N-го повтора), every N + at K (повтор № K из каждых N), bar K (такт внутри паттерна; -1 — последний),
- *           enemyHpBelow, myHpBelow, comboFrom (доли и удары), chance (вероятность на этот повтор).
- *   add / mute — списки ролей; shift — { роль: полутоны }; filter — { роль: частота среза, Гц }.
+ *           enemyHpBelow, myHpBelow, comboFrom (доли и удары), chance (вероятность на этот повтор),
+ *           dark (идёт тишина способности врага).
+ *   add / mute — списки ролей; shift — { роль: полутоны }; filter — { роль: частота среза, Гц, берётся самая низкая };
+ *   open — как filter, но заменяет срез; duck — громкость всей музыки (0..1).
  *   Особые имена: "pitched" — всё мелодическое (ударные не трогаем), "all" — всё.
  *
  * Как устроены вариации (чтобы один паттерн не приедался и при этом не разваливался):
@@ -45,6 +47,8 @@ export const DEFAULT = {
     // мало здоровья: мир глохнет, остаются низ и пульс
     { id: "hurt", when: { myHpBelow: 0.3 }, filter: { lead: 1100, tension: 1500, hat: 1800, snare: 2200 } },
     { id: "dying", when: { myHpBelow: 0.12 }, filter: { lead: 500, tension: 800, snare: 900 }, mute: ["hat"] },
+    // тишина Тёмной способности: всё глохнет, но колокольчики ещё слышно, иначе держать ритм было бы нечем
+    { id: "dark", when: { dark: true }, filter: { all: 240 }, open: { lead: 800 }, duck: 0.5 },
   ],
 };
 
@@ -91,6 +95,7 @@ function matches(w = {}, s, ruleNo) {
   if (w.enemyHpBelow != null && !(s.enemyHp < w.enemyHpBelow)) return false;
   if (w.myHpBelow != null && !(s.myHp < w.myHpBelow)) return false;
   if (w.comboFrom != null && !(s.combo >= w.comboFrom)) return false;
+  if (w.dark != null && !!s.dark !== w.dark) return false;
   if (w.chance != null && rand(s.seed + ruleNo * 131, s.loop) >= w.chance) return false;
   return true;
 }
@@ -103,11 +108,14 @@ function expand(A, name) {
 export function planBar(A, s) {
   const active = new Set(A.layers.filter(l => s.loop >= l.at).map(l => l.role));
   const shift = {}, filter = {};
+  let duck = 1;
   const apply = d => {
     for (const r of d.add || []) expand(A, r).forEach(x => active.add(x));
     for (const r of d.mute || []) expand(A, r).forEach(x => active.delete(x));
     for (const [r, v] of Object.entries(d.shift || {})) for (const x of expand(A, r)) shift[x] = (shift[x] || 0) + v;
     for (const [r, v] of Object.entries(d.filter || {})) for (const x of expand(A, r)) filter[x] = Math.min(filter[x] ?? 22000, v);
+    for (const [r, v] of Object.entries(d.open || {})) for (const x of expand(A, r)) filter[x] = v;
+    if (d.duck != null) duck = Math.min(duck, d.duck);
   };
   A.rules.forEach((rule, no) => {
     if (!matches(rule.when, s, no)) return;
@@ -115,5 +123,5 @@ export function planBar(A, s) {
     const w = rule.when || {}, k = Math.floor((s.loop - (w.from || 0)) / (w.every || 1));
     apply(rule.pick[deal(s.seed + no, rule.pick.length, k)]);
   });
-  return { active, shift, filter };
+  return { active, shift, filter, duck };
 }

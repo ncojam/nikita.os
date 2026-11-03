@@ -65,10 +65,17 @@ TAP_EARLY = 1.5          # допуск серверных часов, доли
 TAP_LATE = 6.0           # попадание судит клиент, сервер только отсекает явный обман: на медленном интернете тап идёт долго
 ENEMY_WINDUP = 0.9       # с, замах врага (удар приходится на ближайшую долю после него)
 ENEMY_PAUSE = 0.8        # с после удара врага
+WAIL_RISE_BARS = 2       # тактов завывание нарастает перед тишиной: сбиться за это время ещё не страшно
+RESIST_KEEP = 0.25       # какая доля урона доходит при резисте к школе способности
 MUSIC_LEAD = 1.0         # с от появления врага до первой доли
 
 BASE_HP = 30
+BASE_MP = 12
 BASE_DMG = (4, 7)
+SKILL_SLOTS = 4
+LEVEL_MP = 2             # игроку за уровень
+MP_WANDER = 1            # за прогулку
+MP_WIN = 2               # за победу
 # уровни: опыт за победу делят не поровну, а дают каждому участнику целиком
 XP_KILL = 10             # за врага 1 уровня, дальше +XP_KILL_LVL за каждый уровень
 XP_KILL_LVL = 5
@@ -87,12 +94,28 @@ ITEMS = {
     "pickaxe": {"name": "Ржавая кирка", "kind": "weapon", "atk": 3},
     "rags": {"name": "Лохмотья", "kind": "armor", "def": 1},
     "helmet": {"name": "Шахтёрская каска", "kind": "armor", "def": 2},
+    "dark_vial": {"name": "Чёрный пузырёк", "kind": "buff", "resist": "dark", "sec": 180,
+                  "desc": "резист к Тёмным способностям на 3 мин"},
 }
 
+# школа способности: позже эффекты игрока будут контрить разные школы
+ABILITIES = {
+    "wail": {"name": "Завывание", "school": "dark"},
+}
+SCHOOLS = {"dark": "Тёмная"}
+
+# заклинания: урон фиксированный, он не растёт с уровнем — поэтому со временем нужны новые свитки
+SPELLS = {
+    "spark": {"name": "Искра", "mp": 5, "dmg": 14, "stun": True, "desc": "14 урона, враг пропускает ход"},
+}
+START_SKILLS = ["spark"]
+
 ENEMIES = {
-    "head": {"name": "Злая летающая голова", "hp": 50, "atk": (2, 5),
+    "head": {"name": "Печаль", "hp": 50, "atk": (2, 5),
              "coins": (5, 15), "drops": {"mushroom": 4, "bandage": 2, "elixir": 1, "pickaxe": 1},
-             "hits": ["кусает", "бодает", "плюётся в"]},
+             "hits": ["кусает", "бодает", "плюётся в"],
+             # wail: шанс на цепочку ударов, с какого удара начинает, сколько тактов длится тишина
+             "abilities": {"wail": {"chance": 0.35, "hits": (5, 10), "bars": (2, 6)}}},
 }
 
 LOCATIONS = {
@@ -101,7 +124,7 @@ LOCATIONS = {
         # вес исхода одной прогулки
         "wander": {"nothing": 40, "coins": 20, "item": 15, "monster": 25},
         "coins": (1, 6),
-        "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "stick": 2, "pickaxe": 1, "rags": 2, "helmet": 1},
+        "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "stick": 2, "pickaxe": 1, "rags": 2, "helmet": 1, "dark_vial": 0.4},
         "enemies": {"head": 1},
         "giggle": ["Где-то вдалеке хихикают.", "Из темноты доносится смешок.", "Кто-то хихикает прямо за спиной. Никого."],
         "nothing": ["Капает вода.", "Ты споткнулся о камень. Камень не извинился.",
@@ -191,7 +214,8 @@ def parse_track(track_id, raw, rules):
         for n in notes.get(ch, []):
             if abs(n[0] / grid - round(n[0] / grid)) < 1e-6:
                 strong.add(round(n[0] * 4) % steps)
-    return {"id": track_id, "beat": 60 / raw.get("bpm", 120), "steps": steps, "strong": strong or set(range(0, steps, 4)),
+    return {"id": track_id, "beat": 60 / raw.get("bpm", 120), "steps": steps, "bar": round(bar * 4),
+            "strong": strong or set(range(0, steps, 4)),
             "rules": rules}
 
 
@@ -405,6 +429,12 @@ class Dungeon:
                                      "eq": {"weapon": None, "armor": None}, "loc": START_LOC, "kills": 0, "deaths": 0,
                                      "level": 1, "xp": 0}
         p["nick"] = nick
+        p.setdefault("level", 1)        # записи из старых версий игры
+        p.setdefault("maxmp", BASE_MP + LEVEL_MP * (p["level"] - 1))
+        p.setdefault("mp", p["maxmp"])
+        p.setdefault("fx", {})
+        if "skills" not in p:
+            p["skills"] = (START_SKILLS + [None] * SKILL_SLOTS)[:SKILL_SLOTS]
         if p.get("loc") not in LOCATIONS:
             p["loc"] = START_LOC
         self.dirty_save = True
@@ -473,7 +503,9 @@ class Dungeon:
         b = self.battle_of(pid)
         return {
             "t": "state", "srv": now_ms(),
-            "me": {"id": pid, "nick": p["nick"], "hp": p["hp"], "maxhp": p["maxhp"], "coins": p["coins"],
+            "me": {"id": pid, "nick": p["nick"], "hp": p["hp"], "maxhp": p["maxhp"], "mp": p["mp"], "maxmp": p["maxmp"], "coins": p["coins"],
+                   "skills": [{"id": s, **SPELLS[s]} if s in SPELLS else None for s in p["skills"]],
+                   "fx": [{"school": SCHOOLS.get(k, k), "left": round(v - time.time())} for k, v in p["fx"].items() if v > time.time()],
                    "level": p.get("level", 1), "xp": p.get("xp", 0), "xpNext": XP_LEVEL * p.get("level", 1),
                    "atk": self.atk_of(p), "def": self.def_of(p),
                    "eq": {k: self.item_view(v) if v else None for k, v in p["eq"].items()},
@@ -489,18 +521,22 @@ class Dungeon:
 
     def item_view(self, item):
         d = ITEMS[item]
-        return {"id": item, "name": d["name"], "kind": d["kind"], "heal": d.get("heal"), "atk": d.get("atk"), "def": d.get("def")}
+        return {"id": item, "name": d["name"], "kind": d["kind"], "heal": d.get("heal"), "atk": d.get("atk"), "def": d.get("def"),
+                "desc": d.get("desc")}
 
     def battle_view(self, b, pid):
         t = b["turn"]
         c = t.get("combo")
+        w = c.get("wail") if c else None
         return {"id": b["id"], "track": b["track"]["id"], "music": b["track"]["rules"], "t0": b["t0"], "seed": b["seed"],
                 "enemy": {"kind": b["enemy"]["kind"], "name": b["enemy"]["name"], "level": b["enemy"]["level"],
                           "hp": b["enemy"]["hp"], "maxhp": b["enemy"]["maxhp"]},
-                "party": [{"id": i, "nick": self.players[i]["nick"], "hp": self.players[i]["hp"], "maxhp": self.players[i]["maxhp"]}
+                "party": [{"id": i, "nick": self.players[i]["nick"], "hp": self.players[i]["hp"], "maxhp": self.players[i]["maxhp"],
+                           "mp": self.players[i]["mp"], "maxmp": self.players[i]["maxmp"]}
                           for i in b["party"]],
                 "turn": {"who": t["who"], "phase": t["phase"], "left": max(0, t["until"] - time.time()),
-                         "hits": c["hits"] if c else 0},
+                         "hits": c["hits"] if c else 0,
+                         "wail": {"from": w["from"], "quiet": w["quiet"], "end": w["end"], "silent": w["silent"]} if w else None},
                 "log": b["log"][-5:]}
 
     # ---------- земля ----------
@@ -534,6 +570,7 @@ class Dungeon:
         if now - p.get("_wander", 0) < WANDER_CD - WANDER_SLACK:
             return
         p["_wander"] = now
+        p["mp"] = min(p["maxmp"], p["mp"] + MP_WANDER)
         L = LOCATIONS[p["loc"]]
         what = weighted(L["wander"])
         if what == "coins":
@@ -560,6 +597,13 @@ class Dungeon:
         """Предмет: вне боя — когда угодно, в бою — это ход (см. act)."""
         p = self.players[pid]
         d = ITEMS.get(item)
+        if d and d["kind"] == "buff":
+            if not self.inv_take(p, item):
+                return False
+            p["fx"][d["resist"]] = time.time() + d["sec"]
+            await self.say(pid, f"{d['name']}: {d['desc']}.")
+            self.mark(p["loc"])
+            return True
         if not d or d["kind"] != "heal":
             return False
         if p["hp"] >= p["maxhp"]:
@@ -638,7 +682,11 @@ class Dungeon:
             b["i"] += 1
         if b["i"] < len(b["order"]):
             return self.set_turn(b, b["order"][b["i"]])
-        b["turn"] = {"who": "enemy", "phase": "windup", "until": self.next_beat(b, time.time() + ENEMY_WINDUP)}
+        if b.pop("stun", False):
+            self.blog(b, f"{b['enemy']['name']} оглушена и пропускает ход.")
+            b["turn"] = {"who": "enemy", "phase": "pause", "until": time.time() + ENEMY_PAUSE}
+        else:
+            b["turn"] = {"who": "enemy", "phase": "windup", "until": self.next_beat(b, time.time() + ENEMY_WINDUP)}
         self.mark(b["loc"])
 
     def new_round(self, b):
@@ -678,8 +726,24 @@ class Dungeon:
             if b["id"] in self.battles:
                 beat = b["track"]["beat"]
                 b["turn"] = {"who": pid, "phase": "combo", "until": time.time() + COMBO_START_BEATS * beat + COMBO_NET_SLACK,
-                             "combo": {"hits": 0, "power": float(dmg), "base": float(dmg), "last": -1}}
+                             "combo": {"hits": 0, "power": float(dmg), "base": float(dmg), "last": -1, "dealt": dmg,
+                                       "wail_at": self.roll_wail(b)}}
                 self.mark(b["loc"])
+        elif a == "spell":
+            s = SPELLS.get(item)
+            if not s or item not in p["skills"]:
+                return
+            if p["mp"] < s["mp"]:
+                return await self.say(pid, "Не хватает маны.")
+            p["mp"] -= s["mp"]
+            self.dirty_save = True
+            self.blog(b, f"{p['nick']} применяет: {s['name']}!")
+            if s.get("stun"):
+                b["stun"] = True
+            await self.to_party(b, {"t": "ev", "e": "spell", "by": pid})
+            await self.strike(b, pid, s["dmg"], 0)
+            if b["id"] in self.battles:
+                self.next_turn(b)
         elif a == "item":
             if await self.use(pid, item):
                 self.blog(b, f"{p['nick']} использует: {ITEMS[item]['name']}.")
@@ -723,17 +787,71 @@ class Dungeon:
         if cry:
             self.blog(b, f"{b['enemy']['name']} плачет!")
             await self.to_party(b, {"t": "ev", "e": "cry"})
-        await self.strike(b, pid, max(1, round(c["power"])), c["hits"])
+        dmg = max(1, round(c["power"]))
+        c["dealt"] += dmg
+        await self.strike(b, pid, dmg, c["hits"])
+        if b["id"] in self.battles and c["hits"] == c.get("wail_at"):
+            self.start_wail(b, c)
+
+    def roll_wail(self, b):
+        """На каком ударе этой цепочки начнётся завывание, или None: враг делает это только иногда."""
+        a = ENEMIES[b["enemy"]["kind"]].get("abilities", {}).get("wail")
+        return random.randint(*a["hits"]) if a and random.random() < a["chance"] else None
+
+    def step_time(self, b, step):
+        return b["t0"] / 1000 + step * b["track"]["beat"] / 4
+
+    def start_wail(self, b, c):
+        """Завывание идёт по тактам: нарастает, потом тишина. Клиенты узнают границы из снимка мира в шагах сетки."""
+        a = ENEMIES[b["enemy"]["kind"]]["abilities"]["wail"]
+        tr = b["track"]
+        step = (time.time() - b["t0"] / 1000) / (tr["beat"] / 4)
+        start = math.ceil(step / tr["bar"]) * tr["bar"]
+        quiet = start + WAIL_RISE_BARS * tr["bar"]
+        c["wail"] = {"from": start, "quiet": quiet, "end": quiet + random.randint(*a["bars"]) * tr["bar"], "silent": False}
+        self.blog(b, f"{b['enemy']['name']} начинает завывать…")
+
+    def step_wail(self, b, now):
+        c = b["turn"].get("combo")
+        w = c.get("wail") if c else None
+        if not w:
+            return
+        if not w["silent"] and now >= self.step_time(b, w["quiet"]):
+            w["silent"] = True
+            self.mark(b["loc"])
+        if now >= self.step_time(b, w["end"]):
+            c["wail"] = None
+            self.blog(b, f"{b['enemy']['name']} умолкает.")
+
+    async def backlash(self, b, pid, dealt):
+        """Игрок сбился в тишине: весь урон этой цепочки возвращается ему, а враг лечится на столько же."""
+        p, e = self.players[pid], b["enemy"]
+        school = ABILITIES["wail"]["school"]
+        resisted = p["fx"].get(school, 0) > time.time()
+        dmg = max(1, round(dealt * RESIST_KEEP)) if resisted else dealt
+        e["hp"] = min(e["maxhp"], e["hp"] + dealt)
+        p["hp"] = max(0, p["hp"] - dmg)
+        self.dirty_save = True
+        self.blog(b, f"{e['name']} забирает своё: −{dmg} {p['nick']}, +{dealt} ей." + (" Резист ослабил удар." if resisted else ""))
+        await self.to_party(b, {"t": "ev", "e": "backlash", "who": pid, "dmg": dmg, "heal": dealt})
+        if p["hp"] <= 0:
+            await self.kill(b, pid)
 
     async def end_combo(self, b, why=None):
         t = b["turn"]
         c = t.get("combo") or {}
-        nick = self.players[t["who"]]["nick"]
+        pid = t["who"]
+        nick = self.players[pid]["nick"]
+        wail = c.pop("wail", None)
         if c.get("hits"):
             self.blog(b, f"{nick}: комбо ×{c['hits'] + 1}" + (f" — {why}." if why else "."))
         elif why:
             self.blog(b, f"{nick}: {why}.")
         await self.to_party(b, {"t": "ev", "e": "combo_end", "hits": c.get("hits", 0)})
+        if wail and wail["silent"]:
+            await self.backlash(b, pid, c.get("dealt", 0))
+            if pid not in b["party"]:      # погиб: очередь уже передана
+                return
         self.next_turn(b)
 
     async def hinder(self, pid, bid, target):
@@ -789,6 +907,7 @@ class Dungeon:
         p["inv"] = {}
         p["coins"] = 0
         p["hp"] = p["maxhp"]
+        p["mp"] = p["maxmp"]
         p["deaths"] = p.get("deaths", 0) + 1
         self.dirty_save = True
         self.blog(b, f"{nick} повержен! Вещи рассыпались по полу.")
@@ -823,6 +942,7 @@ class Dungeon:
         await self.to_party(b, {"t": "ev", "e": "win", "by": nick, "enemy": e["name"]})
         for i in b["party"]:
             await self.say(i, "Победа! Добыча упала на пол: кто успел, того и вещи.")
+            self.players[i]["mp"] = min(self.players[i]["maxmp"], self.players[i]["mp"] + MP_WIN)
             await self.add_xp(i, XP_KILL + XP_KILL_LVL * (lvl - 1))
         self.mark(b["loc"])
 
@@ -835,6 +955,8 @@ class Dungeon:
             p["level"] += 1
             p["maxhp"] += LEVEL_HP
             p["hp"] = p["maxhp"]
+            p["maxmp"] += LEVEL_MP
+            p["mp"] = p["maxmp"]
             await self.say(pid, f"Новый уровень: {p['level']}! Здоровье восстановлено, враги тоже подрастут.")
             await self.to_player(pid, {"t": "ev", "e": "level", "level": p["level"]})
         self.dirty_save = True
@@ -849,6 +971,7 @@ class Dungeon:
                 await self.leave(b, pid)
                 if b["id"] not in self.battles:
                     return
+        self.step_wail(b, now)
         t = b["turn"]
         if now < t["until"]:
             return

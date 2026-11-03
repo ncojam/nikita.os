@@ -271,7 +271,9 @@ export class BattleMusic {
 
   replan(step, t) {
     const loop = Math.floor(step / this.steps), bar = Math.floor((step % this.steps) / this.barSteps);
-    this.plan = planBar(this.A, { ...this.state, loop, bar, bars: Math.round(this.steps / this.barSteps), seed: this.seed });
+    const w = this.state.wail, dark = !!w && step >= w.quiet && step < w.end;
+    this.plan = planBar(this.A, { ...this.state, dark, loop, bar, bars: Math.round(this.steps / this.barSteps), seed: this.seed });
+    (this.mix?.out || this.G?.final)?.gain.setTargetAtTime(this.plan.duck, t, 0.25);
     for (const ch of this.P.channels) {
       const role = this.A.roleOf(ch.id);
       if (!this.mix) this.setFilter(ch, this.plan.filter[role] ?? OPEN, t);

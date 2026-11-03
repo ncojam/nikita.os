@@ -4,6 +4,8 @@
  * До первого нажатия контекста нет, и звуки молча пропускаются.
  */
 const ECHO_TIME = 0.17, ECHO_BACK = 0.38, ECHO_TONE = 1700;
+const WAIL_FROM = 180, WAIL_TO = 820, WAIL_VOL = 0.09, WAIL_OUT = 1.2;
+const WAIL_DETUNE = [-17, -8, 0, 9, 18];   // центы: юнисон из пяти расстроенных голосов
 const pick = (a, b) => a + Math.random() * (b - a);
 
 export class Sfx {
@@ -137,6 +139,72 @@ export class Sfx {
       o.connect(env); env.connect(f);
       o.start(t); v.start(t); o.stop(t + dur + 0.02); v.stop(t + dur + 0.02);
     });
+  }
+  /* искра: быстрый свист вверх и хлопок шума */
+  spell() {
+    const c = this.ctx;
+    if (!c) return;
+    const t = c.currentTime;
+    this.tone("sawtooth", 300, t, 0.2, 0.14, { to: 2400, echo: 0.5 });
+    this.burst(this.white, t + 0.18, 0.2, 0.3, { filter: ["highpass", 1800], echo: 0.6 });
+  }
+  /* завывание: синус ползёт вверх унисоном с расстройкой, к тишине тонет в реверберации.
+   * Времена — на часах звука: границы тактов из музыки */
+  wail(from, quiet, end) {
+    const c = this.ctx;
+    if (!c) return;
+    this.wailStop();
+    const t0 = Math.max(c.currentTime, from), up = Math.max(0.2, quiet - t0);
+    const g = c.createGain(), dry = c.createGain(), wet = c.createGain(), rev = c.createConvolver();
+    rev.buffer = this.hall ||= this.impulse(c);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(WAIL_VOL, t0 + up * 0.7);
+    g.gain.setValueAtTime(WAIL_VOL, end - WAIL_OUT);
+    g.gain.linearRampToValueAtTime(0, end);
+    dry.gain.setValueAtTime(1, t0);
+    dry.gain.setValueAtTime(1, quiet - up * 0.4);
+    dry.gain.linearRampToValueAtTime(0.2, quiet + 0.6);
+    wet.gain.setValueAtTime(0, t0);
+    wet.gain.setValueAtTime(0, quiet - up * 0.4);
+    wet.gain.linearRampToValueAtTime(1.6, quiet + 0.6);
+    g.connect(dry); dry.connect(this.master);
+    g.connect(rev); rev.connect(wet); wet.connect(this.master);
+    const vib = c.createOscillator(), depth = c.createGain();
+    vib.frequency.value = 5.5; depth.gain.value = 7;
+    vib.connect(depth);
+    const voices = WAIL_DETUNE.map(cents => {
+      const o = c.createOscillator();
+      o.type = "sine"; o.detune.value = cents;
+      o.frequency.setValueAtTime(WAIL_FROM, t0);
+      o.frequency.exponentialRampToValueAtTime(WAIL_TO, quiet);
+      o.frequency.exponentialRampToValueAtTime(WAIL_TO * 1.12, end);
+      depth.connect(o.detune);
+      o.connect(g);
+      o.start(t0); o.stop(end + 0.05);
+      return o;
+    });
+    vib.start(t0); vib.stop(end + 0.05);
+    this.wailing = { g, voices: [...voices, vib] };
+  }
+  /* оборвать завывание: сбился, комбо кончилось или вышли из боя */
+  wailStop() {
+    const w = this.wailing;
+    if (!w) return;
+    this.wailing = null;
+    const t = this.c.currentTime;
+    w.g.gain.cancelScheduledValues(t);
+    w.g.gain.setValueAtTime(w.g.gain.value, t);
+    w.g.gain.linearRampToValueAtTime(0, t + 0.2);
+    for (const o of w.voices) { try { o.stop(t + 0.25); } catch { /* уже остановлен */ } }
+  }
+  /* зал: затухающий шум вместо записанной реверберации */
+  impulse(c) {
+    const n = Math.round(c.sampleRate * 2.4), b = c.createBuffer(2, n, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = b.getChannelData(ch);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3;
+    }
+    return b;
   }
   /* победа: восходящая фанфара в ре, как в боевых треках */
   win() {

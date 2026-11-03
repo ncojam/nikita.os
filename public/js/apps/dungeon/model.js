@@ -20,8 +20,12 @@ function idlePose(beat) {
 export const CRY_SEC = 1.8;
 
 /* cry — секунд с начала плача: он идёт поверх любого состояния, ведь удары в такт продолжаются */
-export function pose(state, t, beat, cry = Infinity) {
+export function pose(state, t, beat, cry = Infinity, wail = false) {
   const p = idlePose(beat);
+  if (wail) {                     // завывает: лицо вверх, мелкая дрожь
+    p.rx -= 0.28;
+    p.rz += Math.sin(beat * 19) * 0.025;
+  }
   if (cry < CRY_SEC) {            // плачет: мотает головой, опустив лицо, и мелко дрожит
     const k = Math.min(1, cry / 0.15, (CRY_SEC - cry) / 0.4);
     p.ry += Math.sin(cry * 13) * 0.42 * k;

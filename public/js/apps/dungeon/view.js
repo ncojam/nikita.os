@@ -125,7 +125,7 @@ export class BattleView {
   drawModel(g, e, t, now) {
     const heard = this.music.heardStep(), beat = heard >= 0 ? heard / 4 : now * 2;
     const side = e.side, px = Math.min(MODEL_MAX_PX, Math.round(side * this.scale * MODEL_AA));
-    const pic = this.model.draw(pose(this.state, t, beat, now - (this.cryAt ?? -99)), px);
+    const pic = this.model.draw(pose(this.state, t, beat, now - (this.cryAt ?? -99), !!this.b.turn.wail), px);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
     g.globalAlpha = this.state === "death" ? Math.max(0, 1 - t / STATE_SEC.death) : 1;
     g.drawImage(pic, e.x + e.w / 2 - side / 2, e.y + e.h / 2 - side / 2, side, side);
@@ -172,7 +172,9 @@ export class BattleView {
       if (turn) { g.strokeStyle = "#ffd76a"; g.lineWidth = 2; g.strokeRect(s.x - 3, s.y - 11, s.w + 6, s.h + 6); }
       g.fillStyle = "#352c44"; g.fillRect(s.x, s.y + 34, s.w, 4);
       g.fillStyle = s.hp / s.maxhp < 0.3 ? "#ff6b6b" : "#8fe8cf"; g.fillRect(s.x, s.y + 34, s.w * s.hp / s.maxhp, 4);
-      g.fillStyle = "#ece6f5"; g.fillText(s.nick.slice(0, 10), s.x + s.w / 2, s.y + 50);
+      g.fillStyle = "#352c44"; g.fillRect(s.x, s.y + 39, s.w, 3);
+      g.fillStyle = "#7fa8ff"; g.fillRect(s.x, s.y + 39, s.w * s.mp / s.maxmp, 3);
+      g.fillStyle = "#ece6f5"; g.fillText(s.nick.slice(0, 10), s.x + s.w / 2, s.y + 53);
     }
   }
 }
