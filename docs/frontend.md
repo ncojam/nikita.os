@@ -33,7 +33,7 @@ WM.open({ title, icon, width, height, key, render(c, w) { ... } })
 
 - `openFile(path, link)` — по `kindOf` выбирает просмотрщик (таблица в [architecture.md](architecture.md)).
 - `openPath(path)` — спрашивает `/api/entry`, при отсутствии пробует зеркала GitHub, дальше папка → проводник, файл → `openFile`.
-- `APPS` — реестр приложений для ярлыков (`settings`, `about`, `chat`, `explorer`, `fakedl`, `airhockey`, `browser`).
+- `APPS` — реестр приложений для ярлыков (`settings`, `about`, `chat`, `explorer`, `fakedl`, `ramdl`, `airhockey`, `browser`).
 
 ### Ярлык `.lnk`
 
