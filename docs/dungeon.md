@@ -74,7 +74,7 @@ Mini App: страница `/dungeon.html`, сервер `dungeon.py`, клие�
 
 Файл: `public/dungeon/enemies/<вид врага>.glb` (для головы `head.glb`). Если его нет, вместо врага рисуется прямоугольник.
 
-- Из Blender нужна только геометрия с текстурой. Анимации сдвигом и поворотом живут в коде (`pose()` в `model.js`), экшены не нужны.
+- Сдвиг и поворот живут в коде (`pose()` в `model.js`). Форму лица задают Shape Keys, силой каждого управляет код. Имена без учёта регистра: `idle` (синусоида 0..1), `attack` (замах перед броском), `hit`, `cry`, `wail`, `death`, `blink`. Экшены не нужны, при экспорте включи Shape Keys и Shape Key Normals, а Apply Modifiers выключи.
 - Масштаб и положение неважны: модель сама встаёт по центру и в нужный размер. Смотреть должна по −Y (вид Numpad 1 показывает лицо), Scale применён (Ctrl+A).
 - Текстура через Image Texture в Base Color у Principled BSDF, до 1024 пикселей. Файл до 2 МБ. Нодовые эффекты в glTF не переносятся.
 - Экспорт: File → Export → glTF 2.0. Format: glTF Binary (.glb); Include: Selected Objects; Transform: +Y Up; Data → Mesh: Apply Modifiers, UVs, Normals; Material: Export; Animation: выключить; Compression: выключить (иначе нужен отдельный декодер).

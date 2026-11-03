@@ -1,6 +1,6 @@
 /* ================= Clown Dungeon — картинка боя =================
  * Игроки пока прямоугольники внизу. Враг — 3D-модель (model.js), а если её файла нет, тоже прямоугольник.
- * Состояния врага: idle / hit / attack / death.
+ * Состояния врага: idle / windup / attack / hit / death.
  */
 import { CRY_SEC, EnemyModel, MODEL_FILL, pose } from "./model.js";
 
@@ -25,6 +25,10 @@ export class BattleView {
   stop() { this.live = false; this.state = "idle"; this.floats = []; }
   set(b, me) {
     this.b = b; this.me = me;
+    // замах длится, пока на сервере идёт замах: удар придёт отдельным событием точно в долю
+    const windup = b?.turn.who === "enemy" && b.turn.phase === "windup";
+    if (windup && this.state !== "windup") this.play("windup");
+    else if (!windup && this.state === "windup") this.play("idle");
     const kind = b?.enemy.kind;
     if (kind && kind !== this.kind) {
       this.kind = kind; this.model = null;
@@ -137,6 +141,7 @@ export class BattleView {
     const cry = now - (this.cryAt ?? -99);
     if (cry < CRY_SEC) { x += Math.sin(cry * 14) * 14; fill = "#7fa8d8"; }
     if (this.state === "hit") { x += Math.sin(t * 90) * 7 * (1 - t / STATE_SEC.hit); fill = "#fff"; }
+    if (this.state === "windup") y -= Math.min(1, t / 0.4) * 24;
     if (this.state === "attack") y += Math.sin(Math.min(1, t / STATE_SEC.attack) * Math.PI) * this.H * 0.26;
     if (this.state === "death") { const k = Math.min(1, t / STATE_SEC.death); y += k * k * this.H * 0.3; a = 1 - k; }
     g.globalAlpha = a; g.fillStyle = fill;
