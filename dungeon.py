@@ -255,9 +255,11 @@ def parse_track(track_id, raw, rules):
         k = next(k for k in range(1, 17) if abs(bar * k - round(bar * k)) < 1e-6)   # тактов в периоде из целых четвертей
         period = round(bar * k)
         offs, at = [], 0
-        for g in want.get("groups") or meter_groups(period, want.get("style", "twos")):
+        groups = want.get("groups") or meter_groups(period, want.get("style", "twos"))
+        for g in groups:
             offs.append(at * 4)
             at += g
+        rules["meter"] = {"groups": groups, "period": at}    # для табло счёта на клиенте
         for start in range(0, steps, period * 4):
             strong.update(start + o for o in offs if start + o < steps)
     strong = strong or set(range(0, steps, 4))

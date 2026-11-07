@@ -97,6 +97,7 @@ export class BattleMusic {
     }
     // сильные доли считает сервер (dungeon.py, parse_track) и присылает списком
     const strong = new Set(track.strongSteps || []);
+    this.meter = track.meter || null;
     if (!strong.size) for (let i = 0; i < steps; i += 4) strong.add(i);
 
     const G = bank ? null : buildGraph(this.ctx, P);

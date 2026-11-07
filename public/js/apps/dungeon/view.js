@@ -154,6 +154,7 @@ export class BattleView {
     this.drawTarget(g, now);
     this.drawFlash(g, now);
     this.drawLane(g, now);
+    this.drawCount(g, now);
     this.drawParty(g, now);
     this.floats = this.floats.filter(f => now - f.t < 0.9);
     g.textAlign = "center";
@@ -277,6 +278,45 @@ export class BattleView {
     }
     g.globalAlpha = 1;
     this.sparks = this.sparks.filter(p => now - p.t < 0.35);
+  }
+
+  /* ---------- табло счёта в углу ----------
+   * Деление периода (3•3•3•2) с текущей группой, счёт доли в периоде (1..13) и внутри группы (1..3).
+   * Когда сильная каждая четверть, вместо единиц показываем номера долей. */
+  drawCount(g, now) {
+    const m = this.music, meter = m.meter, pos = m.heardStep();
+    if (!meter || pos < 0 || !m.running) return;
+    const { groups, period } = meter, q = ((Math.floor(pos / 4) % period) + period) % period;
+    let gi = 0, start = 0;
+    while (gi < groups.length - 1 && q >= start + groups[gi]) start += groups[gi++];
+    const inGroup = q - start + 1, ones = groups.every(x => x === 1);
+    const frac = pos / 4 - Math.floor(pos / 4), pulse = Math.max(0, 1 - frac * 3);   // вспыхивает на каждой доле
+    g.font = "700 13px system-ui";
+    const label = groups.map((n, i) => ones ? i + 1 : n).join(" • ");
+    const x = 8, y = 8, w = Math.max(118, g.measureText(label).width + 16), h = 56;   // узкое: не налезать на имя врага
+    g.fillStyle = "rgba(13,11,18,0.78)"; g.fillRect(x, y, w, h);
+    g.strokeStyle = `rgba(255,215,106,${0.25 + pulse * (inGroup === 1 ? 0.75 : 0.3)})`; g.lineWidth = 1.5; g.strokeRect(x, y, w, h);
+    // деление: текущая группа золотая
+    g.textBaseline = "middle"; g.textAlign = "left"; g.font = "700 13px system-ui";
+    let cx = x + 8;
+    groups.forEach((n, i) => {
+      const t = ones ? String(i + 1) : String(n), cur = i === gi;
+      g.fillStyle = cur ? "#ffd76a" : "#9a90ad";
+      g.fillText(t, cx, y + 13);
+      cx += g.measureText(t).width + 2;
+      if (i < groups.length - 1) { g.fillStyle = "#5a5070"; g.fillText("•", cx, y + 13); cx += g.measureText("•").width + 2; }
+    });
+    // счёт в периоде и в группе
+    g.font = "11px system-ui"; g.fillStyle = "#9a90ad";
+    g.fillText("счёт", x + 8, y + 38); g.fillText("доля", x + 66, y + 38);
+    g.font = `800 ${16 + Math.round(pulse * 3)}px system-ui`; g.fillStyle = "#ece6f5";
+    g.fillText(`${q + 1}`, x + 36, y + 38);
+    g.fillStyle = inGroup === 1 ? "#ffd76a" : "#ece6f5";
+    g.fillText(`${inGroup}`, x + 92, y + 38);
+    g.font = "11px system-ui"; g.fillStyle = "#5a5070";
+    g.fillText(`/${period}`, x + 36 + g.measureText(`${q + 1}`).width * 1.6, y + 40);
+    g.fillText(`/${groups[gi]}`, x + 92 + 12, y + 40);
+    g.textBaseline = "alphabetic";
   }
 
   /* отклик на нажатие: попал — вспышка и искры, промах — красная вспышка */
