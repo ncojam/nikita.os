@@ -95,7 +95,7 @@ function onMsg(d) {
     const t = Date.now(), rtt = t - d.c;
     if (rtt <= bestRtt * 1.2) { bestRtt = Math.min(bestRtt, rtt); clockOff = d.s + rtt / 2 - t; }   // доверяем быстрым ответам
   }
-  else if (d.t === "hello") { me = d.id; walkCd = d.wander || walkCd; rules = d.combo || rules; if (d.owner) checkCache(); }
+  else if (d.t === "hello") { me = d.id; walkCd = d.wander || walkCd; rules = d.combo || rules; view.cryEvery = rules.cry; if (d.owner) checkCache(); }
   else if (d.t === "log") { logLines.push(d.text); logLines = logLines.slice(-40); render(); }
   else if (d.t === "state") { S = d; onState(); }
   else if (d.t === "ev") onEvent(d);

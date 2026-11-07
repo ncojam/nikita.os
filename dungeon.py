@@ -55,7 +55,7 @@ TURN_SEC = 30            # с на выбор действия
 TURN_OFFLINE = 4         # с на ход, если игрок отключился
 OFFLINE_LEAVE = 30       # с без связи — и игрок выбывает из боя
 FLEE_CHANCE = 0.6
-COMBO_DECAY = 0.5        # каждый следующий удар комбо слабее: вдвое, минимум 1
+COMBO_DECAY = 1 / 1.5    # каждый следующий удар комбо слабее в полтора раза, минимум 1
 CRY_EVERY = 20           # каждые столько ударов в такт подряд монстр плачет, а сила удара возвращается к половине обычной
 COMBO_START_BEATS = 3.5  # долей на первый удар в такт после атаки
 COMBO_GRACE_BEATS = 2.6  # долей на следующий: одну сильную ноту можно пропустить
@@ -220,6 +220,8 @@ def meter_groups(quarters, style="twos"):
     twos: по две четверти, в конце одна (13 → 2+2+2+2+2+2+1); threes: тройки и двойки (13 → 3+3+3+2+2, 11 → 3+3+3+2)."""
     if quarters <= 3:
         return [quarters]
+    if style == "ones":                    # каждая четверть
+        return [1] * quarters
     if style == "threes":
         threes = next(k for k in range(quarters // 3, -1, -1) if (quarters - 3 * k) % 2 == 0)
         return [3] * threes + [2] * ((quarters - 3 * threes) // 2)

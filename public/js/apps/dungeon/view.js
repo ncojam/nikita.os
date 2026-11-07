@@ -19,6 +19,9 @@ const MODEL_MAX_PX = 1600, MINI_MAX_PX = 700;   // потолок рендера
 const TAP_MARGIN = 20;
 const LANE_MIN_SEC = 1.4, LANE_MAX_SEC = 3.2;   // сколько секунд вперёд видно ноты на полосе
 const LANE_NOTE = 11, LANE_BOX = 15;
+const DMG_MIN = 22, DMG_MAX = 54;   // размер цифры урона, px: растёт с уроном по логарифму
+const dmgSize = d => Math.max(DMG_MIN, Math.min(DMG_MAX, DMG_MIN + 9 * Math.log2(Math.max(1, d))));
+const CRY_NOTE = "#9fd3ff";         // нота, на которой враг заплачет
 const templates = new Map();  // модель → Promise<{T, scene} | null>
 
 export class BattleView {
@@ -104,13 +107,14 @@ export class BattleView {
     const f = this.b?.foes.find(x => x.id === id);
     if (!f) return;
     const e = this.boxOf(f);
-    this.floats.push({ text: String(dmg), x: e.x + e.w * (0.3 + Math.random() * 0.4), y: e.y + e.h * 0.4, t: performance.now() / 1000, color: combo ? "#ffd76a" : "#fff" });
+    this.floats.push({ text: String(dmg), x: e.x + e.w * (0.3 + Math.random() * 0.4), y: e.y + e.h * 0.4, t: performance.now() / 1000,
+      color: combo ? "#ffd76a" : "#fff", size: dmgSize(dmg) });
   }
   enemyHit(who, dmg, id = this.mainId()) {
     this.play("attack", id);
     this.hurt.set(who, performance.now() / 1000);
     const p = this.slots().find(s => s.id === who);
-    if (p) this.floats.push({ text: "−" + dmg, x: p.x + p.w / 2, y: p.y - 8, t: performance.now() / 1000, color: "#ff6b6b" });
+    if (p) this.floats.push({ text: "−" + dmg, x: p.x + p.w / 2, y: p.y - 8, t: performance.now() / 1000, color: "#ff6b6b", size: dmgSize(dmg) * 0.8 });
   }
   /* враг погиб, а бой идёт: доигрываем смерть на его месте */
   kill(id) {
@@ -152,10 +156,13 @@ export class BattleView {
     this.drawLane(g, now);
     this.drawParty(g, now);
     this.floats = this.floats.filter(f => now - f.t < 0.9);
-    g.textAlign = "center"; g.font = "700 20px system-ui";
+    g.textAlign = "center";
     for (const f of this.floats) {
       const k = (now - f.t) / 0.9;
       g.globalAlpha = 1 - k * k; g.fillStyle = f.color;
+      const pop = 1 + Math.max(0, 0.35 - k * 3);        // цифра вылетает чуть крупнее и сразу оседает
+      g.font = `800 ${Math.round(f.size * pop)}px system-ui`;
+      g.lineWidth = 4; g.strokeStyle = "rgba(0,0,0,0.55)"; g.strokeText(f.text, f.x, f.y - k * 40);
       g.fillText(f.text, f.x, f.y - k * 40);
     }
     g.globalAlpha = 1;
@@ -239,7 +246,8 @@ export class BattleView {
     // дорожка
     g.fillStyle = "rgba(255,255,255,0.05)"; g.fillRect(8, y - 16, this.W - 16, 32);
     // квадрат: светится, когда нота внутри окна
-    let near = 0;
+    let near = 0, ahead = 0;
+    const cryEvery = this.cryEvery || 20, hits = t.hits || 0;
     const last = Math.floor(pos + look / m.stepSec);
     for (let s = Math.floor(pos - win / m.stepSec) - 1; s <= last; s++) {
       if (!m.isStrong(s)) continue;
@@ -247,9 +255,10 @@ export class BattleView {
       if (Math.abs(dt) <= win) near = Math.max(near, 1 - Math.abs(dt) / win);
       if (s <= this.hitStep) continue;                 // уже выбита
       const late = dt < -win;
+      const cry = !late && (hits + ++ahead) % cryEvery === 0;   // если выбить все ноты до неё, на этой враг заплачет
       g.globalAlpha = late ? Math.max(0, 1 + (dt + win) * 4) : Math.min(1, (look - dt) * 3);
-      g.fillStyle = late ? "#ff6b6b" : "#ffd76a";
-      g.beginPath(); g.arc(x, y, LANE_NOTE, 0, Math.PI * 2); g.fill();
+      g.fillStyle = late ? "#ff6b6b" : cry ? CRY_NOTE : "#ffd76a";
+      g.beginPath(); g.arc(x, y, cry ? LANE_NOTE + 3 : LANE_NOTE, 0, Math.PI * 2); g.fill();
       g.fillStyle = "#2b1d00"; g.font = "700 14px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
       g.fillText("♪", x, y + 1);
     }

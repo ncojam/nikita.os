@@ -8,5 +8,8 @@
     "snare": "snare",
     "hat": "hat",
     "hat2": "tension"
+  },
+  "strong": {
+    "style": "ones"
   }
 }
