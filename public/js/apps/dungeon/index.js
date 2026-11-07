@@ -385,9 +385,22 @@ function pyRound(x) {
   const f = Math.floor(x), d = x - f;
   return d < 0.5 ? f : d > 0.5 ? f + 1 : f % 2 ? f + 1 : f;
 }
+/* джус: отклик всем телом интерфейса — лёгкий толчок на попадание, мерзкая дрожь на промах */
+function juice(hit, step) {
+  view.feedback(hit ? "hit" : "miss", step);
+  app.animate(hit
+    ? [{ transform: "none" }, { transform: "translateY(3px) scale(1.006)" }, { transform: "none" }]
+    : [{ transform: "none" }, { transform: "translateX(-9px)" }, { transform: "translateX(8px)" }, { transform: "translateX(-6px)" },
+      { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+  { duration: hit ? 140 : 340, easing: "ease-out" });
+  try { hit ? tg?.HapticFeedback?.impactOccurred("light") : tg?.HapticFeedback?.notificationOccurred("error"); } catch { /* вне Телеграма */ }
+  if (!hit) sfx.miss();
+}
+
 function landTap(j) {
   music.learn(j.err);
   music.hitTone(j.step);
+  juice(true, j.step);
   send({ t: "tap", step: j.step, foe: target });
   if (!combo) return;
   const hits = ++combo.hits, cry = hits % rules.cry === 0;
@@ -399,8 +412,8 @@ function landTap(j) {
   if (combo.power == null) { combo.unshown.add(hits); view.hit(null, hits); return; }   // сила первого удара ещё в пути
   combo.power = cry ? combo.base * rules.decay : combo.power * rules.decay;
   const dmg = Math.max(1, pyRound(combo.power));
-  view.hit(dmg, hits);
   const f = b?.foes.find(x => x.id === target && x.hp > 0) || b?.foes.find(x => x.hp > 0);
+  view.hit(dmg, hits, f?.id);
   if (f) {
     f.hp = Math.max(0, (combo.hp[f.id] ?? f.hp) - dmg);
     combo.hp[f.id] = f.hp;
@@ -422,6 +435,7 @@ function rhythmTap(j = music.judge()) {
   } else {
     music.learn(j.err);
     view.say(j.err < 0 ? "слишком рано" : "слишком поздно", "#ff6b6b");
+    juice(false);
     endCombo("miss");
   }
 }

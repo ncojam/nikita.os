@@ -17,6 +17,8 @@ const MODEL_BOX_W = 0.5;      // рамка для нажатий и полос�
 const MODEL_AA = 2;           // сглаживание: рендер вдвое крупнее и уменьшение
 const MODEL_MAX_PX = 1600, MINI_MAX_PX = 700;   // потолок рендера, чтобы не перегрузить телефон
 const TAP_MARGIN = 20;
+const LANE_MIN_SEC = 1.4, LANE_MAX_SEC = 3.2;   // сколько секунд вперёд видно ноты на полосе
+const LANE_NOTE = 11, LANE_BOX = 15;
 const templates = new Map();  // модель → Promise<{T, scene} | null>
 
 export class BattleView {
@@ -26,11 +28,12 @@ export class BattleView {
     this.anim = new Map();        // id врага → { state, at }
     this.models = new Map();      // id врага → EnemyModel | null (null — модели нет)
     this.gone = new Map();        // id убитого врага → его последний вид, пока доигрывает смерть
+    this.fx = null; this.sparks = []; this.hitStep = -1;
     this.floats = []; this.mark = null; this.trips = new Map(); this.hurt = new Map();
     this.live = false;
   }
   start() { if (this.live) return; this.live = true; requestAnimationFrame(t => this.frame(t)); }
-  stop() { this.live = false; this.anim.clear(); this.gone.clear(); this.models.clear(); this.floats = []; }
+  stop() { this.live = false; this.hitStep = -1; this.anim.clear(); this.gone.clear(); this.models.clear(); this.floats = []; }
 
   set(b, me) {
     this.b = b; this.me = me;
@@ -145,7 +148,8 @@ export class BattleView {
       this.drawFoe(g, f, ghost?.box || this.boxOf(f), a, t, now, beat + i * 0.7);
     });
     this.drawTarget(g, now);
-    this.drawNote(g, now);
+    this.drawFlash(g, now);
+    this.drawLane(g, now);
     this.drawParty(g, now);
     this.floats = this.floats.filter(f => now - f.t < 0.9);
     g.textAlign = "center"; g.font = "700 20px system-ui";
@@ -164,8 +168,9 @@ export class BattleView {
     }
     const hits = this.b.turn.hits;
     if (hits > 0 && this.b.turn.phase === "combo") {
-      g.fillStyle = "#ffd76a"; g.font = "700 24px system-ui";
-      g.fillText("×" + (hits + 1), W / 2, H - 76);
+      g.fillStyle = "#ffd76a"; g.font = "700 22px system-ui"; g.textAlign = "center";
+      const { y, hx } = this.laneGeom();
+      g.fillText("×" + (hits + 1), hx, y - 26);
     }
   }
 
@@ -217,23 +222,69 @@ export class BattleView {
     }
   }
 
-  /* нотка крутится над целью, пока идёт комбо: один оборот на две доли, на сильной ноте вспыхивает */
-  drawNote(g, now) {
-    const t = this.b.turn;
-    if (t.phase !== "combo") return;
-    const m = this.music, pos = m.heardStep();
-    const beat = pos >= 0 ? pos / 4 : now * 2;
-    const e = this.targetBox(), cx = e.x + e.w / 2, cy = e.y - (e.mini ? 30 : 52);
-    const near = pos >= 0 && m.isStrong(Math.round(pos)) ? 1 - Math.min(1, Math.abs(pos - Math.round(pos)) * 2.2) : 0;
-    const sx = Math.cos(beat * Math.PI);
-    g.save();
-    g.translate(cx, Math.max(16, cy));
-    g.scale((Math.abs(sx) < 0.15 ? 0.15 * Math.sign(sx || 1) : sx) * (1 + near * 0.5), 1 + near * 0.5);
-    g.fillStyle = t.who === this.me ? "#ffd76a" : "#9a90ad";
-    g.font = "700 32px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText("♪", 0, 0);
-    g.restore();
-    g.textBaseline = "alphabetic";
+  /* ---------- полоса нот, как в Guitar Hero ----------
+   * Сильные доли летят справа налево и попадают в квадрат ровно тогда, когда игрок их слышит:
+   * положение считается по heardStep — тем же часам, по которым судится попадание.
+   * Видна только в своё комбо: чужим она бы мешала. */
+  laneGeom() {
+    const y = this.H - 104, hx = 46, look = Math.min(LANE_MAX_SEC, Math.max(LANE_MIN_SEC, this.music.strongGap * this.music.stepSec * 1.3));
+    return { y, hx, look, speed: (this.W - hx - 14) / look };
+  }
+  drawLane(g, now) {
+    const t = this.b.turn, m = this.music;
+    if (t.phase !== "combo" || t.who !== this.me || !m.running) return;
+    const pos = m.heardStep();
+    if (pos < 0) return;
+    const { y, hx, look, speed } = this.laneGeom(), win = m.window;
+    // дорожка
+    g.fillStyle = "rgba(255,255,255,0.05)"; g.fillRect(8, y - 16, this.W - 16, 32);
+    // квадрат: светится, когда нота внутри окна
+    let near = 0;
+    const last = Math.floor(pos + look / m.stepSec);
+    for (let s = Math.floor(pos - win / m.stepSec) - 1; s <= last; s++) {
+      if (!m.isStrong(s)) continue;
+      const dt = (s - pos) * m.stepSec, x = hx + dt * speed;
+      if (Math.abs(dt) <= win) near = Math.max(near, 1 - Math.abs(dt) / win);
+      if (s <= this.hitStep) continue;                 // уже выбита
+      const late = dt < -win;
+      g.globalAlpha = late ? Math.max(0, 1 + (dt + win) * 4) : Math.min(1, (look - dt) * 3);
+      g.fillStyle = late ? "#ff6b6b" : "#ffd76a";
+      g.beginPath(); g.arc(x, y, LANE_NOTE, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#2b1d00"; g.font = "700 14px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("♪", x, y + 1);
+    }
+    g.globalAlpha = 1; g.textBaseline = "alphabetic";
+    const pop = this.fx && this.fx.kind === "hit" ? Math.max(0, 1 - (now - this.fx.t) / 0.18) : 0;
+    const r = LANE_BOX + near * 3 + pop * 6;
+    g.lineWidth = 3; g.strokeStyle = near > 0 ? "#fff" : "#ffd76a";
+    g.strokeRect(hx - r, y - r, r * 2, r * 2);
+    if (pop) { g.fillStyle = `rgba(255,215,106,${pop * 0.6})`; g.fillRect(hx - r, y - r, r * 2, r * 2); }
+    // искры выбитой ноты
+    for (const p of this.sparks) {
+      const k = (now - p.t) / 0.35;
+      if (k > 1) continue;
+      g.globalAlpha = 1 - k; g.fillStyle = "#ffd76a";
+      g.fillRect(hx + p.dx * k * 34 - 2, y + p.dy * k * 34 - 2, 4, 4);
+    }
+    g.globalAlpha = 1;
+    this.sparks = this.sparks.filter(p => now - p.t < 0.35);
+  }
+
+  /* отклик на нажатие: попал — вспышка и искры, промах — красная вспышка */
+  feedback(kind, step) {
+    const now = performance.now() / 1000;
+    this.fx = { kind, t: now };
+    if (kind === "hit") {
+      this.hitStep = Math.max(this.hitStep, step);
+      for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; this.sparks.push({ dx: Math.cos(a), dy: Math.sin(a), t: now }); }
+    }
+  }
+  drawFlash(g, now) {
+    if (!this.fx) return;
+    const hit = this.fx.kind === "hit", len = hit ? 0.25 : 0.45, k = 1 - (now - this.fx.t) / len;
+    if (k <= 0) return;
+    g.fillStyle = hit ? `rgba(255,215,106,${0.16 * k})` : `rgba(255,60,60,${0.32 * k})`;
+    g.fillRect(0, 0, this.W, this.H);
   }
 
   drawParty(g, now) {

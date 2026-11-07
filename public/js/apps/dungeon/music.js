@@ -103,6 +103,8 @@ export class BattleMusic {
     const beatSec = 60 / P.bpm;
     this.P = P; this.G = G; this.A = A; this.pat = pat;
     this.steps = steps; this.barSteps = barSteps; this.buckets = buckets; this.strong = strong;
+    const ss = [...strong].sort((a, b) => a - b);
+    this.strongGap = Math.max(...ss.map((s, i) => (ss[i + 1] ?? ss[0] + steps) - s));   // самая долгая пауза, шагов
     this.beatSec = beatSec; this.stepSec = beatSec * STEP; this.seed = b.seed; this.window = track.window || (bank ? WINDOW_WEAK : WINDOW);
     this.weak = !!bank;
     this.filters = new Map();

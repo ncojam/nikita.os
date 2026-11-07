@@ -207,6 +207,25 @@ export class Sfx {
     }
     return b;
   }
+  /* промах: низкое дрожащее гудение вниз — должно быть неприятно */
+  miss() {
+    const c = this.ctx;
+    if (!c) return;
+    const t = c.currentTime, f = c.createBiquadFilter(), g = c.createGain(), vib = c.createOscillator(), depth = c.createGain();
+    f.type = "lowpass"; f.frequency.value = 1400;
+    g.gain.setValueAtTime(0.32, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.38);
+    vib.frequency.value = 19; depth.gain.value = 22;
+    vib.connect(depth);
+    for (const det of [0, 31]) {
+      const o = c.createOscillator();
+      o.type = "square"; o.detune.value = det;
+      o.frequency.setValueAtTime(118, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.38);
+      depth.connect(o.frequency);
+      o.connect(f); o.start(t); o.stop(t + 0.4);
+    }
+    f.connect(g); g.connect(this.master);
+    vib.start(t); vib.stop(t + 0.4);
+  }
   /* смешок клоуна: всегда один и тот же звук — от повторения и жутко.
    * Низкий «хе» из двух расстроенных пил, звук дрожит амплитудной модуляцией и тонет в эхе. Времена — на часах звука */
   laugh(times) {
