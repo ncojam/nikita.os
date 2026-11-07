@@ -39,9 +39,9 @@ export class BattleView {
     this.b = b; this.me = me;
     if (!b) return;
     // замах длится, пока на сервере идёт замах: удар придёт отдельным событием точно в долю
-    const windup = b.turn.who === "enemy" && b.turn.phase === "windup";
+    const striker = b.turn.who === "enemy" && b.turn.phase === "windup" ? (b.turn.foe ?? b.enemy.id) : null;
     for (const f of this.alive()) {
-      const a = this.animOf(f.id);
+      const a = this.animOf(f.id), windup = f.id === striker;
       if (windup && a.state !== "windup") {     // сервер ждёт долю, а голова откидывается только в самом конце
         this.play("windup", f.id);
         a.at += Math.max(0, b.turn.left - WINDUP_SEC);

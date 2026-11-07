@@ -64,6 +64,7 @@ TAP_EARLY = 1.5          # допуск серверных часов, доли
 TAP_LATE = 6.0           # попадание судит клиент, сервер только отсекает явный обман: на медленном интернете тап идёт долго
 ENEMY_WINDUP = 0.9       # с, замах врага (удар приходится на ближайшую долю после него)
 ENEMY_PAUSE = 0.8        # с после удара врага
+ENEMY_GAP = 0.5          # с между ударами врагов, когда их несколько: бьют по очереди
 WAIL_RISE_BARS = 2       # тактов завывание нарастает перед тишиной: сбиться за это время ещё не страшно
 RESIST_KEEP = 0.25       # какая доля урона доходит при резисте к школе способности
 MUSIC_LEAD = 1.0         # с от появления врага до первой доли
@@ -89,6 +90,7 @@ ITEMS = {
     "mushroom": {"name": "Светящийся гриб", "kind": "heal", "heal": 8},
     "bandage": {"name": "Бинт", "kind": "heal", "heal": 15},
     "elixir": {"name": "Пещерная настойка", "kind": "heal", "heal": 30},
+    "thick_elixir": {"name": "Густая настойка", "kind": "heal", "heal": 70},
     "stick": {"name": "Палка", "kind": "weapon", "atk": 1},
     "pickaxe": {"name": "Ржавая кирка", "kind": "weapon", "atk": 3},
     "rags": {"name": "Лохмотья", "kind": "armor", "def": 1},
@@ -113,12 +115,15 @@ START_SKILLS = ["spark"]
 
 ENEMIES = {
     "head": {"name": "Печаль", "hp": 50, "atk": (2, 5), "tracks": ["dungeon_00", "dungeon_01", "dungeon_02"],
-             "coins": (5, 15), "drops": {"mushroom": 4, "bandage": 2, "elixir": 1, "pickaxe": 1},
+             "coins": (5, 15), "drops": {"mushroom": 4, "bandage": 2, "elixir": 1, "thick_elixir": 0.5, "pickaxe": 1},
+             "loot": 1, "loot_every": 4, "loot_max": 3,
              "hits": ["кусает", "бодает", "плюётся в"],
              # wail: шанс на цепочку ударов, с какого удара начинает, сколько тактов длится тишина
              "abilities": {"wail": {"chance": 0.35, "hits": (5, 10), "bars": (2, 6)}}},
     "clown": {"name": "Клоун", "hp": 70, "atk": (3, 6), "tracks": ["clown_00", "clown_01", "clown_02"],
-              "coins": (10, 25), "drops": {"bandage": 3, "elixir": 2, "dark_vial": 1, "helmet": 1},
+              "coins": (10, 25), "drops": {"elixir": 5, "thick_elixir": 3, "bandage": 2, "dark_vial": 1, "helmet": 0.5},
+              # добыча: столько вещей и ещё одна за каждые loot_every уровней врага, не больше loot_max
+              "loot": 2, "loot_every": 2, "loot_max": 7,
               "hits": ["кусает", "бодает", "хохочет в лицо"],
               # laugh: шанс в ход врага вместо атаки, смешков, на сколько ходов ступор
               # car: при какой доле здоровья выезжает машина, сколько мини-клоунов, их здоровье от полного клоуна
@@ -134,7 +139,7 @@ LOCATIONS = {
         # вес исхода одной прогулки
         "wander": {"nothing": 40, "coins": 20, "item": 15, "monster": 25},
         "coins": (1, 6),
-        "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "stick": 2, "pickaxe": 1, "rags": 2, "helmet": 1, "dark_vial": 0.4},
+        "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "stick": 2, "pickaxe": 1, "rags": 2, "helmet": 1, "dark_vial": 0.4, "thick_elixir": 0.4},
         "enemies": {"head": 1, "clown": 1},
         "giggle": ["Где-то вдалеке хихикают.", "Из темноты доносится смешок.", "Кто-то хихикает прямо за спиной. Никого."],
         "nothing": ["Капает вода.", "Ты споткнулся о камень. Камень не извинился.",
@@ -565,7 +570,7 @@ class Dungeon:
                 "turn": {"who": t["who"], "phase": t["phase"], "left": max(0, t["until"] - time.time()),
                          "hits": c["hits"] if c else 0,
                          "wail": {"from": w["from"], "quiet": w["quiet"], "end": w["end"], "silent": w["silent"]} if w else None,
-                         "laugh": t.get("laugh")},
+                         "laugh": t.get("laugh"), "foe": t.get("foe")},
                 "log": b["log"][-5:]}
 
     def foe_view(self, f):
@@ -730,7 +735,20 @@ class Dungeon:
         elif laugh and main["hp"] > 0 and random.random() < laugh["chance"]:
             self.start_laugh(b, laugh)
         else:
-            b["turn"] = {"who": "enemy", "phase": "windup", "until": self.next_beat(b, time.time() + ENEMY_WINDUP)}
+            b["queue"] = [f["id"] for f in self.alive(b)]
+            self.enemy_windup(b, 0)
+        self.mark(b["loc"])
+
+    def enemy_windup(self, b, gap):
+        """Следующий враг в очереди замахивается; удар — в долю. Очередь кончилась — пауза и новый круг."""
+        alive = {f["id"] for f in self.alive(b)}
+        while b["queue"] and b["queue"][0] not in alive:
+            b["queue"].pop(0)
+        if not b["queue"]:
+            b["turn"] = {"who": "enemy", "phase": "pause", "until": time.time() + ENEMY_PAUSE}
+        else:
+            b["turn"] = {"who": "enemy", "phase": "windup", "foe": b["queue"].pop(0),
+                         "until": self.next_beat(b, time.time() + gap + ENEMY_WINDUP)}
         self.mark(b["loc"])
 
     def start_laugh(self, b, a):
@@ -974,9 +992,8 @@ class Dungeon:
             b["trip"].add(target)
 
     async def enemy_strike(self, b):
-        for f in self.alive(b):
-            if b["id"] not in self.battles or not b["party"]:
-                return
+        f = next((x for x in self.alive(b) if x["id"] == b["turn"].get("foe")), None)
+        if f and b["party"]:
             e = ENEMIES[f["kind"]]
             pid = random.choice(b["party"])
             p = self.players[pid]
@@ -988,7 +1005,7 @@ class Dungeon:
             if p["hp"] <= 0:
                 await self.kill(b, pid)
         if b["id"] in self.battles:
-            b["turn"] = {"who": "enemy", "phase": "pause", "until": time.time() + ENEMY_PAUSE}
+            self.enemy_windup(b, ENEMY_GAP)
 
     async def kill(self, b, pid):
         """Смерть: всё из рюкзака и монеты остаются лежать на локации, надетое — при игроке."""
@@ -1029,8 +1046,10 @@ class Dungeon:
         lvl = b["enemy"]["level"]
         coins = random.randint(*e["coins"]) + lvl - 1
         self.drop(b["loc"], f"{coins} мон.", source=e["name"], coins=coins)
-        item = weighted(e["drops"])
-        self.drop(b["loc"], ITEMS[item]["name"], source=e["name"], item=item)
+        n = min(e.get("loot_max", 1), e.get("loot", 1) + (lvl - 1) // e.get("loot_every", 999))
+        for _ in range(n):
+            item = weighted(e["drops"])
+            self.drop(b["loc"], ITEMS[item]["name"], source=e["name"], item=item)
         self.players[pid]["kills"] = self.players[pid].get("kills", 0) + 1
         self.dirty_save = True
         self.battles.pop(b["id"], None)
