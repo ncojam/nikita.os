@@ -19,6 +19,12 @@ if [ -d seed ]; then
   cp -rn seed/. fs/
 fi
 
+# треки Clown Dungeon — в проводник сайта, чтобы их мог открыть в DAWN любой. Игра читает их из репозитория,
+# поэтому копия всегда свежая: старые версии перезаписываются
+echo "→ треки Clown Dungeon → fs/home/nikita/Projects/ClownDungeon"
+mkdir -p fs/home/nikita/Projects/ClownDungeon
+cp -f public/dungeon/music/*.dawn fs/home/nikita/Projects/ClownDungeon/
+
 echo "→ сборка образа и перезапуск контейнера"
 docker compose up -d --build --remove-orphans
 

@@ -776,7 +776,7 @@ def make_app():
     app["air"].routes(app)
     # Clown Dungeon — игра для Telegram Mini App (цикл боёв спит, пока никого нет)
     from dungeon import Dungeon
-    app["dungeon"] = Dungeon(app["chat"].user_by_token, DATA_DIR, PUBLIC, FS_ROOT, app["folders"].real, app["projects"])
+    app["dungeon"] = Dungeon(app["chat"].user_by_token, DATA_DIR, PUBLIC)
     app["dungeon"].routes(app)
     app["endless"] = Endless(DATA_DIR, client_ip)
     app["endless"].routes(app)

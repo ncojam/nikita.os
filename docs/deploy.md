@@ -23,7 +23,7 @@
 | `NOS_ADMIN_TOKEN` | — | Включает `/api/mod/*` |
 | `TG_BOT_TOKEN` | — | Ники Telegram для Джуса |
 | `TG_DUNGEON_BOT_TOKEN` | — | Бот Clown Dungeon (пусто — подойдёт `TG_BOT_TOKEN`) |
-| `NOS_DUNGEON_CONNS`, `NOS_DUNGEON_PLAYERS`, `NOS_DUNGEON_MUSIC` | см. `dungeon.py` | Соединений и игроков в Clown Dungeon; папка треков на сайте |
+| `NOS_DUNGEON_CONNS`, `NOS_DUNGEON_PLAYERS` | см. `dungeon.py` | Соединений и игроков в Clown Dungeon |
 | `NOS_POST_*` | см. `posts.py` | Лимиты записей |
 | `NOS_UFS_MAX_*` | см. `userfs.py` | Лимиты папок |
 | `NOS_FORUM_*` | см. `forum.py` | Лимиты форума |

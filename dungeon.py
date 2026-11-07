@@ -36,7 +36,6 @@ log = logging.getLogger("dungeon")
 
 MAX_CONNS = int(os.environ.get("NOS_DUNGEON_CONNS", 300))
 MAX_PLAYERS = int(os.environ.get("NOS_DUNGEON_PLAYERS", 20000))
-MUSIC_DIR = os.environ.get("NOS_DUNGEON_MUSIC", "/home/nikita/Projects/ClownDungeon")   # папка треков на сайте
 MAX_TRACK = 2 * 1024 * 1024
 MAX_STEM = 6 * 1024 * 1024    # одна дорожка кеша музыки
 MAX_STEMS = 24                # дорожек на трек
@@ -236,11 +235,8 @@ def parse_track(track_id, raw, rules):
 
 
 class Dungeon:
-    def __init__(self, user_of, data_dir, public_dir, fs_root, ufs_real, projects):
+    def __init__(self, user_of, data_dir, public_dir):
         self.user_of = user_of
-        self.fs_root = Path(fs_root)
-        self.ufs_real = ufs_real          # виртуальный путь → файл в общих папках
-        self.projects = projects          # кто автор общего проекта DAWN
         self.path = Path(data_dir) / "dungeon.json"
         self.stems_root = Path(data_dir) / "dungeon-stems"
         self.public = public_dir
@@ -284,22 +280,9 @@ class Dungeon:
 
     # ---------- музыка ----------
     def track_files(self):
-        """Все боевые треки: id → (файл, адрес для клиента).
-
-        Папка MUSIC_DIR сильнее файлов из репозитория: сохранил трек в DAWN — он сразу в игре, без деплоя.
-        Общая папка открыта на запись всем вошедшим, поэтому оттуда берём только проекты владельца сайта.
-        """
-        out = {}
-        for f in (Path(self.public) / "dungeon" / "music").glob("*.dawn"):
-            out[f.stem.lower()] = (f, f"/dungeon/music/{quote(f.name)}")
-        for f in (self.fs_root / MUSIC_DIR.strip("/")).glob("*.dawn"):
-            out[f.stem.lower()] = (f, f"/fs{quote(MUSIC_DIR)}/{quote(f.name)}")
-        shared = self.ufs_real(MUSIC_DIR)
-        for f in shared.glob("*.dawn") if shared else ():
-            who = self.projects.map.get(f"{MUSIC_DIR}/{f.name}", {}).get("nick", "")
-            if str(who).lower() == OWNER:
-                out[f.stem.lower()] = (f, f"/fs{quote(MUSIC_DIR)}/{quote(f.name)}")
-        return out
+        """Все боевые треки: id → (файл, адрес для клиента). Источник один — файлы игры в репозитории.
+        Копия для всех лежит в проводнике сайта (MUSIC_DIR, её кладёт deploy.sh), но игра берёт только отсюда."""
+        return {f.stem.lower(): (f, f"/dungeon/music/{quote(f.name)}") for f in (Path(self.public) / "dungeon" / "music").glob("*.dawn")}
 
     def scan_tracks(self):
         """Перечитать изменившиеся файлы. Битый трек пропускаем: один плохой файл не должен ломать бои."""
