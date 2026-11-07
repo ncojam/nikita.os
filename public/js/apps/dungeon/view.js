@@ -178,7 +178,8 @@ export class BattleView {
     if (hits > 0 && this.b.turn.phase === "combo") {
       g.fillStyle = "#ffd76a"; g.font = "700 22px system-ui"; g.textAlign = "center";
       const { y, hx } = this.laneGeom();
-      g.fillText("×" + (hits + 1), hx, y - 26);
+      g.textAlign = "left";                            // справа от табло счёта, которое стоит над квадратом
+      g.fillText("×" + (hits + 1), 8 + (this.countW || 118) + 12, y - 30);
     }
   }
 
@@ -204,6 +205,14 @@ export class BattleView {
     const by = f.mini ? e.y - 10 : e.y - 20, bh = f.mini ? 4 : 6;
     g.fillStyle = "#352c44"; g.fillRect(cx - bw / 2, by, bw, bh);
     g.fillStyle = k < 0.35 ? "#ff6b6b" : "#ff9ecf"; g.fillRect(cx - bw / 2, by, bw * k, bh);
+    // число хп: у главного справа от полоски, у мелких — над ней
+    const hpText = `${Math.ceil(f.hp)}/${f.maxhp}`;
+    g.fillStyle = k < 0.35 ? "#ff9b9b" : "#ece6f5";
+    if (f.mini) { g.font = "700 10px system-ui"; g.textAlign = "center"; g.fillText(hpText, cx, by - 3); }
+    else {
+      g.font = "700 11px system-ui"; g.textAlign = "left"; g.textBaseline = "middle";
+      g.fillText(hpText, cx + bw / 2 + 6, by + bh / 2 + 1); g.textBaseline = "alphabetic";
+    }
   }
 
   drawBox(g, e, a, t, now, main, laugh) {
@@ -280,7 +289,7 @@ export class BattleView {
     this.sparks = this.sparks.filter(p => now - p.t < 0.35);
   }
 
-  /* ---------- табло счёта в углу ----------
+  /* ---------- табло счёта над полосой нот ----------
    * Деление периода (3•3•3•2) с текущей группой, счёт доли в периоде (1..13) и внутри группы (1..3).
    * Когда сильная каждая четверть, вместо единиц показываем номера долей. */
   drawCount(g, now) {
@@ -293,7 +302,9 @@ export class BattleView {
     const frac = pos / 4 - Math.floor(pos / 4), pulse = Math.max(0, 1 - frac * 3);   // вспыхивает на каждой доле
     g.font = "700 13px system-ui";
     const label = groups.map((n, i) => ones ? i + 1 : n).join(" • ");
-    const x = 8, y = 8, w = Math.max(118, g.measureText(label).width + 16), h = 56;   // узкое: не налезать на имя врага
+    // над полосой нот, у квадрата: туда игрок и так смотрит
+    const w = Math.max(118, g.measureText(label).width + 16), h = 56, x = 8, y = this.laneGeom().y - 16 - 8 - h;
+    this.countW = w;
     g.fillStyle = "rgba(13,11,18,0.78)"; g.fillRect(x, y, w, h);
     g.strokeStyle = `rgba(255,215,106,${0.25 + pulse * (inGroup === 1 ? 0.75 : 0.3)})`; g.lineWidth = 1.5; g.strokeRect(x, y, w, h);
     // деление: текущая группа золотая
