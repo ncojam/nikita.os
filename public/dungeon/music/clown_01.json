@@ -1,6 +1,11 @@
 {
-  "_about": "Клоун: сильные ноты — все ноты колокольчиков, в нечётном размере на целых долях их слишком мало",
+  "_about": "Правила боевого трека: общий пресет — public/js/apps/dungeon/arrange.js, здесь только отличия. Сильные доли — по размеру такта. Описание — docs/dungeon.md",
   "pattern": "pattern",
-  "roles": { "grapefruit": "lead", "grapefruit2": "bass", "kick": "kick", "snare": "snare", "hat": "hat" },
-  "strong": { "channels": ["grapefruit"], "grid": 0.25 }
+  "roles": {
+    "grapefruit": "lead",
+    "grapefruit2": "bass",
+    "kick": "kick",
+    "snare": "snare",
+    "hat": "hat"
+  }
 }

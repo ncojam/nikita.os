@@ -95,10 +95,8 @@ export class BattleMusic {
       const i = Math.floor(n.s / STEP + 1e-6);
       if (i < steps) buckets[i].push({ ch, n, off: n.s - i * STEP });
     }
-    // сильные ноты — те же, что считает сервер (dungeon.py, load_track)
-    const grid = track.strong?.grid || 1, strong = new Set();
-    for (const id of track.strong?.channels || []) for (const n of pat.notes[id] || [])
-      if (Math.abs(n.s / grid - Math.round(n.s / grid)) < 1e-6) strong.add(Math.round(n.s / STEP));
+    // сильные доли считает сервер (dungeon.py, parse_track) и присылает списком
+    const strong = new Set(track.strongSteps || []);
     if (!strong.size) for (let i = 0; i < steps; i += 4) strong.add(i);
 
     const G = bank ? null : buildGraph(this.ctx, P);
