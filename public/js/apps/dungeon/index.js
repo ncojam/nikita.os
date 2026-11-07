@@ -26,7 +26,8 @@ let combo = null;           // { hits, power, base, hp, unshown }
 let comboTimer = 0;
 let wailKey = null;         // какое завывание сейчас звучит
 let laughKey = null;
-let target = null;          // по кому бьём: выбирается тапом по врагу
+let target = null;
+let halfKey = null;          // по кому бьём: выбирается тапом по врагу
 const EVEN_SIGS = ["4/4", "3/4", "2/4"];
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
@@ -107,7 +108,10 @@ function onState() {
   if (b) {
     lastBattle = b; holdBattle = 0;
     syncCombo(b);
-    music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0, wail: b.turn.wail });
+    music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0, wail: b.turn.wail, half: b.turn.half });
+    const hk = b.turn.half ? `${b.id}.${b.turn.half.from}` : null;
+    if (hk && hk !== halfKey && b.turn.who === me) banner("Вдвое реже: бей через долю");
+    halfKey = hk;
     syncWail(b.turn.wail);
     syncLaugh(b.turn.laugh);
     const alive = b.foes.filter(f => f.hp > 0);
@@ -255,6 +259,7 @@ function renderBattle() {
     : t.phase === "laugh" ? `${b.enemy.name} хохочет…`
     : t.wail?.silent ? "Тишина. Не сбейся!"
     : t.wail ? `${b.enemy.name} завывает…`
+    : combo && t.half ? "Вдвое реже: бей через долю!"
     : combo ? "Жми по врагу в такт!"
     : mine ? "Твой ход" : t.phase === "combo" ? `${who} бьёт в такт…` : `Ходит ${who}…`;
   const tail = [
@@ -404,13 +409,15 @@ function landTap(j) {
   send({ t: "tap", step: j.step, foe: target });
   if (!combo) return;
   const hits = ++combo.hits, cry = hits % rules.cry === 0;
-  armCombo(S?.battle?.grace ?? rules.grace);
+  const half = S?.battle?.turn.half, inHalf = half && j.step >= half.from && j.step < half.end;
+  const dec = inHalf ? half.decay : (S?.battle?.decay ?? rules.decay);
+  armCombo((S?.battle?.grace ?? rules.grace) * (inHalf ? 2 : 1));
   sfx.hurt(false);
   if (cry) { view.cry(); sfx.cry(); }
   const b = S?.battle;
   if (b) b.turn.hits = hits;
   if (combo.power == null) { combo.unshown.add(hits); view.hit(null, hits); return; }   // сила первого удара ещё в пути
-  combo.power = cry ? combo.base * rules.decay : combo.power * rules.decay;
+  combo.power = cry ? combo.base * dec : combo.power * dec;
   const dmg = Math.max(1, pyRound(combo.power));
   const f = b?.foes.find(x => x.id === target && x.hp > 0) || b?.foes.find(x => x.hp > 0);
   view.hit(dmg, hits, f?.id);

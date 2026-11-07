@@ -303,7 +303,11 @@ export class BattleMusic {
     if (!this.running) return -1;
     return (this.ctx.currentTime - this.calib - this.aT0) / this.stepSec;
   }
-  isStrong(step) { return this.strong.has(((step % this.steps) + this.steps) % this.steps); }
+  isStrong(step) {
+    const h = this.state.half;    // событие «вдвое реже»: в его тактах сильная только каждая вторая доля
+    if (h && step >= h.from && step < h.end && (step - h.from) % 8) return false;
+    return this.strong.has(((step % this.steps) + this.steps) % this.steps);
+  }
 
   /* ближайшая сильная нота к текущему моменту: { step, err (с, + — опоздал) } */
   judge() {

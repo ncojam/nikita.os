@@ -119,11 +119,14 @@ ENEMIES = {
              "loot": 1, "loot_every": 4, "loot_max": 3,
              "hits": ["кусает", "бодает", "плюётся в"],
              # wail: шанс на цепочку ударов, с какого удара начинает, сколько тактов длится тишина
-             "abilities": {"wail": {"chance": 0.35, "hits": (5, 10), "bars": (2, 6)}}},
+             # half: событие «вдвое реже» — с удара hits ритм на bars тактов идёт через долю, а удар слабеет мягче (decay)
+             "abilities": {"wail": {"chance": 0.35, "hits": (5, 10), "bars": (2, 6)},
+                           "half": {"chance": 0.3, "hits": (3, 8), "bars": (2, 4), "decay": 0.75}}},
     "clown": {"name": "Клоун", "hp": 70, "atk": (3, 6), "tracks": ["clown_00", "clown_01", "clown_02"],
               "coins": (10, 25), "drops": {"elixir": 5, "thick_elixir": 3, "bandage": 2, "dark_vial": 1, "helmet": 0.5},
               # добыча: столько вещей и ещё одна за каждые loot_every уровней врага, не больше loot_max
               "loot": 2, "loot_every": 2, "loot_max": 7,
+              "decay": 0.8,          # сильные доли у клоуна редкие — удар слабеет медленнее
               "hits": ["кусает", "бодает", "хохочет в лицо"],
               # laugh: шанс в ход врага вместо атаки, смешков, на сколько ходов ступор
               # car: при какой доле здоровья выезжает машина, сколько мини-клоунов, их здоровье от полного клоуна
@@ -572,7 +575,8 @@ class Dungeon:
                 "turn": {"who": t["who"], "phase": t["phase"], "left": max(0, t["until"] - time.time()),
                          "hits": c["hits"] if c else 0,
                          "wail": {"from": w["from"], "quiet": w["quiet"], "end": w["end"], "silent": w["silent"]} if w else None,
-                         "laugh": t.get("laugh"), "foe": t.get("foe")},
+                         "laugh": t.get("laugh"), "foe": t.get("foe"), "half": c.get("half") if c else None},
+                "decay": ENEMIES[b["enemy"]["kind"]].get("decay", COMBO_DECAY),
                 "log": b["log"][-5:]}
 
     def foe_view(self, f):
@@ -837,6 +841,8 @@ class Dungeon:
                 b["turn"] = {"who": pid, "phase": "combo", "until": time.time() + b["track"]["start"] * beat + COMBO_NET_SLACK,
                              "combo": {"hits": 0, "power": float(dmg), "base": float(dmg), "last": -1, "dealt": dmg,
                                        "wail_at": self.roll_wail(b)}}
+                c = b["turn"]["combo"]
+                c["half_at"] = None if c["wail_at"] else self.roll_half(b)   # два события в одной цепочке — перебор
                 self.mark(b["loc"])
         elif a == "spell":
             s = SPELLS.get(item)
@@ -888,7 +894,8 @@ class Dungeon:
         if t["who"] != pid or t["phase"] != "combo":
             return
         c, tr = t["combo"], b["track"]
-        if step <= c["last"] or step % tr["steps"] not in tr["strong"]:
+        half = self.in_half(c, step)
+        if step <= c["last"] or step % tr["steps"] not in tr["strong"] or (half and (step - half["from"]) % 8):
             return
         at = b["t0"] / 1000 + step * tr["beat"] / 4
         off = (time.time() - at) / tr["beat"]
@@ -897,8 +904,9 @@ class Dungeon:
         c["last"] = step
         c["hits"] += 1
         cry = c["hits"] % CRY_EVERY == 0
-        c["power"] = c["base"] * COMBO_DECAY if cry else c["power"] * COMBO_DECAY
-        t["until"] = at + tr["grace"] * tr["beat"] + COMBO_NET_SLACK
+        dec = half["decay"] if half else ENEMIES[b["enemy"]["kind"]].get("decay", COMBO_DECAY)
+        c["power"] = c["base"] * dec if cry else c["power"] * dec
+        t["until"] = at + tr["grace"] * (2 if half else 1) * tr["beat"] + COMBO_NET_SLACK
         if cry:
             self.blog(b, f"{b['enemy']['name']} плачет!")
             await self.to_party(b, {"t": "ev", "e": "cry"})
@@ -907,6 +915,25 @@ class Dungeon:
         await self.strike(b, pid, dmg, c["hits"], fid)
         if b["id"] in self.battles and c["hits"] == c.get("wail_at"):
             self.start_wail(b, c)
+        if b["id"] in self.battles and c["hits"] == c.get("half_at"):
+            self.start_half(b, c)
+
+    def roll_half(self, b):
+        a = ENEMIES[b["enemy"]["kind"]].get("abilities", {}).get("half")
+        return random.randint(*a["hits"]) if a and random.random() < a["chance"] else None
+
+    def start_half(self, b, c):
+        """Ритм вдвое реже: со следующего такта сильная — только каждая вторая доля."""
+        a = ENEMIES[b["enemy"]["kind"]]["abilities"]["half"]
+        tr = b["track"]
+        step = (time.time() - b["t0"] / 1000) / (tr["beat"] / 4)
+        start = math.ceil(step / tr["bar"]) * tr["bar"]
+        c["half"] = {"from": start, "end": start + random.randint(*a["bars"]) * tr["bar"], "decay": a["decay"]}
+        self.blog(b, f"{b['enemy']['name']} замедляется: бей через долю!")
+
+    def in_half(self, c, step):
+        h = c.get("half")
+        return h if h and h["from"] <= step < h["end"] else None
 
     def roll_wail(self, b):
         """На каком ударе этой цепочки начнётся завывание, или None: враг делает это только иногда."""
