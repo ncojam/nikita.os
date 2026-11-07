@@ -25,6 +25,9 @@ let rules = { decay: 0.5, cry: 20, grace: 2.6, start: 3.5 };
 let combo = null;           // { hits, power, base, hp, unshown }
 let comboTimer = 0;
 let wailKey = null;         // какое завывание сейчас звучит
+let laughKey = null;
+let target = null;          // по кому бьём: выбирается тапом по врагу
+const EVEN_SIGS = ["4/4", "3/4", "2/4"];
 let ws = null, S = null, me = null, clockOff = 0, bestRtt = 1e9;
 let logLines = [], sheet = null, musicBattle = null, holdBattle = 0, lastBattle = null, lastStep = -1, retry = 500;
 
@@ -106,15 +109,31 @@ function onState() {
     syncCombo(b);
     music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0, wail: b.turn.wail });
     syncWail(b.turn.wail);
+    syncLaugh(b.turn.laugh);
+    const alive = b.foes.filter(f => f.hp > 0);
+    if (!alive.some(f => f.id === target)) target = (alive.find(f => f.id === b.enemy.id) || alive[0])?.id ?? null;
+    view.target = target;
+    if (musicBattle !== b.id && !EVEN_SIGS.includes(b.sig)) banner(`Размер ${b.sig}! Ритм хромает`);
     if (musicBattle !== b.id) { musicBattle = b.id; lastStep = -1; music.error = null; music.start(b, srvNow).catch(e => { console.warn("музыка", e); music.error = String(e.message || e); render(); }); }
     view.set(b, me);
   } else if (musicBattle !== null) {
     musicBattle = null;
     music.setState({ wail: null });
     syncWail(null);
+    syncLaugh(null);
     music.stop();
   }
   render();
+}
+
+/* смех клоуна тоже приходит снимком: смешки стоят на восьмых, поэтому их времена известны заранее */
+function syncLaugh(l) {
+  const key = l ? `${l.from}` : null;
+  if (key === laughKey) return;
+  if (!l) { laughKey = null; sfx.laughStop(); return; }
+  if (!music.running) return;
+  laughKey = key;
+  sfx.laugh(Array.from({ length: l.count }, (_, k) => music.timeOf(l.from + k * l.every)));
 }
 
 /* завывание приходит снимком мира: так его услышат и присоединившиеся, и вернувшиеся после обрыва связи */
@@ -131,15 +150,18 @@ function onEvent(d) {
   if (d.e === "hit") {
     if (d.by === me && combo && d.combo === 0) { combo.base = d.dmg; combo.power = d.dmg * rules.decay ** combo.hits; }   // первый удар: теперь известна сила, удары вперёд него уже были
     if (d.by === me && d.combo > 0) {                    // свой удар в такт уже показан
-      if (combo?.unshown.delete(d.combo)) view.hit(d.dmg, d.combo);
+      if (combo?.unshown.delete(d.combo)) view.hit(d.dmg, d.combo, d.foe);
       return;
     }
-    view.hit(d.dmg, d.combo);
+    view.hit(d.dmg, d.combo, d.foe);
     sfx.hurt(false);
-    if (lastBattle) lastBattle.enemy.hp = lastBattle.enemy.maxhp * d.hp;
-    if (combo) combo.hp = lastBattle?.enemy.hp;
+    const f = lastBattle?.foes.find(x => x.id === d.foe);
+    if (f) { f.hp = f.maxhp * d.hp; if (f.id === lastBattle.enemy.id) lastBattle.enemy.hp = f.hp; }
+    if (combo && f) combo.hp[f.id] = f.hp;
   }
-  else if (d.e === "enemy_hit") { view.enemyHit(d.who, d.dmg); sfx.hurt(d.who === me); }
+  else if (d.e === "foe_dead") { view.kill(d.foe); sfx.hurt(true); }
+  else if (d.e === "summon") { sfx.honk(); banner("Клоунская машина!"); }
+  else if (d.e === "enemy_hit") { view.enemyHit(d.who, d.dmg, d.foe); sfx.hurt(d.who === me); }
   else if (d.e === "spell") sfx.spell();
   else if (d.e === "backlash") { view.enemyHit(d.who, d.dmg); sfx.hurt(d.who === me); banner(`Печаль забрала ${d.heal} здоровья`); }
   else if (d.e === "trip") { view.trip(d.who); sfx.hurt(d.who === me); }
@@ -147,7 +169,7 @@ function onEvent(d) {
   else if (d.e === "pickup") d.kind === "coins" ? sfx.coin() : sfx.item();
   else if (d.e === "giggle") sfx.giggle();
   else if (d.e === "cry") { if (!combo) { view.cry(); sfx.cry(); } }
-  else if (d.e === "win") { sfx.win(); view.play("death"); holdBattle = performance.now() + 1700; banner(`Победа! ${d.enemy} повержена`); setTimeout(render, 1750); }
+  else if (d.e === "win") { sfx.win(); sfx.laughStop(); view.dieAll(); holdBattle = performance.now() + 1700; banner(`Победа: ${d.enemy}`); setTimeout(render, 1750); }
   else if (d.e === "dead") { holdBattle = performance.now() + 1200; banner("Ты повержен"); setTimeout(render, 1250); }
 }
 
@@ -230,6 +252,7 @@ function renderBattle() {
   const t = b.turn, mine = S.battle && t.who === me, choose = mine && t.phase === "choose";
   const who = b.party.find(p => p.id === t.who)?.nick;
   const text = !S.battle ? "" : t.who === "enemy" ? "Ход врага…"
+    : t.phase === "laugh" ? `${b.enemy.name} хохочет…`
     : t.wail?.silent ? "Тишина. Не сбейся!"
     : t.wail ? `${b.enemy.name} завывает…`
     : combo ? "Жми по врагу в такт!"
@@ -243,7 +266,7 @@ function renderBattle() {
     audioInfo,
     el("div", { className: "blog" }, ...b.log.map(l => el("div", { textContent: l }))),
     el("div", { className: "row" },
-      el("button", { textContent: "Атака", className: "main", disabled: !(choose || combo), onpointerdown: attackPress }),
+      el("button", { textContent: "Атака", className: "main", disabled: !(choose || combo), onpointerdown: () => attackPress() }),
       btn("Магия", () => openSheet("magic")),
       btn("Рюкзак", () => openSheet("bag"))),
     el("div", { className: "row" },
@@ -277,7 +300,7 @@ function renderSheet() {
     box.append(el("h3", { textContent: `Магия · MP ${S.me.mp}/${S.me.maxmp}` }));
     for (const s of S.me.skills) box.append(s
       ? el("div", { className: "card" }, el("span", { textContent: `${s.name}  ` }, el("small", { textContent: `${s.mp} MP · ${s.desc}` })),
-        btn("Применить (ход)", () => { send({ t: "act", a: "spell", item: s.id }); closeSheet(); }, "small", !myTurn || S.me.mp < s.mp))
+        btn("Применить (ход)", () => { send({ t: "act", a: "spell", item: s.id, foe: target }); closeSheet(); }, "small", !myTurn || S.me.mp < s.mp))
       : el("div", { className: "card" }, el("span", {}, el("small", { textContent: "Пустой слот" }))));
   } else {
     const b = S.battle, myTurn = b && b.turn.who === me && b.turn.phase === "choose";
@@ -310,16 +333,18 @@ const audioInfo = el("div", { className: "audio-info" });
 setInterval(() => { if (S?.battle) audioInfo.textContent = music.stats(); }, 700);
 
 /* ---------- атака и тапы в такт: по врагу и кнопкой — одно и то же ---------- */
-function attackPress() {
+/* fid — по кому тапнули: тап по врагу заодно выбирает его целью, даже не в свой ход */
+function attackPress(fid) {
   const b = S?.battle;
+  if (fid != null && fid !== target) { target = fid; view.target = fid; sfx.coin(); }
   if (!b || b.turn.who !== me) return;
   if (combo) return rhythmTap();
   if (b.turn.phase !== "choose") return;
   lastStep = -1;
   attackAt = performance.now();
-  combo = { hits: 0, power: null, base: null, hp: null, unshown: new Set() };
-  armCombo(rules.start);
-  send({ t: "act", a: "attack" });    // сообщения идут по порядку: тап сразу за атакой сервер поймёт и без ответа
+  combo = { hits: 0, power: null, base: null, hp: {}, unshown: new Set() };
+  armCombo(b.start ?? rules.start);
+  send({ t: "act", a: "attack", foe: target });    // сообщения идут по порядку: тап сразу за атакой сервер поймёт и без ответа
   render();
 }
 /* бить перестали: закрываем комбо сами и сразу, сервер ждёт с запасом на сеть */
@@ -344,12 +369,15 @@ function syncCombo(b) {
   }
   b.turn.hits = Math.max(b.turn.hits, combo.hits);
   b.turn.phase = "combo";
-  if (combo.hp != null) b.enemy.hp = Math.min(b.enemy.hp, combo.hp);
+  for (const f of b.foes) if (combo.hp[f.id] != null) f.hp = Math.min(f.hp, combo.hp[f.id]);
+  const main = b.foes.find(f => f.id === b.enemy.id);
+  if (main) b.enemy.hp = main.hp;
 }
 
 canvas.addEventListener("pointerdown", e => {
   const r = canvas.getBoundingClientRect();
-  if (view.overEnemy(e.clientX - r.left, e.clientY - r.top)) attackPress();
+  const id = view.foeAt(e.clientX - r.left, e.clientY - r.top);
+  if (id != null) attackPress(id);
 });
 
 /* round из Python: половины — к чётному, иначе показанный урон разойдётся с настоящим */
@@ -360,10 +388,10 @@ function pyRound(x) {
 function landTap(j) {
   music.learn(j.err);
   music.hitTone(j.step);
-  send({ t: "tap", step: j.step });
+  send({ t: "tap", step: j.step, foe: target });
   if (!combo) return;
   const hits = ++combo.hits, cry = hits % rules.cry === 0;
-  armCombo(rules.grace);
+  armCombo(S?.battle?.grace ?? rules.grace);
   sfx.hurt(false);
   if (cry) { view.cry(); sfx.cry(); }
   const b = S?.battle;
@@ -372,7 +400,12 @@ function landTap(j) {
   combo.power = cry ? combo.base * rules.decay : combo.power * rules.decay;
   const dmg = Math.max(1, pyRound(combo.power));
   view.hit(dmg, hits);
-  if (b) { b.enemy.hp = Math.max(0, (combo.hp ?? b.enemy.hp) - dmg); combo.hp = b.enemy.hp; }
+  const f = b?.foes.find(x => x.id === target && x.hp > 0) || b?.foes.find(x => x.hp > 0);
+  if (f) {
+    f.hp = Math.max(0, (combo.hp[f.id] ?? f.hp) - dmg);
+    combo.hp[f.id] = f.hp;
+    if (f.id === b.enemy.id) b.enemy.hp = f.hp;
+  }
 }
 function rhythmTap(j = music.judge()) {
   if (arguments.length === 0 && performance.now() - attackAt < ATTACK_GUARD) return;

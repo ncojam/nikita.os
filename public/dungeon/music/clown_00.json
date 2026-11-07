@@ -1,0 +1,6 @@
+{
+  "_about": "Клоун: сильные ноты — все ноты колокольчиков, в нечётном размере на целых долях их слишком мало",
+  "pattern": "pattern",
+  "roles": { "grapefruit": "lead", "grapefruit2": "bass", "kick": "kick", "snare": "snare", "hat": "hat" },
+  "strong": { "channels": ["grapefruit"], "grid": 0.25 }
+}

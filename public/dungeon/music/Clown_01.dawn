@@ -1,0 +1,738 @@
+{
+  "format": "dawn/2",
+  "_about": "DAWN project (nikita.os). Times in beats (quarter notes); pitches are note names. Spec: docs/dawn-format.md",
+  "name": "Clown_01",
+  "bpm": 84,
+  "swing": 0,
+  "mode": "pat",
+  "current": "pattern",
+  "channels": [
+    {
+      "id": "kick",
+      "type": "sampler",
+      "name": "Kick",
+      "color": "#ff9ecf",
+      "vol": 0.8,
+      "pan": 0,
+      "mixer": 1,
+      "sample": "builtin:kick",
+      "params": {
+        "root": 60,
+        "tune": -7,
+        "start": 0,
+        "att": 0.002,
+        "rel": 0.3,
+        "oneshot": true,
+        "rev": false
+      }
+    },
+    {
+      "id": "snare",
+      "type": "sampler",
+      "name": "Snare",
+      "color": "#c3a6ff",
+      "vol": 0.65,
+      "pan": 0,
+      "mixer": 2,
+      "sample": "builtin:snare",
+      "params": {
+        "root": 60,
+        "tune": -9,
+        "start": 0,
+        "att": 0.001,
+        "rel": 0.3,
+        "oneshot": true,
+        "rev": true
+      }
+    },
+    {
+      "id": "hat",
+      "type": "sampler",
+      "name": "Hat",
+      "color": "#8fe8cf",
+      "vol": 0.45,
+      "pan": 0.25,
+      "mixer": 3,
+      "sample": "builtin:hat",
+      "params": {
+        "root": 60,
+        "tune": 7,
+        "start": 0,
+        "att": 0.001,
+        "rel": 0.025,
+        "oneshot": true,
+        "rev": false
+      }
+    },
+    {
+      "id": "grapefruit",
+      "type": "grapefruit",
+      "name": "Bells",
+      "color": "#9fd3ff",
+      "vol": 0.55,
+      "pan": 0,
+      "mixer": 5,
+      "edo": 17,
+      "scale": {
+        "root": "0",
+        "mode": "neutral",
+        "snap": false
+      },
+      "params": {
+        "preset": "Bell",
+        "ops": [
+          {
+            "wave": "sine",
+            "ratio": 1,
+            "fine": 0,
+            "level": 1,
+            "out": 0,
+            "att": 0.003,
+            "dec": 0.5,
+            "sus": 0.2,
+            "rel": 3,
+            "pan": 0,
+            "wsk": 0,
+            "wfold": 0,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0,
+            "env": {
+              "vol": {
+                "on": false,
+                "sus": 2,
+                "pts": [
+                  [0, 0],
+                  [0.01, 1],
+                  [0.3, 0.6],
+                  [0.6, 0]
+                ]
+              }
+            }
+          },
+          {
+            "wave": "sine",
+            "ratio": 4.27,
+            "fine": 0,
+            "level": 0.6,
+            "out": 1,
+            "att": 0.003,
+            "dec": 2,
+            "sus": 0.35,
+            "rel": 2.5,
+            "pan": 0,
+            "wsk": 0,
+            "wfold": 0,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0
+          },
+          {
+            "wave": "sine",
+            "ratio": 1.007,
+            "fine": 0,
+            "level": 1,
+            "out": 0.3,
+            "att": 0.1,
+            "dec": 2,
+            "sus": 0.8,
+            "rel": 3,
+            "pan": 0,
+            "wsk": 0,
+            "wfold": 0,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0
+          },
+          {
+            "wave": "triangle",
+            "ratio": 5.19,
+            "fine": 0,
+            "level": 0.45,
+            "out": 0,
+            "att": 0.2,
+            "dec": 0.4,
+            "sus": 0.3,
+            "rel": 3,
+            "pan": 0,
+            "wsk": 0,
+            "wfold": 0,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0
+          }
+        ],
+        "mod": {
+          "m21": 0.45,
+          "m31": 0,
+          "m41": 0,
+          "m32": 0,
+          "m42": 0.4,
+          "m43": 0.45,
+          "m12": 0,
+          "m13": 0,
+          "m14": 0,
+          "m23": 0,
+          "m24": 0,
+          "m34": 0
+        },
+        "cut": 6000,
+        "res": 0.5
+      }
+    },
+    {
+      "id": "grapefruit2",
+      "type": "grapefruit",
+      "name": "Bass",
+      "color": "#fff09e",
+      "vol": 0.7,
+      "pan": 0,
+      "mixer": 6,
+      "edo": 17,
+      "scale": {
+        "root": "0",
+        "mode": "neutral",
+        "snap": false
+      },
+      "poly": 1,
+      "params": {
+        "preset": "Glass Pad",
+        "ops": [
+          {
+            "wave": "sine",
+            "ratio": 1,
+            "fine": 0,
+            "level": 1,
+            "out": 0.85,
+            "att": 1.5,
+            "dec": 2,
+            "sus": 0.85,
+            "rel": 4,
+            "pan": -0.2,
+            "wsk": 0,
+            "wfold": 0,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0,
+            "env": {
+              "vol": {
+                "on": false,
+                "sus": 2,
+                "pts": [
+                  [0, 0],
+                  [0.01, 1],
+                  [0.3, 0.6],
+                  [0.6, 0]
+                ]
+              }
+            }
+          },
+          {
+            "wave": "sine",
+            "ratio": 1.414,
+            "fine": 0,
+            "level": 0.6,
+            "out": 0,
+            "att": 2,
+            "dec": 1.5,
+            "sus": 0.7,
+            "rel": 4,
+            "pan": 0,
+            "wsk": 0,
+            "wfold": 0,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0
+          },
+          {
+            "wave": "triangle",
+            "ratio": 1.008,
+            "fine": -12,
+            "level": 1,
+            "out": 0.55,
+            "att": 2,
+            "dec": 1,
+            "sus": 0.85,
+            "rel": 4.5,
+            "pan": 0.2,
+            "wsk": 0,
+            "wfold": 0.15,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0
+          },
+          {
+            "wave": "sine",
+            "ratio": 3,
+            "fine": 0,
+            "level": 0.35,
+            "out": 0,
+            "att": 3,
+            "dec": 1,
+            "sus": 0.6,
+            "rel": 4,
+            "pan": 0,
+            "wsk": 0,
+            "wfold": 0,
+            "wcrush": 0,
+            "ac": 0,
+            "dc": 0,
+            "rc": 0
+          }
+        ],
+        "mod": {
+          "m21": 0.45,
+          "m31": 0,
+          "m41": 0,
+          "m32": 0,
+          "m42": 0,
+          "m43": 0.3,
+          "m12": 0,
+          "m13": 0,
+          "m14": 0,
+          "m23": 0,
+          "m24": 0,
+          "m34": 0
+        },
+        "cut": 1800,
+        "res": 0.8
+      }
+    }
+  ],
+  "patterns": [
+    {
+      "id": "pattern",
+      "name": "Pattern 1",
+      "color": "#ff9ecf",
+      "sig": "15/16",
+      "length": 30,
+      "notes": {
+        "kick": [
+          [0, 0.25, "C4", 0.7],
+          [0.5, 0.25, "C4", 0.45],
+          [3.75, 0.25, "C4", 0.7],
+          [4.25, 0.25, "C4", 0.45],
+          [7.5, 0.25, "C4", 0.7],
+          [8, 0.25, "C4", 0.45],
+          [11.25, 0.25, "C4", 0.7],
+          [11.75, 0.25, "C4", 0.45],
+          [15, 0.25, "C4", 0.75],
+          [15.5, 0.25, "C4", 0.5],
+          [17, 0.25, "C4", 0.65],
+          [17.5, 0.25, "C4", 0.4],
+          [18.75, 0.25, "C4", 0.75],
+          [19.25, 0.25, "C4", 0.5],
+          [20.75, 0.25, "C4", 0.65],
+          [21.25, 0.25, "C4", 0.4],
+          [22.5, 0.25, "C4", 0.8],
+          [23, 0.25, "C4", 0.55],
+          [24.5, 0.25, "C4", 0.7],
+          [25, 0.25, "C4", 0.45],
+          [26.25, 0.25, "C4", 0.8],
+          [26.75, 0.25, "C4", 0.5],
+          [29.25, 0.25, "C4", 1]
+        ],
+        "snare": [
+          [14.2, 0.25, "C4", 0.5],
+          [28.5, 0.25, "C4", 0.8]
+        ],
+        "hat": [
+          [3, 0.25, "C4", 0.3],
+          [6.75, 0.25, "C4", 0.3],
+          [10.5, 0.25, "C4", 0.3],
+          [14.25, 0.25, "C4", 0.35],
+          [15, 0.25, "C4", 0.2],
+          [15.5, 0.25, "C4", 0.22],
+          [16, 0.25, "C4", 0.24],
+          [16.5, 0.25, "C4", 0.25],
+          [17, 0.25, "C4", 0.27],
+          [17.5, 0.25, "C4", 0.29],
+          [18, 0.25, "C4", 0.31],
+          [18.5, 0.25, "C4", 0.33],
+          [19, 0.25, "C4", 0.34],
+          [19.5, 0.25, "C4", 0.36],
+          [20, 0.25, "C4", 0.38],
+          [20.5, 0.25, "C4", 0.4],
+          [21, 0.25, "C4", 0.42],
+          [21.5, 0.25, "C4", 0.43],
+          [22, 0.25, "C4", 0.45],
+          [22.5, 0.25, "C4", 0.47],
+          [23, 0.25, "C4", 0.49],
+          [23.5, 0.25, "C4", 0.51],
+          [24, 0.25, "C4", 0.52],
+          [24.5, 0.25, "C4", 0.54],
+          [25, 0.25, "C4", 0.56],
+          [25.5, 0.25, "C4", 0.58],
+          [26, 0.25, "C4", 0.6]
+        ],
+        "grapefruit": [
+          [1, 1, "5:10", 0.45],
+          [2, 0.5, "5:7", 0.35],
+          [2.5, 1.25, "5:5", 0.4, -1],
+          [4.75, 1, "5:12", 0.45],
+          [5.75, 0.5, "5:10", 0.35],
+          [6.25, 1.25, "5:2", 0.4, -1],
+          [8.5, 1, "5:10", 0.45],
+          [9.5, 0.5, "5:7", 0.35],
+          [10, 1.25, "5:5", 0.4, -1],
+          [12.25, 0.5, "5:15", 0.5],
+          [12.75, 0.5, "5:12", 0.4],
+          [13.25, 0.5, "5:8", 0.45],
+          [13.75, 1.25, "5:0", 0.4, -1],
+          [15, 0.75, "4:10", 0.55],
+          [16, 0.75, "4:9", 0.5],
+          [17, 0.75, "4:10", 0.55],
+          [18, 0.75, "4:1", 0.55, 1],
+          [18.75, 0.75, "4:12", 0.6],
+          [19.75, 0.75, "4:11", 0.55],
+          [20.75, 0.75, "4:12", 0.6],
+          [21.75, 0.75, "4:3", 0.6, 1],
+          [22.5, 0.5, "4:15", 0.65],
+          [23, 0.5, "4:16", 0.6],
+          [23.5, 0.5, "5:0", 0.65],
+          [24, 0.5, "5:1", 0.7],
+          [24.5, 0.5, "5:2", 0.7],
+          [25, 1.25, "5:8", 0.75, 1],
+          [29.25, 0.75, "4:8", 0.9],
+          [29.25, 0.75, "5:0", 1],
+          [29.25, 0.75, "5:1", 1],
+          [29.25, 0.75, "5:8", 1]
+        ],
+        "grapefruit2": [
+          [0, 15, "1:0", 0.6],
+          [0, 15, "2:0", 0.5],
+          [0, 15, "2:1", 0.35],
+          [15, 14.25, "1:0", 0.65, 1],
+          [15, 14.25, "2:0", 0.5, 1],
+          [15, 14.25, "2:8", 0.45, 1],
+          [15, 14.25, "2:9", 0.3]
+        ]
+      }
+    }
+  ],
+  "playlist": [],
+  "mixer": [
+    {
+      "name": "Master",
+      "vol": 0.85,
+      "pan": 0,
+      "fx": []
+    },
+    {
+      "name": "Kick",
+      "color": "#9fd3ff",
+      "vol": 0.85,
+      "pan": 0,
+      "fx": [
+        {
+          "type": "dist",
+          "on": true,
+          "drive": 0.2,
+          "shape": 0,
+          "tone": 3000,
+          "mix": 1,
+          "out": 0.75
+        },
+        {
+          "type": "eq",
+          "on": true,
+          "lf": 60,
+          "lg": 5,
+          "mf": 700,
+          "mg": -6,
+          "mq": 1,
+          "hf": 1500,
+          "hg": -18
+        },
+        {
+          "type": "reverb",
+          "on": true,
+          "decay": 3,
+          "pre": 0.01,
+          "damp": 2000,
+          "low": 150,
+          "mix": 0.2
+        }
+      ]
+    },
+    {
+      "name": "Snare",
+      "color": "#fff09e",
+      "vol": 0.85,
+      "pan": 0,
+      "fx": [
+        {
+          "type": "eq",
+          "on": true,
+          "lf": 400,
+          "lg": -12,
+          "mf": 2500,
+          "mg": -3,
+          "mq": 1,
+          "hf": 6000,
+          "hg": -8
+        },
+        {
+          "type": "reverb",
+          "on": true,
+          "decay": 7,
+          "pre": 0.08,
+          "damp": 4000,
+          "low": 500,
+          "mix": 0.5
+        }
+      ]
+    },
+    {
+      "name": "Hat",
+      "color": "#ffb3b3",
+      "vol": 0.75,
+      "pan": 0,
+      "fx": [
+        {
+          "type": "eq",
+          "on": true,
+          "lf": 1500,
+          "lg": -18,
+          "mf": 6000,
+          "mg": 3,
+          "mq": 1.5,
+          "hf": 10000,
+          "hg": -3
+        },
+        {
+          "type": "reverb",
+          "on": true,
+          "decay": 1.5,
+          "pre": 0.01,
+          "damp": 8000,
+          "low": 1500,
+          "mix": 0.2
+        }
+      ]
+    },
+    {
+      "name": "Synth",
+      "color": "#b8f59e",
+      "vol": 0.8,
+      "pan": 0,
+      "fx": []
+    },
+    {
+      "name": "Grapefruit",
+      "color": "#ff9ecf",
+      "vol": 0.8,
+      "pan": 0,
+      "fx": [
+        {
+          "type": "dist",
+          "on": true,
+          "drive": 0.25,
+          "shape": 3,
+          "tone": 5000,
+          "mix": 0.3,
+          "out": 0.75
+        },
+        {
+          "type": "delay",
+          "on": true,
+          "sync": 0,
+          "fb": 0.3,
+          "mix": 0.2,
+          "damp": 4000,
+          "pp": 1
+        },
+        {
+          "type": "reverb",
+          "on": true,
+          "decay": 6,
+          "pre": 0.03,
+          "damp": 5000,
+          "low": 200,
+          "mix": 0.4
+        }
+      ]
+    },
+    {
+      "name": "Grapefruit",
+      "color": "#c3a6ff",
+      "vol": 0.8,
+      "pan": 0,
+      "fx": [
+        {
+          "type": "dist",
+          "on": true,
+          "drive": 0.2,
+          "shape": 0,
+          "tone": 2500,
+          "mix": 0.5,
+          "out": 0.75
+        },
+        {
+          "type": "eq",
+          "on": true,
+          "lf": 50,
+          "lg": 3,
+          "mf": 300,
+          "mg": 2,
+          "mq": 0.7,
+          "hf": 3000,
+          "hg": -8
+        },
+        {
+          "type": "reverb",
+          "on": true,
+          "decay": 7,
+          "pre": 0.04,
+          "damp": 3500,
+          "low": 80,
+          "mix": 0.4
+        }
+      ]
+    },
+    {
+      "name": "Insert 7",
+      "color": "#8fe8cf",
+      "vol": 0.8,
+      "pan": 0,
+      "fx": []
+    },
+    {
+      "name": "Insert 8",
+      "color": "#ffc59e",
+      "vol": 0.8,
+      "pan": 0,
+      "fx": []
+    }
+  ],
+  "mods": [
+    {
+      "id": "shake",
+      "type": "lfo",
+      "name": "Pad Shake",
+      "color": "#fff09e",
+      "lfo": {
+        "sync": 3,
+        "shape": "sine",
+        "phase": 0
+      },
+      "wires": [
+        {
+          "to": "ch.grapefruit2.op1.fine",
+          "amt": 0.08
+        },
+        {
+          "to": "ch.grapefruit2.op3.fine",
+          "amt": -0.1
+        },
+        {
+          "to": "ch.grapefruit2.vol",
+          "amt": 0.15
+        }
+      ]
+    },
+    {
+      "id": "dread",
+      "type": "env",
+      "name": "Dread",
+      "color": "#ffb3b3",
+      "env": {
+        "len": 16,
+        "loop": true,
+        "pts": [
+          [0, 0],
+          [16, 1]
+        ]
+      },
+      "wires": [
+        {
+          "to": "ch.grapefruit2.cut",
+          "amt": 0.2
+        },
+        {
+          "to": "ch.grapefruit2.m21",
+          "amt": 0.3
+        },
+        {
+          "to": "ch.hat.vol",
+          "amt": 0.3
+        }
+      ]
+    },
+    {
+      "id": "warble",
+      "type": "lfo",
+      "name": "Sick Warble",
+      "color": "#b8f59e",
+      "lfo": {
+        "sync": 3,
+        "shape": "sine",
+        "phase": 0
+      },
+      "wires": [
+        {
+          "to": "ch.grapefruit.op2.fine",
+          "amt": 0.1
+        },
+        {
+          "to": "ch.grapefruit.op3.fine",
+          "amt": -0.08
+        }
+      ]
+    },
+    {
+      "id": "wander",
+      "type": "lfo",
+      "name": "Bell Wander",
+      "color": "#ff9ecf",
+      "lfo": {
+        "sync": 3,
+        "shape": "sine",
+        "phase": 0
+      },
+      "wires": [
+        {
+          "to": "ch.grapefruit.pan",
+          "amt": 0.6
+        }
+      ]
+    },
+    {
+      "id": "duck",
+      "type": "trig",
+      "name": "Heartbeat Duck",
+      "color": "#c3a6ff",
+      "trig": {
+        "ch": "kick",
+        "att": 5,
+        "hold": 40,
+        "rel": 250,
+        "vel": true
+      },
+      "wires": [
+        {
+          "to": "ch.grapefruit2.vol",
+          "amt": -0.45
+        }
+      ]
+    }
+  ],
+  "layout": {
+    "transport": [70.0833, 194.917, 1199.93, 387.733, 1],
+    "rack": [110.25, 455.833, 1285.73, 555.867, 1],
+    "piano": [658.1, 678.233, 1576.5, 740.433, 1],
+    "playlist": [1110, 558, 543, 243, 1],
+    "lib": [825.1, 241.167, 543, 243, 1],
+    "mixer": [420.967, 801, 1601.5, 561.033, 1],
+    "magic": [1652, 72, 543, 243, 1],
+    "ai": [883.5, 312.5, 620, 560, 1],
+    "inst:grapefruit2": [278, 461.5, 760, 640, 1]
+  }
+}

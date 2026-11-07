@@ -4,6 +4,7 @@
  * До первого нажатия контекста нет, и звуки молча пропускаются.
  */
 const ECHO_TIME = 0.17, ECHO_BACK = 0.38, ECHO_TONE = 1700;
+const LAUGH_HZ = 150, LAUGH_LEN = 0.2;
 const WAIL_FROM = 180, WAIL_TO = 820, WAIL_VOL = 0.09, WAIL_OUT = 1.2;
 const WAIL_DETUNE = [-17, -8, 0, 9, 18];   // центы: юнисон из пяти расстроенных голосов
 const pick = (a, b) => a + Math.random() * (b - a);
@@ -205,6 +206,59 @@ export class Sfx {
       for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3;
     }
     return b;
+  }
+  /* смешок клоуна: всегда один и тот же звук — от повторения и жутко.
+   * Низкий «хе» из двух расстроенных пил, звук дрожит амплитудной модуляцией и тонет в эхе. Времена — на часах звука */
+  laugh(times) {
+    const c = this.ctx;
+    if (!c) return;
+    this.laughStop();
+    const out = c.createGain(), f = c.createBiquadFilter(), e = c.createGain();
+    f.type = "bandpass"; f.frequency.value = 820; f.Q.value = 2.5;
+    out.gain.value = 0.9; e.gain.value = 0.7;
+    f.connect(out); out.connect(this.master); out.connect(e); e.connect(this.echo);
+    const nodes = [];
+    for (const t0 of times) {
+      const t = Math.max(c.currentTime, t0);
+      const am = c.createGain(), lfo = c.createOscillator(), depth = c.createGain(), env = c.createGain();
+      lfo.frequency.value = 34; depth.gain.value = 0.5; am.gain.value = 0.5;
+      lfo.connect(depth); depth.connect(am.gain);
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(0.55, t + 0.012);
+      env.gain.exponentialRampToValueAtTime(0.01, t + LAUGH_LEN);
+      for (const cents of [0, 38]) {
+        const o = c.createOscillator();
+        o.type = "sawtooth"; o.detune.value = cents;
+        o.frequency.setValueAtTime(LAUGH_HZ, t);
+        o.frequency.exponentialRampToValueAtTime(LAUGH_HZ * 0.68, t + LAUGH_LEN);
+        o.connect(am);
+        o.start(t); o.stop(t + LAUGH_LEN + 0.02);
+        nodes.push(o);
+      }
+      am.connect(env); env.connect(f);
+      lfo.start(t); lfo.stop(t + LAUGH_LEN + 0.02);
+      nodes.push(lfo);
+      this.burst(this.white, t, 0.06, 0.12, { filter: ["bandpass", 2600], echo: 0.3 });   // выдох перед смешком
+    }
+    this.laughing = { out, nodes };
+  }
+  laughStop() {
+    const l = this.laughing;
+    if (!l) return;
+    this.laughing = null;
+    const t = this.c.currentTime;
+    l.out.gain.setTargetAtTime(0, t, 0.05);
+    for (const o of l.nodes) { try { o.stop(t + 0.2); } catch { /* уже остановлен */ } }
+  }
+  /* клоунская машина: двухтональный гудок с проседающей высотой */
+  honk() {
+    const c = this.ctx;
+    if (!c) return;
+    const t = c.currentTime;
+    for (const [at, hz] of [[0, 415], [0.28, 330]]) {
+      this.tone("square", hz, t + at, 0.24, 0.13, { to: hz * 0.94, echo: 0.4 });
+      this.tone("square", hz * 1.26, t + at, 0.24, 0.08, { to: hz * 1.18, echo: 0.4 });
+    }
   }
   /* победа: восходящая фанфара в ре, как в боевых треках */
   win() {

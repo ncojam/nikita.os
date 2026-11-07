@@ -101,7 +101,9 @@ ITEMS = {
 # школа способности: позже эффекты игрока будут контрить разные школы
 ABILITIES = {
     "wail": {"name": "Завывание", "school": "dark"},
+    "laugh": {"name": "Смех", "school": "dark"},
 }
+EVEN_SIGS = {"4/4", "3/4", "2/4"}   # всё остальное — нечётный размер: игрока предупреждаем в начале боя
 SCHOOLS = {"dark": "Тёмная"}
 
 # заклинания: урон фиксированный, он не растёт с уровнем — поэтому со временем нужны новые свитки
@@ -111,11 +113,20 @@ SPELLS = {
 START_SKILLS = ["spark"]
 
 ENEMIES = {
-    "head": {"name": "Печаль", "hp": 50, "atk": (2, 5),
+    "head": {"name": "Печаль", "hp": 50, "atk": (2, 5), "tracks": ["dungeon_00", "dungeon_01", "dungeon_02"],
              "coins": (5, 15), "drops": {"mushroom": 4, "bandage": 2, "elixir": 1, "pickaxe": 1},
              "hits": ["кусает", "бодает", "плюётся в"],
              # wail: шанс на цепочку ударов, с какого удара начинает, сколько тактов длится тишина
              "abilities": {"wail": {"chance": 0.35, "hits": (5, 10), "bars": (2, 6)}}},
+    "clown": {"name": "Клоун", "hp": 70, "atk": (3, 6), "tracks": ["clown_00", "clown_01", "clown_02"],
+              "coins": (10, 25), "drops": {"bandage": 3, "elixir": 2, "dark_vial": 1, "helmet": 1},
+              "hits": ["кусает", "бодает", "хохочет в лицо"],
+              # laugh: шанс в ход врага вместо атаки, смешков, на сколько ходов ступор
+              # car: при какой доле здоровья выезжает машина, сколько мини-клоунов, их здоровье от полного клоуна
+              "abilities": {"laugh": {"chance": 0.3, "count": 7, "stun": (1, 2)},
+                            "car": {"below": 0.3, "count": 2, "kind": "mini", "share": 0.3}}},
+    "mini": {"name": "Мини-клоун", "hp": 0, "atk": (1, 3), "model": "clown", "summoned": True,
+             "hits": ["щиплет", "пищит на", "кусает за палец"]},
 }
 
 LOCATIONS = {
@@ -125,7 +136,7 @@ LOCATIONS = {
         "wander": {"nothing": 40, "coins": 20, "item": 15, "monster": 25},
         "coins": (1, 6),
         "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "stick": 2, "pickaxe": 1, "rags": 2, "helmet": 1, "dark_vial": 0.4},
-        "enemies": {"head": 1},
+        "enemies": {"head": 1, "clown": 1},
         "giggle": ["Где-то вдалеке хихикают.", "Из темноты доносится смешок.", "Кто-то хихикает прямо за спиной. Никого."],
         "nothing": ["Капает вода.", "Ты споткнулся о камень. Камень не извинился.",
                     "Темно. Сыро. Пахнет гримом.", "Эхо повторяет твои шаги, но с опозданием на долю."],
@@ -136,7 +147,7 @@ STARTER = {"mushroom": 2}
 
 
 STEM_NAME = re.compile(r"[a-z0-9]{1,16}")
-FIELDS = {"item": str, "slot": str, "id": int, "target": str, "a": str}   # поля сообщений клиента
+FIELDS = {"foe": int, "item": str, "slot": str, "id": int, "target": str, "a": str}   # поля сообщений клиента
 
 
 def weighted(table):
@@ -214,8 +225,13 @@ def parse_track(track_id, raw, rules):
         for n in notes.get(ch, []):
             if abs(n[0] / grid - round(n[0] / grid)) < 1e-6:
                 strong.add(round(n[0] * 4) % steps)
-    return {"id": track_id, "beat": 60 / raw.get("bpm", 120), "steps": steps, "bar": round(bar * 4),
-            "strong": strong or set(range(0, steps, 4)),
+    strong = strong or set(range(0, steps, 4))
+    s = sorted(strong)
+    gap = max(b - a for a, b in zip(s, s[1:] + [s[0] + steps])) / 4      # самая долгая пауза между сильными нотами, доли
+    return {"id": track_id, "beat": 60 / raw.get("bpm", 120), "steps": steps, "bar": round(bar * 4), "strong": strong,
+            "sig": f"{num}/{den}",
+            # в редких треках сильные ноты далеко друг от друга: окно ожидания удара растёт вместе с паузой
+            "grace": max(COMBO_GRACE_BEATS, gap + 0.6), "start": max(COMBO_START_BEATS, gap + 0.9),
             "rules": rules}
 
 
@@ -512,7 +528,7 @@ class Dungeon:
                    "inv": [{**self.item_view(k), "qty": v} for k, v in sorted(p["inv"].items())]},
             "loc": {"id": loc, "name": LOCATIONS[loc]["name"], "players": here[:30],
                     "ground": [{"id": g["id"], "name": g["name"], "from": g.get("from")} for g in self.ground.get(loc, [])],
-                    "battles": [{"id": x["id"], "enemy": x["enemy"]["name"], "level": x["enemy"]["level"], "hp": x["enemy"]["hp"] / x["enemy"]["maxhp"],
+                    "battles": [{"id": x["id"], "enemy": x["enemy"]["name"] + (f" и ещё {len(self.alive(x)) - 1}" if len(self.alive(x)) > 1 else ""), "level": x["enemy"]["level"], "hp": x["enemy"]["hp"] / x["enemy"]["maxhp"],
                                  "party": [{"id": i, "nick": self.players[i]["nick"]} for i in x["party"]],
                                  "mine": pid in x["party"]}
                                 for x in self.battles.values() if x["loc"] == loc]},
@@ -529,15 +545,22 @@ class Dungeon:
         c = t.get("combo")
         w = c.get("wail") if c else None
         return {"id": b["id"], "track": b["track"]["id"], "music": b["track"]["rules"], "t0": b["t0"], "seed": b["seed"],
-                "enemy": {"kind": b["enemy"]["kind"], "name": b["enemy"]["name"], "level": b["enemy"]["level"],
-                          "hp": b["enemy"]["hp"], "maxhp": b["enemy"]["maxhp"]},
+                "enemy": self.foe_view(b["enemy"]),
+                "foes": [self.foe_view(f) for f in b["foes"]],
+                "stunned": {k: v for k, v in b["stunned"].items() if v > 0},
+                "sig": b["track"]["sig"], "grace": b["track"]["grace"], "start": b["track"]["start"],
                 "party": [{"id": i, "nick": self.players[i]["nick"], "hp": self.players[i]["hp"], "maxhp": self.players[i]["maxhp"],
                            "mp": self.players[i]["mp"], "maxmp": self.players[i]["maxmp"]}
                           for i in b["party"]],
                 "turn": {"who": t["who"], "phase": t["phase"], "left": max(0, t["until"] - time.time()),
                          "hits": c["hits"] if c else 0,
-                         "wail": {"from": w["from"], "quiet": w["quiet"], "end": w["end"], "silent": w["silent"]} if w else None},
+                         "wail": {"from": w["from"], "quiet": w["quiet"], "end": w["end"], "silent": w["silent"]} if w else None,
+                         "laugh": t.get("laugh")},
                 "log": b["log"][-5:]}
+
+    def foe_view(self, f):
+        return {"id": f["id"], "kind": f["kind"], "model": ENEMIES[f["kind"]].get("model", f["kind"]), "name": f["name"],
+                "level": f["level"], "hp": f["hp"], "maxhp": f["maxhp"], "mini": ENEMIES[f["kind"]].get("summoned", False)}
 
     # ---------- земля ----------
     def drop(self, loc, name, source=None, item=None, coins=0):
@@ -655,11 +678,15 @@ class Dungeon:
         up = (lvl - 1) // ENEMY_ATK_EVERY
         bid = self.uid()
         now = time.time()
+        main = {"id": self.uid(), "kind": kind, "name": e["name"], "level": lvl, "hp": hp, "maxhp": hp,
+                "atk": (e["atk"][0] + up, e["atk"][1] + up)}
         b = {"id": bid, "loc": p["loc"], "party": [pid], "order": [pid], "i": -1, "trip": set(), "gone": {},
-             "enemy": {"kind": kind, "name": e["name"], "level": lvl, "hp": hp, "maxhp": hp, "atk": (e["atk"][0] + up, e["atk"][1] + up)},
+             "enemy": main, "foes": [main], "stunned": {},
              "track": track, "t0": now_ms() + int(MUSIC_LEAD * 1000), "seed": random.getrandbits(31),
              "turn": {"who": None, "phase": "wait", "until": now}, "log": [f"{e['name']} вылетает из темноты!"]}
         self.battles[bid] = b
+        if track["sig"] not in EVEN_SIGS:
+            self.blog(b, f"Музыка в {track['sig']}: ритм хромает, держись!")
         self.next_turn(b)
         self.mark(b["loc"])
         await self.say(pid, f"На тебя летит {e['name']}!")
@@ -678,16 +705,68 @@ class Dungeon:
     def next_turn(self, b):
         """Следующий живой участник; когда круг кончился — ходит враг."""
         b["i"] += 1
-        while b["i"] < len(b["order"]) and b["order"][b["i"]] not in b["party"]:
+        while b["i"] < len(b["order"]):
+            pid = b["order"][b["i"]]
+            if pid in b["party"] and b["stunned"].get(pid, 0) > 0:      # ступор от смеха: ход пропадает
+                b["stunned"][pid] -= 1
+                self.blog(b, f"{self.players[pid]['nick']} в ступоре и пропускает ход.")
+            elif pid in b["party"]:
+                return self.set_turn(b, pid)
             b["i"] += 1
-        if b["i"] < len(b["order"]):
-            return self.set_turn(b, b["order"][b["i"]])
+        main, laugh = b["enemy"], ENEMIES[b["enemy"]["kind"]].get("abilities", {}).get("laugh")
         if b.pop("stun", False):
-            self.blog(b, f"{b['enemy']['name']} оглушена и пропускает ход.")
+            self.blog(b, f"{main['name']}: оглушение, враги пропускают ход.")
             b["turn"] = {"who": "enemy", "phase": "pause", "until": time.time() + ENEMY_PAUSE}
+        elif laugh and main["hp"] > 0 and random.random() < laugh["chance"]:
+            self.start_laugh(b, laugh)
         else:
             b["turn"] = {"who": "enemy", "phase": "windup", "until": self.next_beat(b, time.time() + ENEMY_WINDUP)}
         self.mark(b["loc"])
+
+    def start_laugh(self, b, a):
+        """Тёмная способность клоуна: смешки на восьмых, после них ступор у всех, кто без резиста."""
+        tr = b["track"]
+        step = (time.time() + 0.3 - b["t0"] / 1000) / (tr["beat"] / 4)
+        start = math.ceil(step / 2) * 2
+        b["turn"] = {"who": "enemy", "phase": "laugh", "until": self.step_time(b, start + a["count"] * 2) + 0.4,
+                     "laugh": {"from": start, "every": 2, "count": a["count"], "foe": b["enemy"]["id"]}}
+        self.blog(b, f"{b['enemy']['name']} начинает хохотать…")
+
+    def end_laugh(self, b):
+        a = ENEMIES[b["enemy"]["kind"]]["abilities"]["laugh"]
+        for pid in b["party"]:
+            p = self.players[pid]
+            if p["fx"].get(ABILITIES["laugh"]["school"], 0) > time.time():
+                self.blog(b, f"{p['nick']} не поддаётся смеху.")
+                continue
+            n = random.randint(*a["stun"])
+            b["stunned"][pid] = b["stunned"].get(pid, 0) + n
+            self.blog(b, f"{p['nick']} в ступоре на {n} ход{'а' if n > 1 else ''}.")
+        b["turn"] = {"who": "enemy", "phase": "pause", "until": time.time() + ENEMY_PAUSE}
+
+    def alive(self, b):
+        return [f for f in b["foes"] if f["hp"] > 0]
+
+    def foe_of(self, b, fid):
+        """Цель удара: выбранный враг, если он жив, иначе главный, иначе любой живой."""
+        alive = self.alive(b)
+        return next((f for f in alive if f["id"] == fid), None) or next((f for f in alive if f is b["enemy"]), None) \
+            or (alive[0] if alive else None)
+
+    async def check_car(self, b, f):
+        """Клоунская машина: когда у клоуна мало здоровья, из неё вываливаются мини-клоуны."""
+        a = ENEMIES[f["kind"]].get("abilities", {}).get("car")
+        if not a or b.get("car") or f["hp"] > f["maxhp"] * a["below"]:
+            return
+        b["car"] = True
+        m = ENEMIES[a["kind"]]
+        hp = max(1, round(f["maxhp"] * a["share"]))
+        up = (f["level"] - 1) // ENEMY_ATK_EVERY
+        for _ in range(a["count"]):
+            b["foes"].append({"id": self.uid(), "kind": a["kind"], "name": m["name"], "level": f["level"], "hp": hp, "maxhp": hp,
+                              "atk": (m["atk"][0] + up, m["atk"][1] + up)})
+        self.blog(b, f"Из клоунской машины вываливаются мини-клоуны: {a['count']}!")
+        await self.to_party(b, {"t": "ev", "e": "summon"})
 
     def new_round(self, b):
         b["order"] = list(b["party"])
@@ -708,7 +787,7 @@ class Dungeon:
         b["order"].append(pid)     # встаёт в конец текущего круга
         self.blog(b, f"{p['nick']} вступает в бой!")
 
-    async def act(self, pid, a, item=None):
+    async def act(self, pid, a, item=None, fid=None):
         b = self.battle_of(pid)
         if not b:
             return
@@ -722,10 +801,10 @@ class Dungeon:
                 b["trip"].discard(pid)
                 dmg = max(1, dmg // 2)
                 self.blog(b, f"{p['nick']} спотыкается, удар слабый.")
-            await self.strike(b, pid, dmg, 0)
+            await self.strike(b, pid, dmg, 0, fid)
             if b["id"] in self.battles:
                 beat = b["track"]["beat"]
-                b["turn"] = {"who": pid, "phase": "combo", "until": time.time() + COMBO_START_BEATS * beat + COMBO_NET_SLACK,
+                b["turn"] = {"who": pid, "phase": "combo", "until": time.time() + b["track"]["start"] * beat + COMBO_NET_SLACK,
                              "combo": {"hits": 0, "power": float(dmg), "base": float(dmg), "last": -1, "dealt": dmg,
                                        "wail_at": self.roll_wail(b)}}
                 self.mark(b["loc"])
@@ -741,7 +820,7 @@ class Dungeon:
             if s.get("stun"):
                 b["stun"] = True
             await self.to_party(b, {"t": "ev", "e": "spell", "by": pid})
-            await self.strike(b, pid, s["dmg"], 0)
+            await self.strike(b, pid, s["dmg"], 0, fid)
             if b["id"] in self.battles:
                 self.next_turn(b)
         elif a == "item":
@@ -757,15 +836,21 @@ class Dungeon:
                 self.blog(b, f"{p['nick']} не смог сбежать.")
                 self.next_turn(b)
 
-    async def strike(self, b, pid, dmg, combo):
-        e = b["enemy"]
+    async def strike(self, b, pid, dmg, combo, fid=None):
+        e = self.foe_of(b, fid)
+        if not e:
+            return
         e["hp"] = max(0, e["hp"] - dmg)
-        await self.to_party(b, {"t": "ev", "e": "hit", "dmg": dmg, "combo": combo, "by": pid, "hp": e["hp"] / e["maxhp"]})
+        await self.to_party(b, {"t": "ev", "e": "hit", "dmg": dmg, "combo": combo, "by": pid, "foe": e["id"], "hp": e["hp"] / e["maxhp"]})
         self.mark(b["loc"])
-        if e["hp"] <= 0:
-            await self.win(b, pid)
+        if e["hp"] > 0:
+            return await self.check_car(b, e)
+        if not self.alive(b):
+            return await self.win(b, pid)
+        self.blog(b, f"{e['name']} повержен.")
+        await self.to_party(b, {"t": "ev", "e": "foe_dead", "foe": e["id"]})
 
-    async def tap(self, pid, step):
+    async def tap(self, pid, step, fid=None):
         b = self.battle_of(pid)
         if not b or isinstance(step, bool) or not isinstance(step, int):
             return
@@ -783,13 +868,13 @@ class Dungeon:
         c["hits"] += 1
         cry = c["hits"] % CRY_EVERY == 0
         c["power"] = c["base"] * COMBO_DECAY if cry else c["power"] * COMBO_DECAY
-        t["until"] = at + COMBO_GRACE_BEATS * tr["beat"] + COMBO_NET_SLACK
+        t["until"] = at + tr["grace"] * tr["beat"] + COMBO_NET_SLACK
         if cry:
             self.blog(b, f"{b['enemy']['name']} плачет!")
             await self.to_party(b, {"t": "ev", "e": "cry"})
         dmg = max(1, round(c["power"]))
         c["dealt"] += dmg
-        await self.strike(b, pid, dmg, c["hits"])
+        await self.strike(b, pid, dmg, c["hits"], fid)
         if b["id"] in self.battles and c["hits"] == c.get("wail_at"):
             self.start_wail(b, c)
 
@@ -879,19 +964,19 @@ class Dungeon:
             b["trip"].add(target)
 
     async def enemy_strike(self, b):
-        alive = [i for i in b["party"]]
-        if not alive:
-            return
-        e = ENEMIES[b["enemy"]["kind"]]
-        pid = random.choice(alive)
-        p = self.players[pid]
-        dmg = max(1, random.randint(*b["enemy"]["atk"]) - self.def_of(p))
-        p["hp"] = max(0, p["hp"] - dmg)
-        self.dirty_save = True
-        self.blog(b, f"{e['name']} {random.choice(e['hits'])} {p['nick']}: −{dmg}.")
-        await self.to_party(b, {"t": "ev", "e": "enemy_hit", "who": pid, "dmg": dmg})
-        if p["hp"] <= 0:
-            await self.kill(b, pid)
+        for f in self.alive(b):
+            if b["id"] not in self.battles or not b["party"]:
+                return
+            e = ENEMIES[f["kind"]]
+            pid = random.choice(b["party"])
+            p = self.players[pid]
+            dmg = max(1, random.randint(*f["atk"]) - self.def_of(p))
+            p["hp"] = max(0, p["hp"] - dmg)
+            self.dirty_save = True
+            self.blog(b, f"{f['name']} {random.choice(e['hits'])} {p['nick']}: −{dmg}.")
+            await self.to_party(b, {"t": "ev", "e": "enemy_hit", "who": pid, "dmg": dmg, "foe": f["id"]})
+            if p["hp"] <= 0:
+                await self.kill(b, pid)
         if b["id"] in self.battles:
             b["turn"] = {"who": "enemy", "phase": "pause", "until": time.time() + ENEMY_PAUSE}
 
@@ -982,6 +1067,8 @@ class Dungeon:
             await self.end_combo(b)
         elif t["phase"] == "windup":
             await self.enemy_strike(b)
+        elif t["phase"] == "laugh":
+            self.end_laugh(b)
         elif t["phase"] == "pause":
             self.new_round(b)
 
@@ -1067,9 +1154,9 @@ class Dungeon:
         elif t == "hinder":
             await self.hinder(pid, d.get("id"), d.get("target"))
         elif t == "act":
-            await self.act(pid, d.get("a"), d.get("item"))
+            await self.act(pid, d.get("a"), d.get("item"), d.get("foe"))
         elif t == "tap":
-            await self.tap(pid, d.get("step"))
+            await self.tap(pid, d.get("step"), d.get("foe"))
         elif t in ("miss", "stop"):      # stop: игрок перестал бить, клиент считает паузу сам
             b = self.battle_of(pid)
             if b and b["turn"]["who"] == pid and b["turn"]["phase"] == "combo":

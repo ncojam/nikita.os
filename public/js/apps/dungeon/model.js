@@ -6,7 +6,9 @@
  * (0..1) задаёт код. Имена без учёта регистра: attack, hit, cry, wail, death, blink. Ключа нет в файле — не беда, а ключи
  * с другими именами просто молчат, даже если в Blender ползунок остался на 1.
  * Поза считается в pose() по состоянию idle / windup / attack / hit / death; новая поза — новая ветка там.
- * Рисуем в отдельный WebGL-холст и копируем его в общий 2D-холст, чтобы полоса HP и нотка оставались поверх.
+ * Рисуем в WebGL-холст и копируем его в общий 2D-холст, чтобы полоса HP и нотка оставались поверх.
+ * Врагов бывает несколько: модель грузится один раз на вид, у каждого врага своя копия со своей позой,
+ * а холстов WebGL всего по одному на размер (slot): у телефонов их число ограничено.
  */
 const VIEW_FOV = 30, VIEW_DIST = 4.2, FIT_SIZE = 1.45;
 export const MODEL_FILL = FIT_SIZE / (2 * VIEW_DIST * Math.tan(VIEW_FOV / 2 * Math.PI / 180));   // доля картинки, занятая моделью
@@ -26,9 +28,15 @@ function idlePose(beat) {
 export const CRY_SEC = 1.8;
 
 /* cry — секунд с начала плача: он идёт поверх любого состояния, ведь удары в такт продолжаются */
-export function pose(state, t, beat, cry = Infinity, wail = false) {
-  const p = idlePose(beat), m = { attack: 0, hit: 0, cry: 0, wail: wail ? 1 : 0, death: 0, blink: 0 };
+export function pose(state, t, beat, cry = Infinity, wail = false, laugh = false) {
+  const p = idlePose(beat), m = { attack: 0, hit: 0, cry: 0, wail: wail ? 1 : 0, death: 0, blink: 0, laugh: laugh ? 1 : 0 };
   p.m = m;
+  if (laugh) {                    // хохочет: голова назад, дёргается на каждый смешок (восьмые)
+    const k = Math.abs(Math.sin(beat * Math.PI * 2));
+    p.rx -= 0.32 - k * 0.12;
+    p.y += k * 0.09;
+    p.rz += Math.sin(beat * Math.PI) * 0.08;
+  }
   const b = beat % BLINK_BEATS;
   m.blink = b < BLINK_LEN ? 1 - Math.abs(b / BLINK_LEN * 2 - 1) : 0;
   if (cry < CRY_SEC) m.cry = Math.min(1, cry / 0.15, (CRY_SEC - cry) / 0.4);
@@ -72,24 +80,26 @@ export function pose(state, t, beat, cry = Infinity, wail = false) {
   return p;
 }
 
+const renderers = new Map();   // slot → { r, px }
+
 export class EnemyModel {
-  /* null — модели нет или WebGL недоступен: это не ошибка */
-  static async load(kind) {
+  /* модель вида: { T, scene } или null — файла нет или WebGL недоступен, это не ошибка */
+  static async template(kind) {
     try {
       const url = `/dungeon/enemies/${kind}.glb`;
       if (!(await fetch(url, { method: "HEAD" })).ok) return null;
       const T = await import("/vendor/three/three-gltf.min.js");
       const gltf = await new T.GLTFLoader().loadAsync(url);
-      return new EnemyModel(T, gltf.scene);
+      return { T, scene: gltf.scene };
     } catch (e) {
       console.warn("модель врага", e);
       return null;
     }
   }
+  static of(tpl) { return new EnemyModel(tpl.T, tpl.scene.clone()); }
 
   constructor(T, root) {
-    // сглаживание — рендер с запасом в view.js: WebGL не даёт выбрать число сэмплов своего antialias
-    this.renderer = new T.WebGLRenderer({ alpha: true, antialias: false });
+    this.T = T;
     this.scene = new T.Scene();
     this.camera = new T.PerspectiveCamera(VIEW_FOV, 1, 0.1, 50);
     this.camera.position.z = VIEW_DIST;
@@ -111,7 +121,6 @@ export class EnemyModel {
     this.pivot = new T.Group();
     this.pivot.add(root);
     this.scene.add(this.pivot);
-    this.px = 0;
     this.now = idlePose(0);
     this.weights = {};
     this.morphs = [];       // [{ influences, keys: { имя: индекс } }]: у каждого меша свои, одноимённые ключи работают вместе
@@ -123,9 +132,12 @@ export class EnemyModel {
     });
   }
 
-  /* нарисовать позу и вернуть холст со стороной px */
-  draw(target, px) {
-    if (px !== this.px) { this.px = px; this.renderer.setSize(px, px, false); }
+  /* нарисовать позу и вернуть холст со стороной px; холст общий для slot, копировать его надо сразу */
+  draw(target, px, slot = "main") {
+    let R = renderers.get(slot);
+    // сглаживание — рендер с запасом в view.js: WebGL не даёт выбрать число сэмплов своего antialias
+    if (!R) renderers.set(slot, R = { r: new this.T.WebGLRenderer({ alpha: true, antialias: false }), px: 0 });
+    if (px !== R.px) { R.px = px; R.r.setSize(px, px, false); }
     const n = this.now;
     for (const k in n) n[k] += (target[k] - n[k]) * SMOOTH;
     for (const [k, v] of Object.entries(target.m)) {
@@ -134,7 +146,7 @@ export class EnemyModel {
     }
     this.pivot.position.set(n.x, n.y, n.z);
     this.pivot.rotation.set(n.rx, n.ry, n.rz);
-    this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement;
+    R.r.render(this.scene, this.camera);
+    return R.r.domElement;
   }
 }
