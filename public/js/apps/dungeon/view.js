@@ -21,6 +21,7 @@ const LANE_MIN_SEC = 1.4, LANE_MAX_SEC = 3.2;   // сколько секунд �
 const LANE_NOTE = 11, LANE_BOX = 15;
 const DMG_MIN = 22, DMG_MAX = 54;   // размер цифры урона, px: растёт с уроном по логарифму
 const dmgSize = d => Math.max(DMG_MIN, Math.min(DMG_MAX, DMG_MIN + 9 * Math.log2(Math.max(1, d))));
+const GHOST_SEC = 1.2;     // сколько тает призрак промаха
 const CRY_NOTE = "#9fd3ff";         // нота, на которой враг заплачет
 const templates = new Map();  // модель → Promise<{T, scene} | null>
 
@@ -154,6 +155,7 @@ export class BattleView {
     this.drawTarget(g, now);
     this.drawFlash(g, now);
     this.drawLane(g, now);
+    this.drawGhost(g, now);
     this.drawCount(g, now);
     this.drawParty(g, now);
     this.floats = this.floats.filter(f => now - f.t < 0.9);
@@ -337,7 +339,26 @@ export class BattleView {
     if (kind === "hit") {
       this.hitStep = Math.max(this.hitStep, step);
       for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; this.sparks.push({ dx: Math.cos(a), dy: Math.sin(a), t: now }); }
+    } else if (step != null && this.music.running) {
+      // снимок полосы на момент промаха: где был квадрат и где та нота, по которой промазал
+      const { y, hx, speed } = this.laneGeom(), pos = this.music.heardStep();
+      this.ghost = { t: now, y, hx, x: hx + (step - pos) * this.music.stepSec * speed };
     }
+  }
+  /* призрак промаха: квадрат и нота стоят на месте и тают — видно, насколько рано или поздно нажал */
+  drawGhost(g, now) {
+    const gh = this.ghost;
+    if (!gh) return;
+    const k = (now - gh.t) / GHOST_SEC;
+    if (k >= 1) { this.ghost = null; return; }
+    g.globalAlpha = 1 - k;
+    g.lineWidth = 3; g.strokeStyle = "#ff6b6b";
+    g.strokeRect(gh.hx - LANE_BOX, gh.y - LANE_BOX, LANE_BOX * 2, LANE_BOX * 2);
+    g.fillStyle = "#ff6b6b";
+    g.beginPath(); g.arc(gh.x, gh.y, LANE_NOTE, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#2b1d00"; g.font = "700 14px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText("♪", gh.x, gh.y + 1);
+    g.globalAlpha = 1; g.textBaseline = "alphabetic";
   }
   drawFlash(g, now) {
     if (!this.fx) return;

@@ -442,7 +442,7 @@ function rhythmTap(j = music.judge()) {
   } else {
     music.learn(j.err);
     view.say(j.err < 0 ? "слишком рано" : "слишком поздно", "#ff6b6b");
-    juice(false);
+    juice(false, j.step);
     endCombo("miss");
   }
 }
