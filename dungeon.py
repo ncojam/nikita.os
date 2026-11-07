@@ -209,16 +209,16 @@ def infer_rules(raw):
     return {"roles": roles}       # сильные ноты — по размеру такта, см. meter_groups
 
 
-def meter_groups(num, den):
-    """Как делится такт на группы (в долях знаменателя): с начала каждой группы — сильная доля.
-    6/8, 9/8, 12/8 — сложные размеры, группы по 3. Остальное — как можно больше троек, остаток двойками:
-    4/4 → 2+2, 5/8 → 3+2, 7/8 → 3+2+2, 11/8 → 3+3+3+2, 13/8 → 3+3+3+2+2, 15/16 → 3+3+3+3+3."""
-    if num <= 3:
-        return [num]
-    if num % 3 == 0 and den >= 8:
-        return [3] * (num // 3)
-    threes = next(k for k in range(num // 3, -1, -1) if (num - 3 * k) % 2 == 0)
-    return [3] * threes + [2] * ((num - 3 * threes) // 2)
+def meter_groups(quarters, style="twos"):
+    """Сильные доли — только на целых четвертях: в половинки и шестнадцатые попадать невозможно.
+    quarters — сколько четвертей в периоде (нечётный размер берём за несколько тактов: 13/8 × 2 = 13 четвертей).
+    twos: по две четверти, в конце одна (13 → 2+2+2+2+2+2+1); threes: тройки и двойки (13 → 3+3+3+2+2, 11 → 3+3+3+2)."""
+    if quarters <= 3:
+        return [quarters]
+    if style == "threes":
+        threes = next(k for k in range(quarters // 3, -1, -1) if (quarters - 3 * k) % 2 == 0)
+        return [3] * threes + [2] * ((quarters - 3 * threes) // 2)
+    return [2] * (quarters // 2) + [1] * (quarters % 2)
 
 
 def parse_track(track_id, raw, rules):
@@ -230,7 +230,8 @@ def parse_track(track_id, raw, rules):
     end = max([bar] + [n[0] + n[1] for L in notes.values() for n in L])
     beats = pat.get("length") or math.ceil(end / bar - 1e-9) * bar
     steps = round(beats * 4)
-    # Сильные доли считаются по размеру такта (meter_groups), их можно задать и самому: "strong": {"groups": [3, 2, 2]}.
+    # Сильные доли считаются по размеру такта (meter_groups), их можно задать и самому: "strong": {"groups": [3, 2, 2]}
+    # в четвертях за период, или выбрать стиль: "strong": {"style": "threes"}.
     # Старый способ — ноты каналов на сетке: "strong": {"channels": ["grapefruit"], "grid": 1}
     want = rules.get("strong", {})
     strong = set()
@@ -241,13 +242,13 @@ def parse_track(track_id, raw, rules):
                 if abs(n[0] / grid - round(n[0] / grid)) < 1e-6:
                     strong.add(round(n[0] * 4) % steps)
     else:
-        unit = 16 / den                                  # шагов 1/16 в доле знаменателя
+        k = next(k for k in range(1, 17) if abs(bar * k - round(bar * k)) < 1e-6)   # тактов в периоде из целых четвертей
+        period = round(bar * k)
         offs, at = [], 0
-        for g in want.get("groups") or meter_groups(num, den):
-            offs.append(round(at * unit))
+        for g in want.get("groups") or meter_groups(period, want.get("style", "twos")):
+            offs.append(at * 4)
             at += g
-        bar_steps = round(bar * 4)
-        for start in range(0, steps, bar_steps):
+        for start in range(0, steps, period * 4):
             strong.update(start + o for o in offs if start + o < steps)
     strong = strong or set(range(0, steps, 4))
     rules["strongSteps"] = sorted(strong)              # клиент берёт сильные доли отсюда, чтобы не считать по-своему

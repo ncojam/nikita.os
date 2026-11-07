@@ -89,21 +89,14 @@ export class EnemyModel {
       const url = `/dungeon/enemies/${kind}.glb`;
       if (!(await fetch(url, { method: "HEAD" })).ok) return null;
       const T = await import("/vendor/three/three-gltf.min.js");
-      const gltf = await new T.GLTFLoader().loadAsync(url);
-      // Загрузчик отдаёт текстуры как ImageBitmap. Их рисуют два холста WebGL (главный враг и призванные),
-      // и на части телефонов такая картинка во втором холсте приходит с перепутанными красным и синим.
-      // Обычный холст 2D грузится одинаково везде: перекладываем текстуру в него
-      gltf.scene.traverse(o => {
-        for (const m of [o.material].flat()) for (const tex of Object.values(m || {})) {
-          const img = tex?.isTexture && tex.image;
-          if (!(typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap)) continue;
-          const cv = document.createElement("canvas");
-          cv.width = img.width; cv.height = img.height;
-          cv.getContext("2d").drawImage(img, 0, 0);
-          tex.image = cv;
-          tex.needsUpdate = true;
-        }
-      });
+      // Загрузчик берёт картинки через createImageBitmap, а на части Android-телефонов такие картинки приходят
+      // с перепутанными красным и синим (клоун становится синим). Без него загрузчик берёт обычный <img>:
+      // способ выбирается при создании, поэтому прячем функцию только на время загрузки
+      const keep = window.createImageBitmap;
+      window.createImageBitmap = undefined;
+      let gltf;
+      try { gltf = await new T.GLTFLoader().loadAsync(url); }
+      finally { window.createImageBitmap = keep; }
       return { T, scene: gltf.scene };
     } catch (e) {
       console.warn("модель врага", e);
