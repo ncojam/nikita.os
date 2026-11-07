@@ -259,7 +259,7 @@ export class BattleView {
     g.fillStyle = "rgba(255,255,255,0.05)"; g.fillRect(8, y - 16, this.W - 16, 32);
     // квадрат: светится, когда нота внутри окна
     let near = 0, ahead = 0;
-    const cryEvery = this.cryEvery || 20, hits = t.hits || 0;
+    const cryEvery = this.b.cry || this.cryEvery || 20, hits = t.hits || 0;
     const last = Math.floor(pos + look / m.stepSec);
     for (let s = Math.floor(pos - win / m.stepSec) - 1; s <= last; s++) {
       if (!m.isStrong(s)) continue;

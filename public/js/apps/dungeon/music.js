@@ -305,8 +305,11 @@ export class BattleMusic {
     return (this.ctx.currentTime - this.calib - this.aT0) / this.stepSec;
   }
   isStrong(step) {
-    const h = this.state.half;    // событие «вдвое реже»: в его тактах сильная только каждая вторая доля
-    if (h && step >= h.from && step < h.end && (step - h.from) % 8) return false;
+    const h = this.state.half;    // смена ритма: «вдвое реже» — только каждая вторая доля, «вдвое чаще» — каждая четверть
+    if (h && step >= h.from && step < h.end) {
+      if (h.mode === "fast") return step % 4 === 0;
+      if ((step - h.from) % 8) return false;
+    }
     return this.strong.has(((step % this.steps) + this.steps) % this.steps);
   }
 

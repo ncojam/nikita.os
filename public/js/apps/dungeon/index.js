@@ -110,7 +110,7 @@ function onState() {
     syncCombo(b);
     music.setState({ enemyHp: b.enemy.hp / b.enemy.maxhp, myHp: S.me.hp / S.me.maxhp, combo: b.turn.phase === "combo" ? b.turn.hits : 0, wail: b.turn.wail, half: b.turn.half });
     const hk = b.turn.half ? `${b.id}.${b.turn.half.from}` : null;
-    if (hk && hk !== halfKey && b.turn.who === me) banner("Вдвое реже: бей через долю");
+    if (hk && hk !== halfKey && b.turn.who === me) banner(b.turn.half.mode === "fast" ? "Вдвое чаще: бей каждую долю!" : "Вдвое реже: бей через долю");
     halfKey = hk;
     syncWail(b.turn.wail);
     syncLaugh(b.turn.laugh);
@@ -259,7 +259,7 @@ function renderBattle() {
     : t.phase === "laugh" ? `${b.enemy.name} хохочет…`
     : t.wail?.silent ? "Тишина. Не сбейся!"
     : t.wail ? `${b.enemy.name} завывает…`
-    : combo && t.half ? "Вдвое реже: бей через долю!"
+    : combo && t.half ? (t.half.mode === "fast" ? "Вдвое чаще: бей каждую долю!" : "Вдвое реже: бей через долю!")
     : combo ? "Жми по врагу в такт!"
     : mine ? "Твой ход" : t.phase === "combo" ? `${who} бьёт в такт…` : `Ходит ${who}…`;
   const tail = [
@@ -408,10 +408,10 @@ function landTap(j) {
   juice(true, j.step);
   send({ t: "tap", step: j.step, foe: target });
   if (!combo) return;
-  const hits = ++combo.hits, cry = hits % rules.cry === 0;
+  const hits = ++combo.hits, cry = hits % (S?.battle?.cry ?? rules.cry) === 0;
   const half = S?.battle?.turn.half, inHalf = half && j.step >= half.from && j.step < half.end;
   const dec = inHalf ? half.decay : (S?.battle?.decay ?? rules.decay);
-  armCombo((S?.battle?.grace ?? rules.grace) * (inHalf ? 2 : 1));
+  armCombo((S?.battle?.grace ?? rules.grace) * (inHalf && half.mode !== "fast" ? 2 : 1));
   sfx.hurt(false);
   if (cry) { view.cry(); sfx.cry(); }
   const b = S?.battle;

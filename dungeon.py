@@ -127,11 +127,14 @@ ENEMIES = {
               # добыча: столько вещей и ещё одна за каждые loot_every уровней врага, не больше loot_max
               "loot": 2, "loot_every": 2, "loot_max": 7,
               "decay": 0.8,          # сильные доли у клоуна редкие — удар слабеет медленнее
+              "cry": 10,             # плачет чаще: каждые столько ударов (по умолчанию CRY_EVERY)
               "hits": ["кусает", "бодает", "хохочет в лицо"],
               # laugh: шанс в ход врага вместо атаки, смешков, на сколько ходов ступор
               # car: при какой доле здоровья выезжает машина, сколько мини-клоунов, их здоровье от полного клоуна
               "abilities": {"laugh": {"chance": 0.3, "count": 7, "stun": (1, 2)},
-                            "car": {"below": 0.3, "count": 2, "kind": "mini", "share": 0.3}}},
+                            "car": {"below": 0.3, "count": 2, "kind": "mini", "share": 0.3},
+                            # fast: событие «вдвое чаще» — на bars тактов сильная каждая четверть, бой не тянется
+                            "fast": {"chance": 0.6, "hits": (2, 6), "bars": (2, 4), "decay": 0.85}}},
     "mini": {"name": "Мини-клоун", "hp": 0, "atk": (1, 3), "model": "clown", "summoned": True,
              "hits": ["щиплет", "пищит на", "кусает за палец"]},
 }
@@ -579,6 +582,7 @@ class Dungeon:
                          "wail": {"from": w["from"], "quiet": w["quiet"], "end": w["end"], "silent": w["silent"]} if w else None,
                          "laugh": t.get("laugh"), "foe": t.get("foe"), "half": c.get("half") if c else None},
                 "decay": ENEMIES[b["enemy"]["kind"]].get("decay", COMBO_DECAY),
+                "cry": ENEMIES[b["enemy"]["kind"]].get("cry", CRY_EVERY),
                 "log": b["log"][-5:]}
 
     def foe_view(self, f):
@@ -897,7 +901,7 @@ class Dungeon:
             return
         c, tr = t["combo"], b["track"]
         half = self.in_half(c, step)
-        if step <= c["last"] or step % tr["steps"] not in tr["strong"] or (half and (step - half["from"]) % 8):
+        if step <= c["last"] or not self.is_strong(tr, half, step):
             return
         at = b["t0"] / 1000 + step * tr["beat"] / 4
         off = (time.time() - at) / tr["beat"]
@@ -905,10 +909,11 @@ class Dungeon:
             return
         c["last"] = step
         c["hits"] += 1
-        cry = c["hits"] % CRY_EVERY == 0
+        cry = c["hits"] % ENEMIES[b["enemy"]["kind"]].get("cry", CRY_EVERY) == 0
         dec = half["decay"] if half else ENEMIES[b["enemy"]["kind"]].get("decay", COMBO_DECAY)
         c["power"] = c["base"] * dec if cry else c["power"] * dec
-        t["until"] = at + tr["grace"] * (2 if half else 1) * tr["beat"] + COMBO_NET_SLACK
+        slow = half and half["mode"] == "half"
+        t["until"] = at + tr["grace"] * (2 if slow else 1) * tr["beat"] + COMBO_NET_SLACK
         if cry:
             self.blog(b, f"{b['enemy']['name']} плачет!")
             await self.to_party(b, {"t": "ev", "e": "cry"})
@@ -920,18 +925,31 @@ class Dungeon:
         if b["id"] in self.battles and c["hits"] == c.get("half_at"):
             self.start_half(b, c)
 
+    def tempo_ability(self, b):
+        """Событие смены ритма у врага: half — вдвое реже, fast — вдвое чаще. Одно на врага."""
+        ab = ENEMIES[b["enemy"]["kind"]].get("abilities", {})
+        for mode in ("half", "fast"):
+            if mode in ab:
+                return mode, ab[mode]
+        return None, None
+
     def roll_half(self, b):
-        a = ENEMIES[b["enemy"]["kind"]].get("abilities", {}).get("half")
+        _, a = self.tempo_ability(b)
         return random.randint(*a["hits"]) if a and random.random() < a["chance"] else None
 
     def start_half(self, b, c):
-        """Ритм вдвое реже: со следующего такта сильная — только каждая вторая доля."""
-        a = ENEMIES[b["enemy"]["kind"]]["abilities"]["half"]
+        """Смена ритма со следующего такта: half — сильная только каждая вторая доля, fast — каждая четверть."""
+        mode, a = self.tempo_ability(b)
         tr = b["track"]
         step = (time.time() - b["t0"] / 1000) / (tr["beat"] / 4)
         start = math.ceil(step / tr["bar"]) * tr["bar"]
-        c["half"] = {"from": start, "end": start + random.randint(*a["bars"]) * tr["bar"], "decay": a["decay"]}
-        self.blog(b, f"{b['enemy']['name']} замедляется: бей через долю!")
+        c["half"] = {"from": start, "end": start + random.randint(*a["bars"]) * tr["bar"], "decay": a["decay"], "mode": mode}
+        self.blog(b, f"{b['enemy']['name']} " + ("замедляется: бей через долю!" if mode == "half" else "разгоняется: бей каждую долю!"))
+
+    def is_strong(self, tr, half, step):
+        if half and half["mode"] == "fast":
+            return step % 4 == 0          # сильные доли и так только на целых четвертях — тут все четверти
+        return step % tr["steps"] in tr["strong"] and not (half and (step - half["from"]) % 8)
 
     def in_half(self, c, step):
         h = c.get("half")
