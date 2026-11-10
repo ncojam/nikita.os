@@ -1,5 +1,6 @@
 import { fxDefaults } from "./fx.js";
 import { GF_PRESETS, gfDefaults } from "./grapefruit.js";
+import { blDefaults, blHas, blPresetNames } from "./bitterlemon.js";
 import { UserLib } from "./userlib.js";
 import { CHIP_PRESETS, chipDefaults } from "./chip.js";
 
@@ -132,6 +133,7 @@ export function presetsFor(type) {
   const own = UserLib.names("synth").filter(n => UserLib.get("synth", n).type === type).map(n => USER + n);
   if (type === "osc3") return [...own, ...Object.keys(OSC3_PRESETS)];
   if (type === "grapefruit") return [...own, ...Object.keys(GF_PRESETS)];
+  if (type === "bitterlemon") return [...own, ...blPresetNames()];
   if (type === "chip") return [...own, ...Object.keys(CHIP_PRESETS)];
   return own;
 }
@@ -153,6 +155,9 @@ export function applyPreset(Engine, ch, name) {
     if (slot && slot !== "auto" && !CHIP_PRESETS[name].params.slot) ch.params.slot = slot;
   } else if (ch.type === "grapefruit" && GF_PRESETS[name]) {
     Object.assign(ch.params, gfDefaults(name));
+    fxChain = GF_FX[name] || [];
+  } else if (ch.type === "bitterlemon" && blHas(name)) {
+    ch.params = blDefaults(name);
     fxChain = GF_FX[name] || [];
   } else return;
   ch.preset = name;

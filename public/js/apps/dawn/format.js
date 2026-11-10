@@ -1,6 +1,7 @@
 import { fxDefaults, FX } from "./fx.js";
 import { DEFAULT_PARAMS, TYPES } from "./instruments.js";
 import { GF_PRESETS, gfDefaults } from "./grapefruit.js";
+import { blDefaults, blHas } from "./bitterlemon.js";
 import { EDOS, degreeNames, parsePitch, pitchToFile, scalesOf } from "./tuning.js";
 
 /* ================= DAWN — формат файла .dawn (dawn/2) =================
@@ -86,6 +87,11 @@ export function fromFile(raw) {
     if (type === "osc3" && Array.isArray(params.oscs)) params.oscs = DEFAULT_PARAMS.osc3().oscs.map((d, k) => ({ ...d, ...(params.oscs[k] || {}) }));
     if (type === "grapefruit") {   // пресет по имени + поверх — то, что задано явно
       const base = gfDefaults(GF_PRESETS[c.params?.preset] ? c.params.preset : "E-Piano");
+      params.ops = base.ops.map((d, k) => ({ ...d, ...((c.params?.ops || [])[k] || {}) }));
+      params.mod = { ...base.mod, ...(c.params?.mod || {}) };
+    }
+    if (type === "bitterlemon") {
+      const base = blDefaults(blHas(c.params?.preset) ? c.params.preset : undefined);
       params.ops = base.ops.map((d, k) => ({ ...d, ...((c.params?.ops || [])[k] || {}) }));
       params.mod = { ...base.mod, ...(c.params?.mod || {}) };
     }

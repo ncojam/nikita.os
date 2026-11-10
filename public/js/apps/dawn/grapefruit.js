@@ -21,7 +21,7 @@ export const GF_SPECS = {
   wcrush:{ min: 0, max: 1, def: 0, label: "Crush" },
 };
 export const GF_WAVES = ["sine", "triangle", "sawtooth", "square"];
-const INDEX = 6;
+export const INDEX = 6;
 
 const op = (o = {}) => ({ wave: "sine", ratio: 1, fine: 0, level: 1, out: 0, att: 0.003, dec: 0.4, sus: 0.6, rel: 0.3, ...o });
 /* mod: [[2→1, 3→1, 4→1], [3→2, 4→2], [4→3]] — плоско: m21, m31, m41, m32, m42, m43 */
@@ -157,6 +157,20 @@ function periodic(ctx, harm) {
   }
   return m.get(key);
 }
+/* нарисованная волна (Bitter Lemon, как редактор волны в Sytrus): один период точками [x, y, изгиб],
+ * x ∈ [0, 1], y ∈ [-1, 1], изгиб ∈ [-1, 1] — кривизна сегмента до следующей точки */
+export const SHAPE_DEF = () => ({ pts: [[0, 0, 0], [0.25, 1, 0], [0.75, -1, 0], [1, 0, 0]] });
+export function drawnAt(shape, x) {
+  const p = shape?.pts;
+  if (!p || p.length < 2) return Math.sin(2 * Math.PI * x);
+  let i = 0;
+  while (i < p.length - 2 && x >= p[i + 1][0]) i++;
+  const [x0, y0, c = 0] = p[i], [x1, y1] = p[i + 1], w = x1 - x0;
+  let u = w > 1e-6 ? Math.max(0, Math.min(1, (x - x0) / w)) : 1;
+  if (c > 0.001) u = Math.pow(u, 1 + c * 4); else if (c < -0.001) u = 1 - Math.pow(1 - u, 1 - c * 4);
+  return y0 + (y1 - y0) * u;
+}
+const shapeKey = s => (s?.pts || []).map(q => q.map(v => (+v).toFixed(3)).join(":")).join(";");
 /* один период базовой волны в точке x ∈ [0, 1) */
 function baseAt(o, x) {
   switch (o.wave) {
@@ -164,6 +178,7 @@ function baseAt(o, x) {
     case "sawtooth": return 2 * ((x + 0.5) % 1) - 1;
     case "square": return x < 0.5 ? 1 : -1;
     case "sine": case undefined: return Math.sin(2 * Math.PI * x);
+    case "draw": return drawnAt(o.shape, x);
   }
   const h = o.wave === "custom" ? (o.harm || [1]) : HARM[o.wave] || [1];
   let y = 0, n = 0;
@@ -182,7 +197,7 @@ export function shapeAt(o, x, fold = o.wfold || 0) {
 }
 const shapedCache = new Map();   // ключ формы → [re, im] (ctx не нужен)
 function shapedCoef(o) {
-  const key = [o.wave, o.wave === "custom" ? (o.harm || []).join(",") : "", (+o.wsk || 0).toFixed(2), (+o.wcrush || 0).toFixed(2)].join("|");
+  const key = [o.wave, o.wave === "custom" ? (o.harm || []).join(",") : o.wave === "draw" ? shapeKey(o.shape) : "", (+o.wsk || 0).toFixed(2), (+o.wcrush || 0).toFixed(2)].join("|");
   if (shapedCache.has(key)) return [key, shapedCache.get(key)];
   const NS = 1024, NH = 48, y = new Float32Array(NS), re = new Float32Array(NH + 1), im = new Float32Array(NH + 1);
   for (let i = 0; i < NS; i++) y[i] = shapeAt(o, i / NS, 0);   // Fold — отдельно, живым шейпером (его можно вести огибающей)
@@ -192,8 +207,10 @@ function shapedCoef(o) {
   return [key, [re, im]];
 }
 const shapedWaves = new WeakMap();
-function setWave(ctx, osc, o) {
-  if (o.wsk || o.wcrush) {
+/* ключ формы волны — чтобы живой синт не пересобирал её без нужды */
+export const waveKey = o => [o.wave, o.wave === "custom" ? (o.harm || []).join(",") : o.wave === "draw" ? shapeKey(o.shape) : "", (+o.wsk || 0).toFixed(2), (+o.wcrush || 0).toFixed(2)].join("|");
+export function setWave(ctx, osc, o) {
+  if (o.wsk || o.wcrush || o.wave === "draw") {
     const [key, [re, im]] = shapedCoef(o), m = shapedWaves.get(ctx) || new Map();
     shapedWaves.set(ctx, m);
     if (!m.has(key)) m.set(key, ctx.createPeriodicWave(re, im));
@@ -204,7 +221,7 @@ function setWave(ctx, osc, o) {
 }
 /* складывание волны: синус-фолдер; вход усиливается (1 + fold·7) раз — чем больше, тем больше складок */
 let foldCurve = null;
-function folder(ctx) {
+export function folder(ctx) {
   if (!foldCurve) { foldCurve = new Float32Array(2049); for (let i = 0; i < 2049; i++) { const x = (i / 1024 - 1) * 8; foldCurve[i] = Math.sin(x * Math.PI / 2); } }
   const ws = ctx.createWaveShaper(); ws.curve = foldCurve; ws.oversample = "2x";
   return ws;
@@ -219,7 +236,7 @@ export function envDefault(kind) {
     : kind === "pan" ? { on: false, sus: -1, pts: [[0, 0.5], [0.5, 0.5]] }
     : { on: false, sus: -1, range: 12, pts: [[0, 0.5], [0.5, 0.5]] };
 }
-function drawEnv(param, t0, dur, env, map) {
+export function drawEnv(param, t0, dur, env, map) {
   const pts = [...env.pts].sort((a, b) => a[0] - b[0]);
   if (!pts.length) return t0 + dur;
   const sus = env.sus >= 0 && env.sus < pts.length ? env.sus : -1;

@@ -9,7 +9,7 @@ export function fitParams(p, type, dur) {
     const q = { ...o, att: a * k, dec: Math.min(o.dec ?? 0, Math.max(0.005, dur * 0.35)), rel: Math.min(o.rel ?? 0, Math.max(0.01, dur * 0.5)) };
     return q;
   };
-  if (type === "grapefruit") {
+  if (type === "grapefruit" || type === "bitterlemon") {
     return { ...p, ops: p.ops.map(o => {
       const q = fit(o);
       if (o.env) {   // нарисованные огибающие тоже сжимаем по времени, если они длиннее ноты
@@ -43,7 +43,7 @@ export function fitOps(p, dur, beatSec) {
 /* растяжение огибающей у отдельной ноты (поле x): атака и спад × k — «вууууб» из двух вубов */
 export function stretchParams(p, type, k) {
   const st = o => ({ ...o, att: (o.att ?? 0) * k, dec: (o.dec ?? 0) * k });
-  if (type === "grapefruit") return { ...p, ops: p.ops.map(o => {
+  if (type === "grapefruit" || type === "bitterlemon") return { ...p, ops: p.ops.map(o => {
     const q = st(o);
     if (o.env) { q.env = {}; for (const [kd, e] of Object.entries(o.env)) q.env[kd] = e?.pts ? { ...e, pts: e.pts.map(([t, v]) => [t * k, v]) } : e; }
     return q;

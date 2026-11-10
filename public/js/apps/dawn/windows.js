@@ -3,7 +3,8 @@ import { notify } from "../../ui/notify.js";
 import { BUILTIN, Engine, FLASH_COLORS, PASTEL, TYPES, WAVES, WAVE_GLYPH, flashOf, newProject, sampleNow } from "./engine.js";
 import { fromFile } from "./format.js";
 import { aiPackage, aiDoc } from "./schema.js";
-import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, envDefault, gfDefaults, shapeAt, snapRatio } from "./grapefruit.js";
+import { ENV_KINDS, GF_PRESETS, GF_SPECS, GF_WAVES_ALL, drawnAt, envDefault, gfDefaults, shapeAt, snapRatio } from "./grapefruit.js";
+import { blWaves, blDefaults, blPresetNames, shapeFrom } from "./bitterlemon.js";
 import { MODS } from "./mod.js";
 import { MAGIC } from "./magic.js";
 import { CHIP_KIT, DRUMS, GENRES, KITS, LIB_MIME, MELODIC, ensureChipDrum, instantiate } from "./library.js";
@@ -237,6 +238,7 @@ const rack = {
         dwBtn("＋ 3XOSC", () => { const ch = Engine.addChannel("osc3"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }),
         dwBtn("📚 Библиотека", () => Dawn.open("lib"), { title: "Готовые грувы и паттерны в ладу — одной кнопкой" }),
         dwBtn("＋ Grapefruit", () => { const ch = Engine.addChannel("grapefruit"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }),
+        dwBtn("＋ 🍋 Bitter Lemon", () => { const ch = Engine.addChannel("bitterlemon"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }, { title: "Живой FM-синт: ручки и нарисованная волна меняют звучащие ноты" }),
         dwBtn("＋ Sampler", () => { const ch = Engine.addChannel("sampler", "Sampler"); Dawn.open("inst", ch.id); }),
         dwBtn("＋ 👾 Chip", () => { const ch = Engine.addChannel("chip"); Dawn.pianoCh = ch.id; Dawn.open("inst", ch.id); }, { title: "8-битный синт: пульсы, треугольник, wavetable Game Boy, шум" }),
         select([["", "＋ 👾 Чип-ударные…"], ...Object.entries(CHIP_KIT)], "", v => { if (v) Dawn.open("inst", ensureChipDrum(v).id); }, "Ударные на чип-каналах — считаются в лимит консоли"),
@@ -360,9 +362,17 @@ function miniKeys(ch) {
   return el("div", { className: "dw-keys-wrap" }, box);
 }
 
+/* Bitter Lemon играет вживую: любое движение ручки — сразу в звучащие ноты (не чаще раза за кадр) */
+const liveQ = new Set();
+let liveRaf = 0;
+function liveKick(ch) {
+  if (ch?.type !== "bitterlemon") return;
+  liveQ.add(ch);
+  liveRaf ||= requestAnimationFrame(() => { liveRaf = 0; for (const c of liveQ) Engine.G?.live?.(c); liveQ.clear(); });
+}
 function paramKnob(ch, key, obj = ch.params, extra = {}) {
   return knob({ spec: extra.spec || key, color: extra.color || ch.color, label: extra.label, path: `ch.${ch.id}.${extra.sub ? extra.sub + "." : ""}${key}`,
-    size: extra.size, get: () => obj[key], set: v => { obj[key] = v; extra.onSet?.(); }, done: () => Engine.touch({ param: true }) }).node;
+    size: extra.size, get: () => obj[key], set: v => { obj[key] = v; extra.onSet?.(); liveKick(ch); }, done: () => Engine.touch({ param: true }) }).node;
 }
 
 /* картинка огибающей ADSR: перерисовывается, пока крутишь */
@@ -416,10 +426,10 @@ function osc3Panel(ch) {
 /* Grapefruit в духе Sytrus: слева операторы (волна, ratio, fine, level, pan, ADSR) и редактор огибающих
  * (громкость / панорама / высота — рисуются точками, Shift-клик — точка удержания), справа — матрица «кто кого»:
  * столбец — источник, строка — кого модулирует; нижняя строка OUT — сколько оператора слышно. */
-const GF_GLYPH = { ...WAVE_GLYPH, organ: "▥", pulse: "⊓̲", hollow: "◌", custom: "✎" };
+const GF_GLYPH = { ...WAVE_GLYPH, organ: "▥", pulse: "⊓̲", hollow: "◌", custom: "✎", draw: "✏️" };
 const gfSel = new Map();   // канал → { op, kind } — что открыто в редакторе огибающих
 function gfPanel(ch, rebuild) {
-  const p = ch.params, sel = gfSel.get(ch.id) || { op: 0, kind: "vol" };
+  const p = ch.params, sel = gfSel.get(ch.id) || { op: 0, kind: "vol" }, bl = ch.type === "bitterlemon", wvs = [];
   p.mod ||= {};
   for (let f = 1; f <= 4; f++) for (let t2 = 1; t2 <= 4; t2++) if (f !== t2) p.mod["m" + f + t2] ??= 0;   // новые клетки матрицы (обратная связь)
   for (const o of p.ops) for (const k of ["pan", "wsk", "wfold", "wcrush", "ac", "dc", "rc"]) o[k] ??= 0;
@@ -428,11 +438,11 @@ function gfPanel(ch, rebuild) {
   const editor = el("div", { className: "dw-gf-env" });
   // частота оператора: Oct (октавы) × Ratio по разрядам до десятитысячных; ♪ — прилипать к гармоникам
   const freqBox = (o, i) => {
-    const r = digits({ get: () => o.ratio, set: (v, dir) => { o.ratio = o.harmonic ? snapRatio(v, dir) : v; }, min: 0.0001, max: 32, decimals: 4, label: "Ratio",
+    const r = digits({ get: () => o.ratio, set: (v, dir) => { o.ratio = o.harmonic ? snapRatio(v, dir) : v; liveKick(ch); }, min: 0.0001, max: 32, decimals: 4, label: "Ratio",
       title: "Множитель частоты: зажми цифру и тяни вверх/вниз, колесо — по разряду, двойной клик — ввести", done: () => { Engine.touch({ param: true }); Engine.preview(ch); } });
-    const oc = digits({ get: () => o.oct || 0, set: v => { o.oct = Math.round(v); }, min: -4, max: 4, decimals: 0, label: "Oct", title: "Сдвиг на октавы", done: () => { Engine.touch({ param: true }); Engine.preview(ch); } });
+    const oc = digits({ get: () => o.oct || 0, set: v => { o.oct = Math.round(v); liveKick(ch); }, min: -4, max: 4, decimals: 0, label: "Oct", title: "Сдвиг на октавы", done: () => { Engine.touch({ param: true }); Engine.preview(ch); } });
     const lock = el("button", { className: "dw-btn dw-harm" + (o.harmonic ? " on" : ""), textContent: "♪", title: "Гармонично: Ratio прилипает к целым и простым дробям (1/2, 1.5, 2, 3…) — без диссонанса",
-      onclick: () => { o.harmonic = !o.harmonic; if (o.harmonic) { o.ratio = snapRatio(o.ratio); r.paint(); } lock.classList.toggle("on", o.harmonic); Engine.touch({ param: true }); Engine.preview(ch); } });
+      onclick: () => { o.harmonic = !o.harmonic; if (o.harmonic) { o.ratio = snapRatio(o.ratio); r.paint(); liveKick(ch); } lock.classList.toggle("on", o.harmonic); Engine.touch({ param: true }); Engine.preview(ch); } });
     return el("div", { className: "dw-freq" }, oc.node, r.node, lock);
   };
   // картинка формы волны оператора (с Skew / Fold / Crush)
@@ -447,10 +457,12 @@ function gfPanel(ch, rebuild) {
   };
   const opRow = (o, i) => {
     const col = colOf(i), sub = "op" + (i + 1), view = adsrView(o, col), wv = waveView(o, col);
-    const waves = el("div", { className: "dw-waves" }, ...GF_WAVES_ALL.map(wv => {
-      const b = el("button", { className: "dw-wave" + (o.wave === wv ? " on" : ""), textContent: GF_GLYPH[wv], title: wv,
-        onclick: () => { o.wave = wv; if (wv === "custom" && !o.harm) o.harm = [1, 0.5, 0.33, 0.25, 0.2, 0.16, 0.14, 0.12];
-          waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); wv._draw(); Engine.touch({ param: true }); Engine.preview(ch); sel.op = i; drawEditor(); } });
+    wvs[i] = wv;
+    const waves = el("div", { className: "dw-waves" }, ...(bl ? blWaves() : GF_WAVES_ALL).map(w => {
+      const b = el("button", { className: "dw-wave" + (o.wave === w ? " on" : ""), textContent: GF_GLYPH[w], title: w === "draw" ? "Нарисовать волну (как в Sytrus)" : w,
+        onclick: () => { if (w === "draw" && !o.shape) o.shape = shapeFrom(o);   // рисуем от текущей формы
+          o.wave = w; if (w === "custom" && !o.harm) o.harm = [1, 0.5, 0.33, 0.25, 0.2, 0.16, 0.14, 0.12];
+          waves.querySelectorAll(".dw-wave").forEach(x => x.classList.toggle("on", x === b)); wv._draw(); liveKick(ch); Engine.touch({ param: true }); Engine.preview(ch); sel.op = i; drawEditor(); } });
       return b;
     }));
     const k = (key, spec) => paramKnob(ch, key, o, { color: col, sub, spec, size: 28, onSet: () => view._draw() });
@@ -526,7 +538,7 @@ function gfPanel(ch, rebuild) {
       const hc = el("canvas", { className: "dw-gf-harm", title: "Гармоники своей волны: тяни столбики" }), hg = hc.getContext("2d");
       const hd = () => { const r = hc.getBoundingClientRect(); if (!r.width) return; hc.width = r.width; hc.height = r.height; const bw = r.width / 8;
         hg.clearRect(0, 0, r.width, r.height); o.harm.forEach((a, i) => { hg.fillStyle = col; hg.globalAlpha = 0.85; hg.fillRect(i * bw + 3, r.height * (1 - a), bw - 6, r.height * a); hg.globalAlpha = 1; hg.fillStyle = "#fff"; hg.font = "9px system-ui"; hg.fillText(i + 1, i * bw + bw / 2 - 3, r.height - 3); }); };
-      const set = ev => { const r = hc.getBoundingClientRect(), i = Math.floor((ev.clientX - r.left) / r.width * 8); if (i < 0 || i > 7) return; o.harm[i] = +Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height)).toFixed(2); hd(); };
+      const set = ev => { const r = hc.getBoundingClientRect(), i = Math.floor((ev.clientX - r.left) / r.width * 8); if (i < 0 || i > 7) return; o.harm[i] = +Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height)).toFixed(2); hd(); wvs[sel.op]?._draw(); liveKick(ch); };
       let down = false;
       hc.onpointerdown = ev => { down = true; hc.setPointerCapture(ev.pointerId); set(ev); };
       hc.onpointermove = ev => down && set(ev);
@@ -537,14 +549,73 @@ function gfPanel(ch, rebuild) {
     editor.replaceChildren(
       el("div", { className: "dw-pr-tools" }, el("b", { style: `color:${col}`, textContent: "OP " + (sel.op + 1) }), tabs, onBtn, len, el("span", { className: "dw-dim", textContent: "с" }), range,
         el("span", { className: "dw-dim", textContent: "клик — точка · тянуть · ПКМ — удалить · Shift-клик — точка удержания" })),
-      cv, harm);
+      cv, harm, o.wave === "draw" ? shapeEditor(o, col) : "");
     requestAnimationFrame(draw);
+  }
+  /* редактор волны как в Sytrus: один период точками, Shift-тянуть по сегменту — изгиб. Звучащие ноты меняются сразу */
+  function shapeEditor(o, col) {
+    o.shape ||= shapeFrom(o);
+    const S = o.shape, sc = el("canvas", { className: "dw-envcv", style: "height:130px;touch-action:none", title: "Своя волна: клик — точка, тянуть, ПКМ — удалить, Shift + тянуть — изгиб сегмента" }), sg = sc.getContext("2d");
+    let W = 0, H = 0, drag = -1, bend = -1, by0 = 0, c0 = 0;
+    const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+    const X = x => x * W, Y = y => H / 2 - y * (H / 2 - 8), xv = px => cl(px / W, 0, 1), yv = py => cl((H / 2 - py) / (H / 2 - 8), -1, 1);
+    function draw() {
+      const r = sc.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+      if (r.width && (W !== r.width || H !== r.height)) { W = r.width; H = r.height; sc.width = W * dpr; sc.height = H * dpr; sg.setTransform(dpr, 0, 0, dpr, 0, 0); }
+      if (!W) return;
+      const C = pal(); sg.clearRect(0, 0, W, H); sg.fillStyle = C.rowB; sg.fillRect(0, 0, W, H);
+      sg.fillStyle = C.g2; sg.fillRect(0, Y(0), W, 1);
+      if (o.wsk || o.wfold || o.wcrush) {   // как звучит с Skew / Fold / Crush
+        sg.globalAlpha = 0.35; sg.strokeStyle = col; sg.lineWidth = 1; sg.beginPath();
+        for (let x = 0; x <= W; x++) { const y = Y(shapeAt(o, Math.min(0.9999, x / W))); x ? sg.lineTo(x, y) : sg.moveTo(x, y); }
+        sg.stroke(); sg.globalAlpha = 1;
+      }
+      sg.strokeStyle = col; sg.lineWidth = 2; sg.beginPath();
+      for (let x = 0; x <= W; x++) { const y = Y(drawnAt(S, Math.min(0.9999, x / W))); x ? sg.lineTo(x, y) : sg.moveTo(x, y); }
+      sg.stroke();
+      S.pts.forEach(([x, y]) => { sg.fillStyle = "#fff"; sg.beginPath(); sg.arc(X(x), Y(y), 4, 0, 7); sg.fill(); sg.strokeStyle = col; sg.stroke(); });
+    }
+    const changed = () => { draw(); wvs[sel.op]?._draw(); liveKick(ch); };
+    const hit = (x, y) => S.pts.findIndex(q => Math.hypot(X(q[0]) - x, Y(q[1]) - y) < 8);
+    sc.onpointerdown = ev => {
+      const r = sc.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, i = hit(x, y);
+      sc.setPointerCapture(ev.pointerId);
+      if (ev.button === 2) { if (i > 0 && i < S.pts.length - 1) { S.pts.splice(i, 1); changed(); Engine.touch({ param: true }); } return; }
+      if (ev.shiftKey) { const v = xv(x); bend = Math.max(0, S.pts.findIndex((q, k) => k < S.pts.length - 1 && v >= q[0] && v <= S.pts[k + 1][0])); by0 = y; c0 = S.pts[bend][2] || 0; return; }
+      if (i >= 0) { drag = i; return; }
+      const v = xv(x), k = S.pts.findIndex(q => q[0] > v), at = Math.max(1, k < 0 ? S.pts.length - 1 : k);   // между краями периода
+      S.pts.splice(at, 0, [+v.toFixed(3), +yv(y).toFixed(3), 0]);
+      drag = at; changed();
+    };
+    sc.onpointermove = ev => {
+      const r = sc.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+      if (bend >= 0) { S.pts[bend][2] = +cl(c0 + (by0 - y) / 60, -1, 1).toFixed(3); changed(); return; }
+      if (drag < 0) return;
+      const q = S.pts[drag], last = S.pts.length - 1;
+      if (drag > 0 && drag < last) q[0] = +cl(xv(x), S.pts[drag - 1][0], S.pts[drag + 1][0]).toFixed(3);   // края периода — на месте
+      q[1] = +yv(y).toFixed(3); changed();
+    };
+    sc.onpointerup = () => { if (drag < 0 && bend < 0) return; drag = bend = -1; Engine.touch({ param: true }); };
+    sc.oncontextmenu = ev => ev.preventDefault();
+    const set = pts => { S.pts = pts; changed(); Engine.touch({ param: true }); Engine.preview(ch); };
+    const rnd = () => { const n = 4 + Math.floor(Math.random() * 6), xs = Array.from({ length: n }, () => Math.random()).sort();
+      return [[0, 0, 0], ...xs.map(x => [+x.toFixed(3), +(Math.random() * 2 - 1).toFixed(3), +(Math.random() * 1.6 - 0.8).toFixed(3)]), [1, 0, 0]]; };
+    const tools = el("div", { className: "dw-pr-tools" }, el("span", { className: "dw-dim", textContent: "✏️ Своя волна:" }),
+      dwBtn("∿", () => set(shapeFrom({ wave: "sine" }, 16).pts), { title: "Синус" }),
+      dwBtn("△", () => set([[0, 0, 0], [0.25, 1, 0], [0.75, -1, 0], [1, 0, 0]]), { title: "Треугольник" }),
+      dwBtn("⟋", () => set([[0, 0, 0], [0.5, 1, 0], [0.5, -1, 0], [1, 0, 0]]), { title: "Пила" }),
+      dwBtn("⊓", () => set([[0, 1, 0], [0.5, 1, 0], [0.5, -1, 0], [1, -1, 0]]), { title: "Квадрат" }),
+      dwBtn("🎲", () => set(rnd()), { title: "Случайная волна" }),
+      dwBtn("〰", () => { S.pts.forEach(q => { q[2] = 0; }); changed(); Engine.touch({ param: true }); }, { title: "Убрать изгибы" }),
+      el("span", { className: "dw-dim", textContent: "клик — точка · тянуть · ПКМ — удалить · Shift + тянуть — изгиб" }));
+    requestAnimationFrame(draw);
+    return el("div", { className: "dw-gf-harmbox" }, tools, sc);
   }
   drawEditor();
   return el("div", { className: "dw-panel dw-gf" },
     el("div", { className: "dw-gf-left" },
       el("div", { className: "dw-sect" }, el("div", { className: "dw-sect-h", textContent: "Пресет" }),
-        select(Object.keys(GF_PRESETS).map(n => [n, n]), p.preset, v => { Object.assign(ch.params, gfDefaults(v)); Engine.touch({ channels: true }); Engine.preview(ch); rebuild(); }),
+        select((bl ? blPresetNames() : Object.keys(GF_PRESETS)).map(n => [n, n]), p.preset, v => { Object.assign(ch.params, bl ? blDefaults(v) : gfDefaults(v)); Engine.touch({ channels: true }); Engine.preview(ch); rebuild(); }),
         el("div", { className: "dw-sect-h", textContent: "Фильтр" }), paramKnob(ch, "cut", p, { color: "var(--dw-sky)" }), paramKnob(ch, "res", p, { color: "var(--dw-sky)" })),
       ...p.ops.map(opRow),
       editor),
@@ -592,7 +663,7 @@ function samplerPanel(ch, Dawn) {
 const inst = {
   title: id => { const ch = Engine.chan(id); return ch ? `${TYPES[ch.type].icon} ${ch.name}` : "Инструмент"; },
   icon: "🎚", color: id => Engine.chan(id)?.color || "var(--dw-lav)",
-  size: id => ({ sampler: [560, 400], grapefruit: [760, 640], chip: [640, 560] })[Engine.chan(id)?.type] || [620, 640],
+  size: id => ({ sampler: [560, 400], grapefruit: [760, 640], bitterlemon: [760, 760], chip: [640, 560] })[Engine.chan(id)?.type] || [620, 640],
   render(c, win, id, Dawn) {
     DawnRef = Dawn;
     const ch = Engine.chan(id);
@@ -631,7 +702,7 @@ const inst = {
           if (saved) { ch.preset = USER + saved; build(); }
         }, { title: "Сохранить этот звук как свой пресет" }) : "",
         ch.preset?.startsWith(USER) ? dwBtn("🗑", () => { if (UserLib.del("synth", ch.preset.slice(USER.length))) { delete ch.preset; build(); } }, { title: "Удалить свой пресет «" + ch.preset.slice(USER.length) + "»", className: "dw-btn dw-x" }) : "");
-      panel = ch.type === "osc3" ? osc3Panel(ch) : ch.type === "grapefruit" ? gfPanel(ch, build) : ch.type === "chip" ? chipPanel(ch, build) : samplerPanel(ch, Dawn);
+      panel = ch.type === "osc3" ? osc3Panel(ch) : ch.type === "grapefruit" || ch.type === "bitterlemon" ? gfPanel(ch, build) : ch.type === "chip" ? chipPanel(ch, build) : samplerPanel(ch, Dawn);
       root.replaceChildren(head, panel, miniKeys(ch));
     }
     build();

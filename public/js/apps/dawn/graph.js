@@ -2,6 +2,7 @@ import { FX } from "./fx.js";
 import { fitOps, fitParams, stretchParams } from "./fit.js";
 import { playOsc3, playSampler, sampleNow } from "./instruments.js";
 import { playGrapefruit } from "./grapefruit.js";
+import { playBitterLemon } from "./bitterlemon.js";
 import { chipSteal, playChip } from "./chip.js";
 import { effOf, effParams } from "./modcore.js";
 
@@ -107,6 +108,7 @@ export function buildGraph(ctx, P) {
           const p = effParams(ch, over), now = ctx.currentTime;
           for (const h of G.active[ch.id] || []) if (h.flt && h.end > now) { h.flt.frequency.value = p.cut; h.flt.Q.value = p.res; }
         }
+        if (ch.type === "bitterlemon" && [...changed].some(a => a.startsWith(pre))) G.live(ch);   // живой синт: модуляция ведёт звучащие ноты
       }
       P.mixer.forEach((m, i) => {
         if (changed.has(`mix.${i}.vol`) || changed.has(`mix.${i}.pan`)) G.applyInsert(i);
@@ -140,16 +142,24 @@ export function buildGraph(ctx, P) {
       for (const ch of P.channels) G.strip(ch);
       for (const [id, s] of G.strips) if (!P.channels.some(c => c.id === id)) { s.gain.disconnect(); s.pan.disconnect(); s.out.disconnect(); G.strips.delete(id); }
     },
+    /* живые синты (Bitter Lemon): новые параметры — в уже звучащие голоса */
+    live(ch) {
+      const now = ctx.currentTime, list = (G.active[ch.id] || []).filter(h => h.set && h.end > now);
+      if (!list.length) return;
+      const p = effParams(ch, G.over);
+      for (const h of list) h.set(p);
+    },
     /* нота: параметры с учётом модуляции, изгиб, полифония (лишний старый голос крадём) */
     voice(ch, t, durSec, n, v, bend = 0, stretch = 1) {
       if (!G.audible(ch)) return;
       const out = G.strip(ch).gain, edo = ch.edo || 12;
       let p = effParams(ch, G.over);
       if (stretch !== 1 && ch.type !== "sampler" && ch.type !== "chip") p = stretchParams(p, ch.type, stretch);   // удлинённая нота: атака растянута так же
-      if (ch.type === "grapefruit") p = fitOps(p, durSec, 60 / (P.bpm || 120));   // ⇔ у отдельных операторов — пропорционально ноте
+      if (ch.type === "grapefruit" || ch.type === "bitterlemon") p = fitOps(p, durSec, 60 / (P.bpm || 120));   // ⇔ у отдельных операторов — пропорционально ноте
       if (p.fit && ch.type !== "sampler" && ch.type !== "chip") p = fitParams(p, ch.type, durSec);   // ⇔ огибающая под длину ноты
       const h = ch.type === "osc3" ? playOsc3(ctx, out, p, t, durSec, n, v, edo, bend)
         : ch.type === "grapefruit" ? playGrapefruit(ctx, out, p, t, durSec, n, v, edo, bend)
+        : ch.type === "bitterlemon" ? playBitterLemon(ctx, out, p, t, durSec, n, v, edo, bend)
         : ch.type === "chip" ? playChip(ctx, out, p, t, durSec, n, v, edo, bend)
         : playSampler(ctx, out, p, t, durSec, n, v, sampleNow(p.path), edo, bend);
       // сайдчейн: эффекты Sidechain, слушающие этот канал, ныряют ровно в момент ноты

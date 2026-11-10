@@ -1,5 +1,6 @@
 import { hz } from "./tuning.js";
 import { gfDefaults } from "./grapefruit.js";
+import { blDefaults } from "./bitterlemon.js";
 import { CHIP_SPECS, chipDefaults } from "./chip.js";
 
 /* ================= DAWN — инструменты =================
@@ -57,12 +58,14 @@ export const DEFAULT_PARAMS = {
   }),
   sampler: () => ({ path: null, root: 60, tune: 0, start: 0, att: 0.001, rel: 0.08, oneshot: true, rev: false }),
   grapefruit: () => gfDefaults(),
+  bitterlemon: () => blDefaults(),
   chip: () => chipDefaults(),
 };
 
 export const TYPES = {
   osc3: { name: "3XOSC", icon: "🌈", color: "#c3a6ff" },
   grapefruit: { name: "Grapefruit", icon: "🍊", color: "#ffb3b3" },
+  bitterlemon: { name: "Bitter Lemon", icon: "🍋", color: "#f4f19c" },
   sampler: { name: "Sampler", icon: "🎧", color: "#8fe8cf" },
   chip: { name: "Chip", icon: "👾", color: "#9ef5c8" },
 };
