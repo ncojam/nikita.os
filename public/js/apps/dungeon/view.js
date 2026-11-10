@@ -22,6 +22,7 @@ const LANE_NOTE = 11, LANE_BOX = 15;
 const DMG_MIN = 22, DMG_MAX = 54;   // размер цифры урона, px: растёт с уроном по логарифму
 const dmgSize = d => Math.max(DMG_MIN, Math.min(DMG_MAX, DMG_MIN + 9 * Math.log2(Math.max(1, d))));
 const GHOST_SEC = 1.2;     // сколько тает призрак промаха
+const STATUS_HOP_SEC = 0.22, STATUS_HOP_PX = 7;   // подскок надписи хода при смене
 const CRY_NOTE = "#9fd3ff";         // нота, на которой враг заплачет
 const templates = new Map();  // модель → Promise<{T, scene} | null>
 
@@ -158,7 +159,7 @@ export class BattleView {
     this.drawLane(g, now);
     this.drawGhost(g, now);
     this.drawCount(g, now);
-    this.drawStatus(g);
+    this.drawStatus(g, now);
     this.drawTears(g, now);
     this.drawParty(g, now);
     this.floats = this.floats.filter(f => now - f.t < 0.9);
@@ -295,16 +296,19 @@ export class BattleView {
   }
 
   /* надпись хода — крупно, сразу под полосой нот: туда игрок и смотрит */
-  drawStatus(g) {
+  drawStatus(g, now) {
     if (!this.status) return;
-    const { y } = this.laneGeom(), ty = y + 16 + 24;
+    if (this.status !== this.statusShown) { this.statusShown = this.status; this.statusAt = now; }   // новая надпись подскакивает
+    const k = (now - (this.statusAt ?? -9)) / STATUS_HOP_SEC;
+    const hop = k < 1 ? Math.sin(k * Math.PI) * STATUS_HOP_PX : 0;
+    const { y } = this.laneGeom(), ty = y + 16 + 24 - hop;
     let size = 20;
     g.font = `800 ${size}px system-ui`;
     const w = g.measureText(this.status).width;
     if (w > this.W - 16) { size = Math.max(12, Math.floor(size * (this.W - 16) / w)); g.font = `800 ${size}px system-ui`; }
-    g.textAlign = "center"; g.textBaseline = "middle";
-    g.lineWidth = 4; g.strokeStyle = "rgba(13,11,18,0.85)"; g.strokeText(this.status, this.W / 2, ty);
-    g.fillStyle = "#ffd76a"; g.fillText(this.status, this.W / 2, ty);
+    g.textAlign = "left"; g.textBaseline = "middle";
+    g.lineWidth = 4; g.strokeStyle = "rgba(13,11,18,0.85)"; g.strokeText(this.status, 8, ty);
+    g.fillStyle = "#ffd76a"; g.fillText(this.status, 8, ty);
     g.textBaseline = "alphabetic";
   }
 
