@@ -172,7 +172,7 @@ function onEvent(d) {
   else if (d.e === "level") { banner(`Уровень ${d.level}!`); sfx.item(); }
   else if (d.e === "pickup") d.kind === "coins" ? sfx.coin() : sfx.item();
   else if (d.e === "giggle") sfx.giggle();
-  else if (d.e === "cry") { if (!combo) { view.cry(); sfx.cry(); if (d.rage) view.say("ЯРОСТЬ СЛЁЗ!", "#9fd3ff"); } }
+  else if (d.e === "cry") { if (!combo) { view.cry(); sfx.cry(); if (d.rage) { view.say("ЯРОСТЬ СЛЁЗ!", "#9fd3ff"); sfx.rage(); } } }
   else if (d.e === "border") { sfx.item(); banner("Край локации: лавка"); }
   else if (d.e === "win") { sfx.win(); sfx.laughStop(); view.dieAll(); holdBattle = performance.now() + 1700; banner(`Победа: ${d.enemy}`); setTimeout(render, 1750); }
   else if (d.e === "dead") { holdBattle = performance.now() + 1200; banner("Ты повержен"); setTimeout(render, 1250); }
@@ -439,7 +439,7 @@ function landTap(j) {
   if (cry) {
     view.cry(); sfx.cry();
     const full = S?.battle?.tearsFull ?? 3;
-    if (++combo.tears >= full) { combo.tears = 0; mult = S?.battle?.tearsMult ?? 3; view.say(`ЯРОСТЬ СЛЁЗ ×${mult}!`, "#9fd3ff"); }
+    if (++combo.tears >= full) { combo.tears = 0; mult = S?.battle?.tearsMult ?? 1.5; view.say(`ЯРОСТЬ СЛЁЗ ×${mult}!`, "#9fd3ff"); sfx.rage(); }
     view.tears = combo.tears;
   }
   const b = S?.battle;

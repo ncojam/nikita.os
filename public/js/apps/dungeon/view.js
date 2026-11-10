@@ -318,7 +318,7 @@ export class BattleView {
     const segW = 22, gap = 4, w = full * segW + (full - 1) * gap, x = this.W - 8 - w, y = this.laneGeom().y - 16 - 8 - 12;
     const ready = n === full - 1, glow = ready ? 0.55 + 0.45 * Math.sin(now * 8) : 1;
     g.font = "11px system-ui"; g.textAlign = "right"; g.fillStyle = "#9a90ad";
-    g.fillText(ready ? `слёзы · ещё плач = ×${this.b.tearsMult || 3}` : "слёзы", this.W - 8, y - 5);
+    g.fillText(ready ? `слёзы · ещё плач = ×${this.b.tearsMult || 1.5}` : "слёзы", this.W - 8, y - 5);
     for (let i = 0; i < full; i++) {
       const sx = x + i * (segW + gap);
       g.fillStyle = "#352c44"; g.fillRect(sx, y, segW, 8);

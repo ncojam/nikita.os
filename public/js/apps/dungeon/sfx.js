@@ -141,6 +141,15 @@ export class Sfx {
       o.start(t); v.start(t); o.stop(t + dur + 0.02); v.stop(t + dur + 0.02);
     });
   }
+  /* бонус полоски слёз: быстрое арпеджио вверх и звонкий аккорд — слышно поверх плача */
+  rage() {
+    const c = this.ctx;
+    if (!c) return;
+    const t = c.currentTime + 0.03;
+    [523, 659, 784, 1047].forEach((hz, i) => this.tone("square", hz, t + i * 0.055, 0.09, 0.09, { echo: 0.3 }));
+    for (const hz of [1047, 1319, 1568]) this.tone("triangle", hz, t + 0.24, 0.5, 0.11, { echo: 0.55 });
+    this.burst(this.white, t + 0.24, 0.15, 0.18, { filter: ["highpass", 3000], echo: 0.5 });
+  }
   /* искра: быстрый свист вверх и хлопок шума */
   spell() {
     const c = this.ctx;
