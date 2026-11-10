@@ -35,6 +35,7 @@ export class BattleView {
     this.fx = null; this.sparks = []; this.hitStep = -1;
     this.floats = []; this.mark = null; this.trips = new Map(); this.hurt = new Map();
     this.live = false;
+    this.status = ""; this.tears = 0;
   }
   start() { if (this.live) return; this.live = true; requestAnimationFrame(t => this.frame(t)); }
   stop() { this.live = false; this.hitStep = -1; this.anim.clear(); this.gone.clear(); this.models.clear(); this.floats = []; }
@@ -157,6 +158,8 @@ export class BattleView {
     this.drawLane(g, now);
     this.drawGhost(g, now);
     this.drawCount(g, now);
+    this.drawStatus(g);
+    this.drawTears(g, now);
     this.drawParty(g, now);
     this.floats = this.floats.filter(f => now - f.t < 0.9);
     g.textAlign = "center";
@@ -171,7 +174,7 @@ export class BattleView {
     g.globalAlpha = 1;
     if (this.mark && now - this.mark.t < 0.6) {
       const e = this.boxOf(this.b.enemy);
-      g.fillStyle = this.mark.color; g.font = "700 15px system-ui";
+      g.fillStyle = this.mark.color; g.font = "800 18px system-ui";
       g.globalAlpha = 1 - (now - this.mark.t) / 0.6;
       g.fillText(this.mark.text, W / 2, e.y + e.h + 22);
       g.globalAlpha = 1;
@@ -246,7 +249,7 @@ export class BattleView {
    * положение считается по heardStep — тем же часам, по которым судится попадание.
    * Видна только в своё комбо: чужим она бы мешала. */
   laneGeom() {
-    const y = this.H - 104, hx = 46, look = Math.min(LANE_MAX_SEC, Math.max(LANE_MIN_SEC, this.music.strongGap * this.music.stepSec * 1.3));
+    const y = this.H - 132, hx = 46, look = Math.min(LANE_MAX_SEC, Math.max(LANE_MIN_SEC, this.music.strongGap * this.music.stepSec * 1.3));
     return { y, hx, look, speed: (this.W - hx - 14) / look };
   }
   drawLane(g, now) {
@@ -289,6 +292,34 @@ export class BattleView {
     }
     g.globalAlpha = 1;
     this.sparks = this.sparks.filter(p => now - p.t < 0.35);
+  }
+
+  /* надпись хода — крупно, сразу под полосой нот: туда игрок и смотрит */
+  drawStatus(g) {
+    if (!this.status) return;
+    const { y } = this.laneGeom(), ty = y + 16 + 24;
+    let size = 20;
+    g.font = `800 ${size}px system-ui`;
+    const w = g.measureText(this.status).width;
+    if (w > this.W - 16) { size = Math.max(12, Math.floor(size * (this.W - 16) / w)); g.font = `800 ${size}px system-ui`; }
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.lineWidth = 4; g.strokeStyle = "rgba(13,11,18,0.85)"; g.strokeText(this.status, this.W / 2, ty);
+    g.fillStyle = "#ffd76a"; g.fillText(this.status, this.W / 2, ty);
+    g.textBaseline = "alphabetic";
+  }
+
+  /* полоска слёз: каждый плач врага — деление, полная — следующий плач бьёт с множителем */
+  drawTears(g, now) {
+    const full = this.b.tearsFull || 3, n = Math.min(full, this.tears || 0);
+    const segW = 22, gap = 4, w = full * segW + (full - 1) * gap, x = this.W - 8 - w, y = this.laneGeom().y - 16 - 8 - 12;
+    const ready = n === full - 1, glow = ready ? 0.55 + 0.45 * Math.sin(now * 8) : 1;
+    g.font = "11px system-ui"; g.textAlign = "right"; g.fillStyle = "#9a90ad";
+    g.fillText(ready ? `слёзы · ещё плач = ×${this.b.tearsMult || 3}` : "слёзы", this.W - 8, y - 5);
+    for (let i = 0; i < full; i++) {
+      const sx = x + i * (segW + gap);
+      g.fillStyle = "#352c44"; g.fillRect(sx, y, segW, 8);
+      if (i < n) { g.globalAlpha = glow; g.fillStyle = CRY_NOTE; g.fillRect(sx, y, segW, 8); g.globalAlpha = 1; }
+    }
   }
 
   /* ---------- табло счёта над полосой нот ----------

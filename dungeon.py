@@ -7,7 +7,7 @@
 проверяет, что нота сильная, новая и примерно того времени, и считает настоящий урон.
 
 Протокол (WS /api/dungeon/ws, JSON). Клиент → сервер: auth, ping, wander, use, equip, unequip, pick, join,
-throw, hinder, act (attack/item/flee), tap, miss, stop. Сервер → клиент: hello, pong, state (снимок мира глазами игрока),
+throw, hinder, act (attack/item/flee), tap, miss, stop, buy, sell, go. Сервер → клиент: hello, pong, state (снимок мира глазами игрока),
 ev (событие для анимации), log (строка в журнал), error.
 
 Данные игры (вещи, враги, локации) — таблицы ниже: новый враг или уровень — это новая запись.
@@ -57,6 +57,8 @@ OFFLINE_LEAVE = 30       # с без связи — и игрок выбывае
 FLEE_CHANCE = 0.6
 COMBO_DECAY = 1 / 1.5    # каждый следующий удар комбо слабее в полтора раза, минимум 1
 CRY_EVERY = 20           # каждые столько ударов в такт подряд монстр плачет, а сила удара возвращается к половине обычной
+TEARS_FULL = 3           # полоска слёз: столько плачей — и она полная
+TEARS_MULT = 3           # полная полоска: на этом плаче сила удара не сбрасывается к обычной, а умножается, полоска пустеет
 COMBO_START_BEATS = 3.5  # долей на первый удар в такт после атаки
 COMBO_GRACE_BEATS = 2.6  # долей на следующий: одну сильную ноту можно пропустить
 COMBO_NET_SLACK = 0.7    # с сверх этого: тап мог задержаться в сети. Клиент сам закрывает комбо вовремя (stop), это страховка
@@ -68,6 +70,9 @@ ENEMY_GAP = 0.5          # с между ударами врагов, когда
 WAIL_RISE_BARS = 2       # тактов завывание нарастает перед тишиной: сбиться за это время ещё не страшно
 RESIST_KEEP = 0.25       # какая доля урона доходит при резисте к школе способности
 MUSIC_LEAD = 1.0         # с от появления врага до первой доли
+
+BORDER_EVERY = 50        # раз в столько прогулок игрок выходит к краю локации: там лавка и переходы
+SELL_SHARE = 0.1         # за сколько от цены лавка берёт вещь
 
 BASE_HP = 30
 BASE_MP = 12
@@ -86,17 +91,25 @@ LEVEL_DMG_EVERY = 2      # +1 к урону раз в столько уровн�
 ENEMY_HP_LVL = 0.12      # +12% здоровья за уровень
 ENEMY_ATK_EVERY = 2      # +1 к атаке раз в столько уровней
 
+# price — цена в лавке; продать можно за SELL_SHARE от неё
 ITEMS = {
-    "mushroom": {"name": "Светящийся гриб", "kind": "heal", "heal": 8},
-    "bandage": {"name": "Бинт", "kind": "heal", "heal": 15},
-    "elixir": {"name": "Пещерная настойка", "kind": "heal", "heal": 30},
-    "thick_elixir": {"name": "Густая настойка", "kind": "heal", "heal": 70},
-    "stick": {"name": "Палка", "kind": "weapon", "atk": 1},
-    "pickaxe": {"name": "Ржавая кирка", "kind": "weapon", "atk": 3},
-    "rags": {"name": "Лохмотья", "kind": "armor", "def": 1},
-    "helmet": {"name": "Шахтёрская каска", "kind": "armor", "def": 2},
-    "dark_vial": {"name": "Чёрный пузырёк", "kind": "buff", "resist": "dark", "sec": 180,
+    "mushroom": {"name": "Светящийся гриб", "kind": "heal", "heal": 8, "price": 10},
+    "bandage": {"name": "Бинт", "kind": "heal", "heal": 15, "price": 20},
+    "elixir": {"name": "Пещерная настойка", "kind": "heal", "heal": 30, "price": 45},
+    "thick_elixir": {"name": "Густая настойка", "kind": "heal", "heal": 70, "price": 100},
+    "pickaxe": {"name": "Ржавая кирка", "kind": "weapon", "atk": 3, "price": 60},
+    "helmet": {"name": "Шахтёрская каска", "kind": "armor", "def": 2, "price": 60},
+    "dark_vial": {"name": "Чёрный пузырёк", "kind": "buff", "resist": "dark", "sec": 180, "price": 80,
                   "desc": "резист к Тёмным способностям на 3 мин"},
+    # только в лавке: чем сильнее, тем дороже
+    "crowbar": {"name": "Монтировка", "kind": "weapon", "atk": 5, "price": 150},
+    "drill": {"name": "Ручной бур", "kind": "weapon", "atk": 8, "price": 400},
+    "mallet": {"name": "Клоунский молот", "kind": "weapon", "atk": 12, "price": 1000},
+    "sorrow_blade": {"name": "Клинок печали", "kind": "weapon", "atk": 18, "price": 2600},
+    "jacket": {"name": "Кожаная куртка", "kind": "armor", "def": 4, "price": 160},
+    "chainmail": {"name": "Кольчуга", "kind": "armor", "def": 6, "price": 450},
+    "rubber_suit": {"name": "Резиновый костюм", "kind": "armor", "def": 9, "price": 1100},
+    "stone_plate": {"name": "Каменный доспех", "kind": "armor", "def": 13, "price": 2800},
 }
 
 # школа способности: позже эффекты игрока будут контрить разные школы
@@ -145,8 +158,11 @@ LOCATIONS = {
         # вес исхода одной прогулки
         "wander": {"nothing": 40, "coins": 20, "item": 15, "monster": 25},
         "coins": (1, 6),
-        "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "stick": 2, "pickaxe": 1, "rags": 2, "helmet": 1, "dark_vial": 0.4, "thick_elixir": 0.4},
+        "items": {"mushroom": 6, "bandage": 3, "elixir": 1, "pickaxe": 1, "helmet": 1, "dark_vial": 0.4, "thick_elixir": 0.4},
         "enemies": {"head": 1, "clown": 1},
+        "exits": [],           # соседние локации: на краю можно перейти (у пещеры пока нет)
+        "shop": ["crowbar", "jacket", "drill", "chainmail", "mallet", "rubber_suit", "sorrow_blade", "stone_plate", "elixir", "thick_elixir"],
+        "border": "Ты вышел к краю пещеры. У стены стоит лавка с фонарём.",
         "giggle": ["Где-то вдалеке хихикают.", "Из темноты доносится смешок.", "Кто-то хихикает прямо за спиной. Никого."],
         "nothing": ["Капает вода.", "Ты споткнулся о камень. Камень не извинился.",
                     "Темно. Сыро. Пахнет гримом.", "Эхо повторяет твои шаги, но с опозданием на долю."],
@@ -157,7 +173,7 @@ STARTER = {"mushroom": 2}
 
 
 STEM_NAME = re.compile(r"[a-z0-9]{1,16}")
-FIELDS = {"foe": int, "item": str, "slot": str, "id": int, "target": str, "a": str}   # поля сообщений клиента
+FIELDS = {"foe": int, "item": str, "slot": str, "id": int, "target": str, "a": str, "to": str}   # поля сообщений клиента
 
 
 def weighted(table):
@@ -478,6 +494,10 @@ class Dungeon:
             p["skills"] = (START_SKILLS + [None] * SKILL_SLOTS)[:SKILL_SLOTS]
         if p.get("loc") not in LOCATIONS:
             p["loc"] = START_LOC
+        p.setdefault("walk", 0)
+        p.setdefault("tears", 0)
+        p["inv"] = {k: v for k, v in p["inv"].items() if k in ITEMS}     # вещи, убранные из игры (палка, лохмотья)
+        p["eq"] = {k: v if v in ITEMS else None for k, v in p["eq"].items()}
         self.dirty_save = True
         return p
 
@@ -558,12 +578,25 @@ class Dungeon:
                                  "mine": pid in x["party"]}
                                 for x in self.battles.values() if x["loc"] == loc]},
             "battle": self.battle_view(b, pid) if b else None,
+            "border": self.border_view(p) if self.at_border(p) and not b else None,
+            "toBorder": BORDER_EVERY - p["walk"] % BORDER_EVERY,
         }
+
+    def at_border(self, p):
+        return p["walk"] > 0 and p["walk"] % BORDER_EVERY == 0
+
+    def border_view(self, p):
+        L = LOCATIONS[p["loc"]]
+        return {"exits": [{"id": x, "name": LOCATIONS[x]["name"]} for x in L.get("exits", []) if x in LOCATIONS],
+                "shop": [self.item_view(i) for i in L.get("shop", [])]}
 
     def item_view(self, item):
         d = ITEMS[item]
         return {"id": item, "name": d["name"], "kind": d["kind"], "heal": d.get("heal"), "atk": d.get("atk"), "def": d.get("def"),
-                "desc": d.get("desc")}
+                "desc": d.get("desc"), "price": d.get("price", 0), "sell": self.sell_price(item)}
+
+    def sell_price(self, item):
+        return max(1, round(ITEMS[item].get("price", 0) * SELL_SHARE))
 
     def battle_view(self, b, pid):
         t = b["turn"]
@@ -583,6 +616,7 @@ class Dungeon:
                          "laugh": t.get("laugh"), "foe": t.get("foe"), "half": c.get("half") if c else None},
                 "decay": ENEMIES[b["enemy"]["kind"]].get("decay", COMBO_DECAY),
                 "cry": ENEMIES[b["enemy"]["kind"]].get("cry", CRY_EVERY),
+                "tears": self.players[pid].get("tears", 0) if pid in b["party"] else 0, "tearsFull": TEARS_FULL, "tearsMult": TEARS_MULT,
                 "log": b["log"][-5:]}
 
     def foe_view(self, f):
@@ -621,9 +655,14 @@ class Dungeon:
             return
         p["_wander"] = now
         p["mp"] = min(p["maxmp"], p["mp"] + MP_WANDER)
+        p["walk"] += 1
+        self.dirty_save = True
         L = LOCATIONS[p["loc"]]
-        what = weighted(L["wander"])
-        if what == "coins":
+        what = "border" if self.at_border(p) else weighted(L["wander"])
+        if what == "border":       # край локации: спокойный шаг, лавка и переходы до следующей прогулки
+            await self.say(pid, L.get("border", "Край локации."))
+            await self.to_player(pid, {"t": "ev", "e": "border"})
+        elif what == "coins":
             n = random.randint(*L["coins"])
             p["coins"] += n
             self.dirty_save = True
@@ -694,6 +733,45 @@ class Dungeon:
         self.inv_add(p, p["eq"][slot])
         p["eq"][slot] = None
         self.mark(p["loc"])
+
+    # ---------- край локации: лавка и переходы ----------
+    def border_ok(self, p, pid):
+        return self.at_border(p) and not self.battle_of(pid)
+
+    async def buy(self, pid, item):
+        p = self.players[pid]
+        if not self.border_ok(p, pid) or item not in LOCATIONS[p["loc"]].get("shop", []):
+            return
+        price = ITEMS[item]["price"]
+        if p["coins"] < price:
+            return await self.say(pid, "Не хватает монет.")
+        p["coins"] -= price
+        self.inv_add(p, item)
+        await self.say(pid, f"Куплено: {ITEMS[item]['name']} за {price}.")
+        await self.to_player(pid, {"t": "ev", "e": "pickup", "kind": "coins"})
+        self.mark(p["loc"])
+
+    async def sell(self, pid, item):
+        p = self.players[pid]
+        if not self.border_ok(p, pid) or item not in ITEMS or not self.inv_take(p, item):
+            return
+        got = self.sell_price(item)
+        p["coins"] += got
+        await self.say(pid, f"Продано: {ITEMS[item]['name']} за {got}.")
+        await self.to_player(pid, {"t": "ev", "e": "pickup", "kind": "coins"})
+        self.mark(p["loc"])
+
+    async def go(self, pid, to):
+        p = self.players[pid]
+        if not self.border_ok(p, pid) or to not in LOCATIONS[p["loc"]].get("exits", []) or to not in LOCATIONS:
+            return
+        old = p["loc"]
+        p["loc"] = to
+        p["walk"] += 1          # с края ушёл: на новой локации до её края снова идти
+        self.dirty_save = True
+        self.mark(old)
+        self.mark(to)
+        await self.say(pid, f"Ты переходишь: {LOCATIONS[to]['name']}.")
 
     # ---------- бой ----------
     async def start_battle(self, pid, kind):
@@ -911,12 +989,19 @@ class Dungeon:
         c["hits"] += 1
         cry = c["hits"] % ENEMIES[b["enemy"]["kind"]].get("cry", CRY_EVERY) == 0
         dec = half["decay"] if half else ENEMIES[b["enemy"]["kind"]].get("decay", COMBO_DECAY)
-        c["power"] = c["base"] * dec if cry else c["power"] * dec
+        mult = 1
+        if cry:                    # полоска слёз: копится у игрока между боями, полная — удар сильнее
+            p = self.players[pid]
+            p["tears"] = p.get("tears", 0) + 1
+            if p["tears"] >= TEARS_FULL:
+                p["tears"], mult = 0, TEARS_MULT
+            self.dirty_save = True
+        c["power"] = c["base"] * dec * mult if cry else c["power"] * dec
         slow = half and half["mode"] == "half"
         t["until"] = at + tr["grace"] * (2 if slow else 1) * tr["beat"] + COMBO_NET_SLACK
         if cry:
-            self.blog(b, f"{b['enemy']['name']} плачет!")
-            await self.to_party(b, {"t": "ev", "e": "cry"})
+            self.blog(b, f"{b['enemy']['name']} плачет!" + (f" Слёзы копились не зря: удар ×{TEARS_MULT}!" if mult > 1 else ""))
+            await self.to_party(b, {"t": "ev", "e": "cry", "by": pid, "rage": mult > 1})
         dmg = max(1, round(c["power"]))
         c["dealt"] += dmg
         await self.strike(b, pid, dmg, c["hits"], fid)
@@ -1227,6 +1312,12 @@ class Dungeon:
             await self.throw(pid, d.get("item"))
         elif t == "pick":
             await self.pick(pid, d.get("id"))
+        elif t == "buy":
+            await self.buy(pid, d.get("item"))
+        elif t == "sell":
+            await self.sell(pid, d.get("item"))
+        elif t == "go":
+            await self.go(pid, d.get("to"))
         elif t == "join":
             await self.join(pid, d.get("id"))
         elif t == "hinder":

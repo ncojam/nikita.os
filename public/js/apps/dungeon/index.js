@@ -22,7 +22,7 @@ const LATE_STATE = 1500;    // мс: столько после атаки сни
 /* Своё комбо клиент ведёт сам: удар виден и слышен сразу, а не через поездку до сервера и обратно.
  * Числа считаются по тем же правилам, что на сервере; настоящий урон сервер пришлёт снимком, когда комбо закончится. */
 let rules = { decay: 0.5, cry: 20, grace: 2.6, start: 3.5 };
-let combo = null;           // { hits, power, base, hp, unshown }
+let combo = null;           // { hits, power, base, hp, unshown, tears }
 let comboTimer = 0;
 let wailKey = null;         // какое завывание сейчас звучит
 let laughKey = null;
@@ -172,7 +172,8 @@ function onEvent(d) {
   else if (d.e === "level") { banner(`Уровень ${d.level}!`); sfx.item(); }
   else if (d.e === "pickup") d.kind === "coins" ? sfx.coin() : sfx.item();
   else if (d.e === "giggle") sfx.giggle();
-  else if (d.e === "cry") { if (!combo) { view.cry(); sfx.cry(); } }
+  else if (d.e === "cry") { if (!combo) { view.cry(); sfx.cry(); if (d.rage) view.say("ЯРОСТЬ СЛЁЗ!", "#9fd3ff"); } }
+  else if (d.e === "border") { sfx.item(); banner("Край локации: лавка"); }
   else if (d.e === "win") { sfx.win(); sfx.laughStop(); view.dieAll(); holdBattle = performance.now() + 1700; banner(`Победа: ${d.enemy}`); setTimeout(render, 1750); }
   else if (d.e === "dead") { holdBattle = performance.now() + 1200; banner("Ты повержен"); setTimeout(render, 1250); }
 }
@@ -236,9 +237,14 @@ function renderWorld() {
   for (const g of S.loc.ground) rows.push(el("div", { className: "card" },
     el("span", { textContent: g.name }, ...(g.from ? [el("small", { textContent: `  от: ${g.from}` })] : [])),
     btn("Взять", () => send({ t: "pick", id: g.id }), "small")));
+  if (S.border) rows.unshift(el("div", { className: "card border" },
+    el("span", { textContent: `Край: ${S.loc.name}` }),
+    btn("Лавка", () => openSheet("shop"), "small"),
+    ...S.border.exits.map(x => btn(`→ ${x.name}`, () => send({ t: "go", to: x.id }), "small"))));
+  else if (sheet?.kind === "shop") sheet = null;      // ушёл с края — лавка закрывается
   const others = S.loc.players.filter(n => n !== S.me.nick);
   app.replaceChildren(top(), ...fxLine(), log, ...(rows.length ? [el("div", { className: "list" }, ...rows)] : []),
-    ...(others.length ? [el("div", { className: "here", textContent: "Рядом: " + others.join(", ") })] : []),
+    el("div", { className: "here", textContent: (S.border ? "Ты на краю локации" : `До края: ${S.toBorder} шаг.`) + (others.length ? " · Рядом: " + others.join(", ") : "") }),
     el("div", { className: "row" }, walkBtn, btn("Рюкзак", () => openSheet("bag"))));
   log.scrollTop = log.scrollHeight;
 }
@@ -262,10 +268,11 @@ function renderBattle() {
     : combo && t.half ? (t.half.mode === "fast" ? "Вдвое чаще: бей каждую долю!" : "Вдвое реже: бей через долю!")
     : combo ? "Жми по врагу в такт!"
     : mine ? "Твой ход" : t.phase === "combo" ? `${who} бьёт в такт…` : `Ходит ${who}…`;
+  view.status = text;                 // крупно на холсте, прямо под полосой нот
+  view.tears = combo ? combo.tears : (S.battle?.tears ?? 0);
   const tail = [
     el("div", { className: "vitals" }, hpBar(S.me.hp, S.me.maxhp), mpBar()),
     ...fxLine(),
-    el("div", { className: "turn", textContent: text }),
     ...(music.error ? [el("div", { className: "sound", textContent: "Музыка не запустилась: " + music.error.slice(0, 80) })]
       : music.ctx && !music.audible ? [el("div", { className: "sound", textContent: `Нажми куда угодно, чтобы включить звук (${music.ctx.state})` })] : []),
     audioInfo,
@@ -300,6 +307,21 @@ function renderSheet() {
   if (sheet.kind === "hinder") {
     box.append(el("h3", { textContent: "Кому поставить подножку?" }));
     for (const p of sheet.data.targets) box.append(btn(p.nick, () => { send({ t: "hinder", id: sheet.data.id, target: p.id }); closeSheet(); }));
+  } else if (sheet.kind === "shop") {
+    if (!S.border) { sheet = null; return; }
+    box.append(el("h3", { textContent: `Лавка · 🪙 ${S.me.coins}` }));
+    for (const it of S.border.shop) {
+      const gear = it.kind === "weapon" || it.kind === "armor";
+      const note = gear ? (it.kind === "weapon" ? `урон +${it.atk}` : `защита +${it.def}`) : it.desc || `+${it.heal} HP`;
+      box.append(el("div", { className: "card" },
+        el("span", { textContent: `${it.name}  ` }, el("small", { textContent: note })),
+        btn(`Купить · ${it.price}`, () => send({ t: "buy", item: it.id }), "small", S.me.coins < it.price)));
+    }
+    box.append(el("h3", { textContent: "Продать (лавочник платит гроши)" }));
+    for (const it of S.me.inv) box.append(el("div", { className: "card" },
+      el("span", { textContent: `${it.name}${it.qty > 1 ? " ×" + it.qty : ""}` }),
+      btn(`Продать · ${it.sell}`, () => send({ t: "sell", item: it.id }), "small")));
+    if (!S.me.inv.length) box.append(el("div", { className: "here", textContent: "Продавать нечего." }));
   } else if (sheet.kind === "magic") {
     const b = S.battle, myTurn = b && b.turn.who === me && b.turn.phase === "choose";
     box.append(el("h3", { textContent: `Магия · MP ${S.me.mp}/${S.me.maxmp}` }));
@@ -347,7 +369,7 @@ function attackPress(fid) {
   if (b.turn.phase !== "choose") return;
   lastStep = -1;
   attackAt = performance.now();
-  combo = { hits: 0, power: null, base: null, hp: {}, unshown: new Set() };
+  combo = { hits: 0, power: null, base: null, hp: {}, unshown: new Set(), tears: b.tears ?? 0 };
   armCombo(b.start ?? rules.start);
   send({ t: "act", a: "attack", foe: target });    // сообщения идут по порядку: тап сразу за атакой сервер поймёт и без ответа
   render();
@@ -413,11 +435,17 @@ function landTap(j) {
   const dec = inHalf ? half.decay : (S?.battle?.decay ?? rules.decay);
   armCombo((S?.battle?.grace ?? rules.grace) * (inHalf && half.mode !== "fast" ? 2 : 1));
   sfx.hurt(false);
-  if (cry) { view.cry(); sfx.cry(); }
+  let mult = 1;
+  if (cry) {
+    view.cry(); sfx.cry();
+    const full = S?.battle?.tearsFull ?? 3;
+    if (++combo.tears >= full) { combo.tears = 0; mult = S?.battle?.tearsMult ?? 3; view.say(`ЯРОСТЬ СЛЁЗ ×${mult}!`, "#9fd3ff"); }
+    view.tears = combo.tears;
+  }
   const b = S?.battle;
   if (b) b.turn.hits = hits;
   if (combo.power == null) { combo.unshown.add(hits); view.hit(null, hits); return; }   // сила первого удара ещё в пути
-  combo.power = cry ? combo.base * dec : combo.power * dec;
+  combo.power = cry ? combo.base * dec * mult : combo.power * dec;
   const dmg = Math.max(1, pyRound(combo.power));
   const f = b?.foes.find(x => x.id === target && x.hp > 0) || b?.foes.find(x => x.hp > 0);
   view.hit(dmg, hits, f?.id);
