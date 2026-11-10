@@ -776,6 +776,7 @@ class Dungeon:
     # ---------- бой ----------
     async def start_battle(self, pid, kind):
         p = self.players[pid]
+        p["tears"] = 0           # полоска слёз — на один бой
         e = ENEMIES[kind]
         track = await self.pick_track(e)
         lvl = p.get("level", 1)
@@ -903,6 +904,7 @@ class Dungeon:
             return
         b["party"].append(pid)
         b["order"].append(pid)     # встаёт в конец текущего круга
+        p["tears"] = 0
         self.blog(b, f"{p['nick']} вступает в бой!")
 
     async def act(self, pid, a, item=None, fid=None):
@@ -990,7 +992,7 @@ class Dungeon:
         cry = c["hits"] % ENEMIES[b["enemy"]["kind"]].get("cry", CRY_EVERY) == 0
         dec = half["decay"] if half else ENEMIES[b["enemy"]["kind"]].get("decay", COMBO_DECAY)
         mult = 1
-        if cry:                    # полоска слёз: копится у игрока между боями, полная — удар сильнее
+        if cry:                    # полоска слёз: копится за бой, полная — удар сильнее
             p = self.players[pid]
             p["tears"] = p.get("tears", 0) + 1
             if p["tears"] >= TEARS_FULL:
