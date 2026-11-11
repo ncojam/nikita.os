@@ -3,7 +3,7 @@ import "../i18n/thawlab.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
 import {
-  DEFAULT_REPEAT, FPS, RATING_PRESETS, autoPick, comboFrames, comboScore, compileRating, ptsPerSec, setBaseStat, timing,
+  DEFAULT_REPEAT, FPS, OLD_DEFAULT_RATING, RATING_PRESETS, autoPick, comboFrames, comboScore, compileRating, ptsPerSec, setBaseStat, timing,
 } from "./thawlab-model.js";
 
 /* ================= THAW Lab: тайминги триков reTHAWed =================
@@ -35,13 +35,14 @@ const S = {
   tab: "tricks", stat: 1.3, sos: true,
   q: "", cat: "all", specials: true, timedOnly: true,
   sort: "rating", dir: -1,
-  formula: RATING_PRESETS[0][1], showFormula: false,
+  formula: RATING_PRESETS[0][1], showFormula: false, N: 10, B: 20000,
   compare: [], combo: [], arsenal: { flip: [], grab: [], special: [] },
   repeat: DEFAULT_REPEAT.slice(), budget: 2.5, autoSpecials: false, autoGrabs: true, fromArsenal: true,
   similarOf: null, tol: 3,
   setTab: "flip", current: null,
 };
 let rating = compileRating(S.formula);
+const rate = (t, m) => rating(t, m, S.N, S.B);
 let order = [];   // id триков в текущем порядке таблицы — для ↑/↓
 
 const load = (k, d) => store.get("thawlab." + k, d);
@@ -73,7 +74,8 @@ async function ensureData() {
     compare: load("compare", []).filter(byId),
     combo: (load("combo", null) ?? load("set", [])).filter(byId),
     arsenal: { flip: (ar.flip || []).filter(byId), grab: (ar.grab || []).filter(byId), special: (ar.special || []).filter(byId) },
-    repeat: load("repeat", DEFAULT_REPEAT.slice()), formula: load("formula", S.formula),
+    repeat: load("repeat", DEFAULT_REPEAT.slice()), N: load("N", 10), B: load("B", 20000),
+    formula: [null, OLD_DEFAULT_RATING].includes(load("formula", null)) ? S.formula : load("formula"),
     setTab: load("setTab", "flip"),
   });
   try { rating = compileRating(S.formula); } catch { S.formula = RATING_PRESETS[0][1]; rating = compileRating(S.formula); }
@@ -167,7 +169,7 @@ const COLS = [
   ["cancel", "Неотм.", (t, m) => m?.cancel],
   ["tail", "Хвост", (t, m) => m ? m.total - m.cancel : null],
   ["pps", "Очки/с", (t, m) => m ? ptsPerSec(t, m) : null],
-  ["rating", "Рейтинг", (t, m) => rating(t, m)],
+  ["rating", "Рейтинг", (t, m) => rate(t, m)],
 ];
 
 function renderTricks() {
@@ -233,12 +235,21 @@ function formulaPanel(redraw) {
     b.onclick = () => { apply(f); for (const x of b.parentNode.children) x.classList.toggle("on", x === b); };
     return b;
   });
+  const num = (key, min, max, stepV) => {
+    const i = el("input", { type: "number", className: "tl-input small", min, max, step: stepV, value: S[key] });
+    i.onchange = () => { S[key] = Math.max(min, Math.min(max, +i.value || 0)); i.value = S[key]; save(key, S[key]); redraw(); };
+    return i;
+  };
   return el("div", { className: "tl-formula" },
     el("div", { className: "tl-bar" }, el("b", { textContent: "Рейтинг =" }), input, err),
     el("div", { className: "tl-bar" }, el("span", { className: "tl-muted", textContent: "Готовые:" }), ...presets),
+    el("div", { className: "tl-bar" }, el("span", { textContent: "Типичное комбо: множитель N =" }), num("N", 0, 200, 1),
+      el("span", { textContent: "сумма очков B =" }), Object.assign(num("B", 0, 10_000_000, 1000), { style: "width:110px" })),
     el("div", { className: "tl-hint", textContent:
-      "Переменные: s — очки, lock — неотменяемые кадры, tail — хвост, total — вся анимация, pps — очки/с, blend — вход, intro — вступление, sp — 1 у спешла. " +
-      "Функции: min, max, pow, sqrt, log, abs, round. «Сбалансированный» = очки/с, но трик дольше 20 кадров штрафуется: длинная неотменяемая часть — это риск не успеть приземлиться и меньше свободы в маршруте." }));
+      "«Вклад в комбо»: итог = сумма очков × множитель. Трик, вставленный в комбо с множителем N и суммой B, добавляет к итогу s·(N+1) + B — " +
+      "второе слагаемое не зависит от его очков: любой трик поднимает множитель и «умножает» всё уже набранное. Делим на неотменяемое время. " +
+      "Поэтому в длинном комбо короткие трики ценнее, чем видно по очкам/с; при N = 0 и B = 0 рейтинг совпадает с очками/с. " +
+      "Переменные: s, lock (неотм. кадры), tail, total, pps, blend, intro, sp (1 у спешла), N, B. Функции: min, max, pow, sqrt, log, abs, round." }));
 }
 
 function trickRow(t, m) {
@@ -266,7 +277,7 @@ function trickRow(t, m) {
     el("td", { className: "num", textContent: fr(m?.cancel) }),
     el("td", { className: "num", textContent: m ? fr(m.total - m.cancel) : "—" }),
     el("td", { className: "num", textContent: m ? int(ptsPerSec(t, m)) : "—" }),
-    el("td", { className: "num strong", textContent: m ? fmtRating(rating(t, m)) : "—" }),
+    el("td", { className: "num strong", textContent: m ? fmtRating(rate(t, m)) : "—" }),
     el("td", { className: "tl-acts" }, cmp, add));
   r.dataset.id = t.id;
   r.onclick = () => openAnim(t.id);
@@ -417,7 +428,7 @@ function openAnim(id) {
         fact("Хвост", `${fr(m.total - m.cancel)} кадр`);
         fact("Вся анимация", `${fr(m.total)} кадр · ${sec(m.total)}`);
         fact("Очки/с", int(ptsPerSec(t, m)));
-        fact("Рейтинг", fmtRating(rating(t, m)));
+        fact("Рейтинг", fmtRating(rate(t, m)));
         t0 = performance.now();
       };
       const loop = now => {
@@ -509,7 +520,7 @@ function renderSet() {
 function renderSlot(slot) {
   const wrap = el("div", { className: "tl-pane" });
   const list = S.arsenal[slot].map(byId).filter(Boolean)
-    .map(t => ({ t, m: tm(t) })).sort((a, b) => (rating(b.t, b.m) ?? -1e9) - (rating(a.t, a.m) ?? -1e9));
+    .map(t => ({ t, m: tm(t) })).sort((a, b) => (rate(b.t, b.m) ?? -1e9) - (rate(a.t, a.m) ?? -1e9));
   wrap.append(el("div", { className: "tl-hint", textContent: "Перетащи строку трика из таблицы сюда (или на вкладку) — он ляжет в свою категорию. ⤵ — добавить в комбо." }));
   if (!list.length) wrap.append(el("div", { className: "tl-empty", textContent: `${SLOT_NAME[slot]}: пусто` }));
   else wrap.append(el("div", { className: "tl-tablewrap" }, el("table", { className: "tl-table" },
@@ -522,7 +533,7 @@ function renderSlot(slot) {
       const r = el("tr", { className: S.current === t.id ? "cur" : "" },
         el("td", { textContent: label(t) }), el("td", { className: "num", textContent: int(t.s) }),
         el("td", { className: "bar" }, miniBar(m)), el("td", { className: "num", textContent: fr(m?.cancel) }),
-        el("td", { className: "num strong", textContent: fmtRating(rating(t, m)) }),
+        el("td", { className: "num strong", textContent: fmtRating(rate(t, m)) }),
         el("td", { className: "tl-acts" }, toCombo, rm));
       r.onclick = e => { if (!e.target.closest("button")) openAnim(t.id); };
       return r;
@@ -650,11 +661,13 @@ WaitAnimWhilstChecking               ← хвост анимации, котор
 дальше грэб держится, пока зажата кнопка, и копит очки. Стат флипов на грэбы не влияет, вход — 0,3 с.</p>
 
 <h2>Рейтинг</h2>
-<p>«Очки в секунду» — хороший показатель, но не единственный: трик с огромной неотменяемой частью может дать много очков в секунду
-и всё равно быть неудобным — его не прервать, если земля близко, и он отнимает свободу в маршруте. Поэтому в таблице есть
-<b>рейтинг</b> со своей формулой (кнопка «⚙ Рейтинг»). По умолчанию — «Сбалансированный»: очки/с, но трик дольше 20 кадров
-штрафуется тем сильнее, чем он длиннее.</p>
-
+<p>Итог комбо = <b>сумма очков × множитель</b>, а множитель растёт на 1 с каждым триком. Поэтому трик, вставленный в комбо,
+где уже множитель N и сумма B, добавляет к итогу <code>s·(N+1) + B</code>: свои очки, умноженные на новый множитель,
+плюс <b>всё уже набранное ещё раз</b> — и это второе слагаемое одинаково у любого трика.</p>
+<p>Отсюда рейтинг по умолчанию — <b>«Вклад в комбо»</b>: этот прирост, делённый на неотменяемое время. Пример при N = 10, B = 20 000:
+The McTwist 900 (10 000 очк, 54,6 кадра) даёт ≈143 тыс. в секунду, Old School Kickflip (2 200 очк, 15 кадров) — ≈177 тыс.:
+за время одного МакТвиста влезает 3,6 кикфлипа, и каждый поднимает множитель. В начале комбо (N и B маленькие) выигрывают
+трики с большими очками в секунду — подставь свои N и B в «⚙ Рейтинг». Повторы одного трика режут его очки, это учитывает сборщик комбо.</p>
 <h2>Проверено в игре</h2>
 <table class="tl-table small">
 <tr><th>Замер</th><th>Модель</th><th>Видео</th><th>Итог</th></tr>

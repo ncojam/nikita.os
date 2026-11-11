@@ -54,17 +54,23 @@ export const ptsPerSec = (t, tm) => tm && tm.cancel > 0 ? t.s / (tm.cancel / FPS
 
 /* ---------- рейтинг трика: формула посетителя ----------
  * Переменные: s — очки, lock — неотменяемые кадры, tail — хвост, total — вся анимация,
- * pps — очки в секунду, blend — кадры входа, intro — вступление, sp — 1 у спешла.
+ * pps — очки в секунду, blend — кадры входа, intro — вступление, sp — 1 у спешла,
+ * N и B — «типичное комбо», в которое трик вставляют: множитель и сумма очков к этому моменту.
  * Функции: min, max, pow, sqrt, log, abs, round. Больше ничего — формула не может
  * обратиться ни к странице, ни к сети (проверяем каждое слово до компиляции). */
-export const RATING_VARS = ["s", "lock", "tail", "total", "pps", "blend", "intro", "sp"];
+export const RATING_VARS = ["s", "lock", "tail", "total", "pps", "blend", "intro", "sp", "N", "B"];
 const RATING_FUNCS = ["min", "max", "pow", "sqrt", "log", "abs", "round"];
+/* «Вклад в комбо»: итог комбо = сумма × множитель. Вставка трика в комбо с множителем N и суммой B
+ * даёт (B + s)(N + 1) − B·N = s·(N + 1) + B. Делим на неотменяемое время — прирост итога за секунду.
+ * Слагаемое B не зависит от очков трика: каждый трик поднимает множитель и тем самым «умножает» всё
+ * набранное — поэтому в длинном комбо короткие трики ценнее, чем кажется по очкам в секунду. */
 export const RATING_PRESETS = [
-  ["Сбалансированный", "pps * pow(20 / max(lock, 20), 0.8)"],
+  ["Вклад в комбо", "(s * (N + 1) + B) / lock * 60"],
   ["Очки в секунду", "pps"],
-  ["Только короткие", "pps * pow(18 / max(lock, 18), 2)"],
+  ["Осторожный (штраф > 20 кадров)", "pps * pow(20 / max(lock, 20), 0.8)"],
   ["Очки за трик", "s"],
 ];
+export const OLD_DEFAULT_RATING = "pps * pow(20 / max(lock, 20), 0.8)";
 
 export function compileRating(src) {
   const code = String(src || "").trim();
@@ -75,9 +81,9 @@ export function compileRating(src) {
     if (!RATING_VARS.includes(id) && !RATING_FUNCS.includes(id)) throw new Error(`неизвестное слово «${id}»`);
   const fn = new Function(...RATING_VARS, ...RATING_FUNCS, `"use strict"; return (${code});`);
   const M = RATING_FUNCS.map(f => Math[f]);
-  return (t, tm) => {
+  return (t, tm, N = 10, B = 20000) => {
     if (!tm) return null;
-    const v = fn(t.s, tm.cancel, tm.total - tm.cancel, tm.total, ptsPerSec(t, tm), tm.blend, tm.intro || 0, t.sp ? 1 : 0, ...M);
+    const v = fn(t.s, tm.cancel, tm.total - tm.cancel, tm.total, ptsPerSec(t, tm), tm.blend, tm.intro || 0, t.sp ? 1 : 0, N, B, ...M);
     return Number.isFinite(v) ? v : null;
   };
 }
