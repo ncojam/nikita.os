@@ -33,7 +33,7 @@ const SET_TABS = [["flip", "🛹 Флипы"], ["grab", "✋ Грэбы"], ["spe
 let data = null;
 const S = {
   tab: "tricks", stat: 1.3, sos: true,
-  q: "", cat: "all", specials: true, timedOnly: true,
+  q: "", cat: "all", specials: true, timedOnly: true, hidden: false,
   sort: "rating", dir: -1,
   formula: RATING_PRESETS[0][1], showFormula: false, N: 10, B: 20000,
   compare: [], combo: [], arsenal: { flip: [], grab: [], special: [] },
@@ -180,6 +180,7 @@ function renderTricks() {
       .map(([v, n]) => el("option", { value: v, textContent: n, selected: S.cat === v })));
   const sp = el("input", { type: "checkbox", checked: S.specials });
   const timed = el("input", { type: "checkbox", checked: S.timedOnly });
+  const hid = el("input", { type: "checkbox", checked: S.hidden });
   const fBtn = el("button", { className: "tl-btn" + (S.showFormula ? " on" : ""), textContent: "⚙ Рейтинг" });
   const table = el("div", { className: "tl-tablewrap" });
   const count = el("span", { className: "tl-muted" });
@@ -189,7 +190,7 @@ function renderTricks() {
     const q = S.q.trim().toLowerCase();
     rows = rows.filter(({ t, m }) =>
       (!q || label(t).toLowerCase().includes(q)) && (S.cat === "all" || t.c === S.cat) &&
-      (S.specials || !t.sp) && (!S.timedOnly || m));
+      (S.specials || !t.sp) && (!S.timedOnly || m) && (S.hidden || !t.h));
     const col = COLS.find(c => c[0] === S.sort) || COLS[7];
     rows.sort((a, b) => {
       const x = col[2](a.t, a.m), y = col[2](b.t, b.m);
@@ -210,11 +211,14 @@ function renderTricks() {
   cat.onchange = () => { S.cat = cat.value; draw(); };
   sp.onchange = () => { S.specials = sp.checked; draw(); };
   timed.onchange = () => { S.timedOnly = timed.checked; draw(); };
+  hid.onchange = () => { S.hidden = hid.checked; draw(); };
   fBtn.onclick = () => { S.showFormula = !S.showFormula; renderTab(); };
 
   wrap.append(el("div", { className: "tl-bar" }, search, cat,
     el("label", { className: "tl-check" }, sp, el("span", { textContent: "спешлы" })),
-    el("label", { className: "tl-check" }, timed, el("span", { textContent: "только с таймингом" })), count, fBtn));
+    el("label", { className: "tl-check" }, timed, el("span", { textContent: "только с таймингом" })),
+    el("label", { className: "tl-check", title: "Трики, которые есть в файлах игры, но ниоткуда не выдаются игроку (в меню их не найти)" },
+      hid, el("span", { textContent: "скрытые" })), count, fBtn));
   if (S.showFormula) wrap.append(formulaPanel(draw));
   wrap.append(el("div", { className: "tl-hint", textContent: "Полоска — вся анимация на общей шкале (120 кадров = 2 с): синее нельзя прервать, штриховка — хвост, который отменяет следующий трик. Клик по трику — окно анимации (↑/↓ листают), строку можно перетащить в окно «Сет»." }),
     table);
@@ -256,6 +260,7 @@ function trickRow(t, m) {
   const name = el("td", { className: "tl-name" }, el("span", { textContent: t.n }));
   if (t.v) name.append(el("span", { className: "tl-var", textContent: t.v }));
   if (t.sp) name.append(el("span", { className: "tl-tag sp", textContent: "спешл", title: "Нужна полная шкала спешла" }));
+  if (t.h) name.append(el("span", { className: "tl-tag hid", textContent: "скрыт", title: "Есть в файлах игры, но ниоткуда не выдаётся — в меню триков его нет" }));
   if (UTILITY[t.n]) name.append(el("span", { className: "tl-tag ut", textContent: "🔧 польза", title: UTILITY[t.n] }));
   const notes = [];
   if (t.hold) notes.push("держится, пока зажата кнопка");
@@ -364,7 +369,7 @@ function renderCompare() {
     const tol = el("input", { type: "number", className: "tl-input small", min: 0, max: 30, step: 1, value: S.tol });
     tol.onchange = () => { S.tol = Math.max(0, +tol.value || 0); renderTab(); };
     const near = data.tricks.map(t => ({ t, m: tm(t) }))
-      .filter(({ t, m }) => m && t.id !== base.id && Math.abs(m.cancel - bm.cancel) <= S.tol && (S.specials || !t.sp))
+      .filter(({ t, m }) => m && t.id !== base.id && Math.abs(m.cancel - bm.cancel) <= S.tol && (S.specials || !t.sp) && (S.hidden || !t.h))
       .sort((a, b) => b.t.s - a.t.s).slice(0, 25)
       .map(({ t, m }) => {
         const add = el("button", { className: "tl-mini", textContent: "⇄", title: "В сравнение" });
@@ -574,7 +579,7 @@ function renderCombo() {
     const ar = new Set([...S.arsenal.flip, ...S.arsenal.grab, ...S.arsenal.special]);
     const useAr = S.fromArsenal && ar.size > 0;
     const pool = data.tricks.filter(t => useAr ? ar.has(t.id)
-      : (t.c === "flip" || (S.autoGrabs && t.c === "grab")) && (S.autoSpecials || !t.sp));
+      : !t.h && (t.c === "flip" || (S.autoGrabs && t.c === "grab")) && (S.autoSpecials || !t.sp));
     const res = autoPick(pool, S.budget * FPS, S.stat, S.sos, S.repeat);
     if (!res.length) return notify("Ничего не влезает в это время");
     S.combo = res.map(t => t.id); save2();
