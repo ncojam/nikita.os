@@ -32,3 +32,4 @@ export const openDawn = lazy("./dawn/index.js", "openDawn");
 export const openShare = lazy("./share.js", "openShare");
 export const openFinds = lazy("./finds.js", "openFinds");
 export const openTrip = lazy("./trip.js", "openTrip");
+export const openThawLab = lazy("./thawlab.js", "openThawLab");

@@ -1,7 +1,7 @@
 import { D, EASE } from "../core/anim.js";
 import { $ } from "../core/util.js";
 import { openAbout } from "../open.js";
-import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFinds, openSettings, openShare, openTrip } from "../apps/lazy.js";
+import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFinds, openSettings, openShare, openThawLab, openTrip } from "../apps/lazy.js";
 import { WM } from "../wm.js";
 
 /* ================= пуск (с анимацией) ================= */
@@ -86,6 +86,7 @@ export function init_ui_taskbar() {
     if (b.dataset.app === "dungeon") openDungeon();
     if (b.dataset.app === "share") openShare();
     if (b.dataset.app === "trip") openTrip();
+    if (b.dataset.app === "thawlab") openThawLab();
     toggleStart(false);
   });
 

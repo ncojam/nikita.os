@@ -1,0 +1,433 @@
+import { el, store } from "../core/util.js";
+import "../i18n/thawlab.js";
+import { notify } from "../ui/notify.js";
+import { WM } from "../wm.js";
+import { DEFAULT_REPEAT, FPS, autoPick, comboFrames, comboScore, ptsPerSec, setBaseStat, timing } from "./thawlab-model.js";
+
+/* ================= THAW Lab: тайминги триков reTHAWed =================
+ * Одно окно с вкладками: таблица триков, сравнение таймингов, сборщик сета (+ отчёт .md),
+ * гайд (как работают тайминги, советы) и анимации (позже — из файлов игры самого посетителя).
+ * Данные — /apps/thawlab/tricks.json: только числа (очки, кадры), без файлов игры.
+ * Модель и пересчёт под стат — thawlab-model.js. Состояние посетителя — в store("thawlab.*").
+ */
+const DATA_URL = "/apps/thawlab/tricks.json";
+const CAT = { flip: "Флип", grab: "Грэб", manual: "Мэнюал", other: "Другое" };
+
+// трики, которые ценны не очками, а тем, что дают в комбо
+const UTILITY = {
+  "Hot Rod": "Спешл-мэнюал, разгоняет скейтера — восстанавливает скорость посреди комбо",
+  "Jango Jump Jet": "Спешл-грэб, подбрасывает вверх на ранце — больше воздуха, больше триков",
+};
+
+const TABS = [
+  ["tricks", "📋 Трики"], ["compare", "📊 Сравнение"], ["set", "🧩 Сет"],
+  ["guide", "📖 Гайд"], ["anims", "🎬 Анимации"],
+];
+
+let data = null;
+const S = {
+  tab: "tricks", stat: 1.3, sos: true,
+  q: "", cat: "all", specials: true, timedOnly: true,
+  sort: "pps", dir: -1,
+  compare: [], set: [],
+  repeat: DEFAULT_REPEAT.slice(), budget: 2.5, autoSpecials: false, autoGrabs: true,
+  similarOf: null, tol: 3,
+};
+
+const load = (k, d) => store.get("thawlab." + k, d);
+const save = (k, v) => store.set("thawlab." + k, v);
+
+const byId = id => data.tricks.find(t => t.id === id);
+const fr = x => x == null ? "—" : (Math.round(x * 10) / 10).toLocaleString(globalThis.NOS_LOCALE);
+const sec = f => (f / FPS).toLocaleString(globalThis.NOS_LOCALE, { maximumFractionDigits: 2 }) + " с";
+const int = x => Math.round(x).toLocaleString(globalThis.NOS_LOCALE);
+const tm = t => timing(t, S.stat, S.sos);
+const label = t => t.n + (t.v ? ` (${t.v})` : "");
+
+export async function openThawLab() {
+  WM.open({ title: "THAW Lab", icon: "🛹", width: 1040, height: 680, key: "thawlab",
+    async render(c) {
+      c.classList.add("tl");
+      c.append(el("div", { className: "tl-loading", textContent: "Загружаю данные триков…" }));
+      try {
+        if (!data) {
+          const r = await fetch(DATA_URL, { cache: "no-cache" });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          data = await r.json();
+          setBaseStat(data.meta.stat);
+        }
+      } catch (e) {
+        c.replaceChildren(el("div", { className: "tl-loading", textContent: "⚠ Не удалось загрузить данные: " + e.message }));
+        return;
+      }
+      Object.assign(S, {
+        tab: load("tab", "tricks"), stat: load("stat", data.meta.stat), sos: load("sos", true),
+        set: load("set", []).filter(byId), compare: load("compare", []).filter(byId),
+        repeat: load("repeat", DEFAULT_REPEAT.slice()),
+      });
+      build(c);
+    } });
+}
+
+/* ---------- каркас: шапка со статом, вкладки, тело ---------- */
+let body = null, tabBtns = {};
+function build(c) {
+  const statVal = el("span", { className: "tl-statval" });
+  const slider = el("input", { type: "range", min: 1, max: 1.3, step: 0.01, value: S.stat });
+  const showStat = () => { statVal.textContent = "×" + Number(S.stat).toFixed(2); };
+  slider.oninput = () => { S.stat = +slider.value; showStat(); save("stat", S.stat); renderTab(); };
+  showStat();
+  const sos = el("input", { type: "checkbox", checked: S.sos });
+  sos.onchange = () => { S.sos = sos.checked; save("sos", S.sos); renderTab(); };
+
+  const tabs = el("div", { className: "tl-tabs" }, ...TABS.map(([k, name]) => {
+    const b = el("button", { className: "tl-tab", textContent: name });
+    b.onclick = () => { S.tab = k; save("tab", k); renderTab(); };
+    tabBtns[k] = b;
+    return b;
+  }));
+  const head = el("div", { className: "tl-head" }, tabs,
+    el("label", { className: "tl-stat", title: "Множитель скорости флипов от стата скейтера. Полные статы — 1,3 (упирается в потолок скорости)" },
+      el("span", { textContent: "Стат флипов" }), slider, statVal),
+    el("label", { className: "tl-check", title: "Влияет ли стат на скорость спешл-флипов. По скрипту — да, но замер The 900 (TH4) говорит, что нет" },
+      sos, el("span", { textContent: "и на спешлы" })));
+  body = el("div", { className: "tl-body" });
+  c.replaceChildren(head, body);
+  renderTab();
+}
+
+function renderTab() {
+  for (const [k, b] of Object.entries(tabBtns)) b.classList.toggle("on", k === S.tab);
+  const f = { tricks: renderTricks, compare: renderCompare, set: renderSet, guide: renderGuide, anims: renderAnims }[S.tab] || renderTricks;
+  body.replaceChildren(f());
+  body.scrollTop = 0;
+}
+
+/* ---------- 📋 таблица ---------- */
+const COLS = [
+  ["name", "Трик", t => label(t)],
+  ["cat", "Тип", t => CAT[t.c]],
+  ["s", "Очки", t => t.s],
+  ["cancel", "Неотм., кадр", (t, m) => m?.cancel],
+  ["tail", "Хвост", (t, m) => m ? m.total - m.cancel : null],
+  ["blend", "Вход", (t, m) => m?.blend],
+  ["pps", "Очки/с", (t, m) => m ? ptsPerSec(t, m) : null],
+];
+
+function renderTricks() {
+  const wrap = el("div", { className: "tl-pane" });
+  const search = el("input", { className: "tl-input", placeholder: "Поиск по названию…", value: S.q });
+  const cat = el("select", { className: "tl-input" },
+    ...[["all", "Все типы"], ["flip", "Флипы"], ["grab", "Грэбы"], ["manual", "Мэнюалы"], ["other", "Другое"]]
+      .map(([v, n]) => el("option", { value: v, textContent: n, selected: S.cat === v })));
+  const sp = el("input", { type: "checkbox", checked: S.specials });
+  const timed = el("input", { type: "checkbox", checked: S.timedOnly });
+  const table = el("div", { className: "tl-tablewrap" });
+  const count = el("span", { className: "tl-muted" });
+
+  const draw = () => {
+    let rows = data.tricks.map(t => ({ t, m: tm(t) }));
+    const q = S.q.trim().toLowerCase();
+    rows = rows.filter(({ t, m }) =>
+      (!q || label(t).toLowerCase().includes(q)) && (S.cat === "all" || t.c === S.cat) &&
+      (S.specials || !t.sp) && (!S.timedOnly || m));
+    const col = COLS.find(c => c[0] === S.sort) || COLS[6];
+    rows.sort((a, b) => {
+      const x = col[2](a.t, a.m), y = col[2](b.t, b.m);
+      if (x == null) return 1; if (y == null) return -1;
+      return (typeof x === "string" ? x.localeCompare(y) : x - y) * S.dir;
+    });
+    count.textContent = rows.length + " шт.";
+    const th = COLS.map(([k, name]) => {
+      const h = el("th", { textContent: name + (S.sort === k ? (S.dir > 0 ? " ▲" : " ▼") : "") });
+      h.onclick = () => { if (S.sort === k) S.dir *= -1; else { S.sort = k; S.dir = k === "name" || k === "cat" ? 1 : -1; } draw(); };
+      return h;
+    });
+    const tbody = el("tbody", {}, ...rows.map(({ t, m }) => trickRow(t, m, draw)));
+    table.replaceChildren(el("table", { className: "tl-table" }, el("thead", {}, el("tr", {}, ...th, el("th", {}))), tbody));
+  };
+  search.oninput = () => { S.q = search.value; draw(); };
+  cat.onchange = () => { S.cat = cat.value; draw(); };
+  sp.onchange = () => { S.specials = sp.checked; draw(); };
+  timed.onchange = () => { S.timedOnly = timed.checked; draw(); };
+
+  wrap.append(el("div", { className: "tl-bar" }, search, cat,
+    el("label", { className: "tl-check" }, sp, el("span", { textContent: "спешлы" })),
+    el("label", { className: "tl-check" }, timed, el("span", { textContent: "только с таймингом" })), count),
+    el("div", { className: "tl-hint", textContent: "Кадры — 60 в секунду. «Неотм.» — через сколько кадров игра примет следующий трик; «Хвост» — остаток анимации, который этим трюком отменяется; «Вход» — плавный переход в трик (виден глазом, на ввод не влияет). Клик по заголовку — сортировка." }),
+    table);
+  draw();
+  return wrap;
+}
+
+function trickRow(t, m, redraw) {
+  const name = el("td", { className: "tl-name" }, el("span", { textContent: t.n }));
+  if (t.v) name.append(el("span", { className: "tl-var", textContent: t.v }));
+  if (t.sp) name.append(el("span", { className: "tl-tag sp", textContent: "спешл", title: "Нужна полная шкала спешла" }));
+  if (UTILITY[t.n]) name.append(el("span", { className: "tl-tag ut", textContent: "🔧 польза", title: UTILITY[t.n] }));
+  const notes = [];
+  if (t.hold) notes.push("держится, пока зажата кнопка");
+  if (t.p2) notes.push("две анимации подряд");
+  if (t.m?.endsWith("?")) notes.push("тайминг под вопросом");
+  if (t.c === "grab") notes.push("минимум при мгновенном отпускании; удержание даёт очки");
+  if (notes.length) name.title = notes.join("; ");
+
+  const inCmp = S.compare.includes(t.id), inSet = S.set.includes(t.id);
+  const cmp = el("button", { className: "tl-mini" + (inCmp ? " on" : ""), textContent: "⇄", title: "В сравнение" });
+  cmp.onclick = () => { toggle(S.compare, t.id); save("compare", S.compare); redraw(); };
+  const add = el("button", { className: "tl-mini", textContent: "＋", title: "Добавить в сет" + (inSet ? " (уже есть — добавится повтор)" : "") });
+  add.onclick = () => { S.set.push(t.id); save("set", S.set); notify("В сете: " + S.set.length, 900); };
+  add.disabled = !m;
+
+  return el("tr", { className: m ? "" : "tl-dim" }, name,
+    el("td", { textContent: CAT[t.c] }), el("td", { className: "num", textContent: int(t.s) }),
+    el("td", { className: "num", textContent: fr(m?.cancel) }),
+    el("td", { className: "num", textContent: m ? fr(m.total - m.cancel) : "—" }),
+    el("td", { className: "num", textContent: fr(m?.blend) }),
+    el("td", { className: "num strong", textContent: m ? int(ptsPerSec(t, m)) : "—" }),
+    el("td", { className: "tl-acts" }, cmp, add));
+}
+
+const toggle = (arr, id) => { const i = arr.indexOf(id); if (i < 0) arr.push(id); else arr.splice(i, 1); };
+
+/* ---------- 📊 сравнение ---------- */
+function timeline(items) {
+  const max = Math.max(30, ...items.map(({ m }) => m ? m.total + m.blend : 0));
+  const scale = el("div", { className: "tl-scale" });
+  for (let f = 0; f <= max; f += max > 120 ? 30 : 10)
+    scale.append(el("span", { textContent: f, style: `left:${f / max * 100}%` }));
+  const rows = items.map(({ t, m, extra }) => {
+    const track = el("div", { className: "tl-track" });
+    if (m) {
+      const seg = (from, len, cls, tip) => track.append(el("div", { className: "tl-seg " + cls, title: tip,
+        style: `left:${from / max * 100}%;width:${Math.max(len, 0) / max * 100}%` }));
+      if (m.intro) seg(0, m.intro, "intro", `Вступление: ${fr(m.intro)} кадр`);
+      seg(m.intro || 0, m.cancel - (m.intro || 0), "lock", `Неотменяемо: ${fr(m.cancel)} кадр`);
+      seg(m.cancel, m.total - m.cancel, "tail", `Хвост: ${fr(m.total - m.cancel)} кадр`);
+      track.append(el("div", { className: "tl-blend", style: `left:${(m.cancel + m.blend) / max * 100}%`,
+        title: `Так глаз увидит переход в следующий трик (+${fr(m.blend)} кадр смешивания)` }));
+    }
+    return el("div", { className: "tl-tlrow" },
+      el("div", { className: "tl-tlname", title: label(t) }, el("b", { textContent: label(t) }),
+        el("span", { className: "tl-muted", textContent: m ? ` ${int(t.s)} очк · ${fr(m.cancel)} кадр · ${int(ptsPerSec(t, m))} оч/с` : " тайминг не определён" })),
+      track, extra || el("span"));
+  });
+  return el("div", { className: "tl-timeline" }, el("div", { className: "tl-tlrow head" }, el("span"), scale, el("span")), ...rows);
+}
+
+function renderCompare() {
+  const wrap = el("div", { className: "tl-pane" });
+  const legend = el("div", { className: "tl-legend" },
+    el("span", { className: "tl-seg intro" }), "вступление ",
+    el("span", { className: "tl-seg lock" }), "неотменяемо ",
+    el("span", { className: "tl-seg tail" }), "хвост (отменяется следующим триком) ",
+    el("span", { className: "tl-blend inline" }), "где глаз видит переход");
+
+  const items = S.compare.map(byId).filter(Boolean).map(t => {
+    const rm = el("button", { className: "tl-mini", textContent: "✕", title: "Убрать" });
+    rm.onclick = () => { toggle(S.compare, t.id); save("compare", S.compare); renderTab(); };
+    const sim = el("button", { className: "tl-mini" + (S.similarOf === t.id ? " on" : ""), textContent: "≈", title: "Похожие по времени" });
+    sim.onclick = () => { S.similarOf = S.similarOf === t.id ? null : t.id; renderTab(); };
+    return { t, m: tm(t), extra: el("span", { className: "tl-acts" }, sim, rm) };
+  });
+
+  wrap.append(el("div", { className: "tl-hint", textContent: "Добавляй трики кнопкой ⇄ в таблице. Кнопка ≈ ищет трики с почти таким же временем — и показывает, какой из них даёт больше очков." }), legend);
+  if (!items.length) wrap.append(el("div", { className: "tl-empty", textContent: "Пока пусто — выбери трики во вкладке «Трики»." }));
+  else wrap.append(timeline(items));
+
+  const base = S.similarOf && byId(S.similarOf);
+  const bm = base && tm(base);
+  if (bm) {
+    const tol = el("input", { type: "number", className: "tl-input small", min: 0, max: 30, step: 1, value: S.tol });
+    tol.onchange = () => { S.tol = Math.max(0, +tol.value || 0); renderTab(); };
+    const near = data.tricks.map(t => ({ t, m: tm(t) }))
+      .filter(({ t, m }) => m && t.id !== base.id && Math.abs(m.cancel - bm.cancel) <= S.tol && (S.specials || !t.sp))
+      .sort((a, b) => b.t.s - a.t.s).slice(0, 25)
+      .map(({ t, m }) => {
+        const add = el("button", { className: "tl-mini", textContent: "⇄", title: "В сравнение" });
+        add.onclick = () => { if (!S.compare.includes(t.id)) S.compare.push(t.id); save("compare", S.compare); renderTab(); };
+        return { t, m, extra: el("span", { className: "tl-acts" }, add) };
+      });
+    wrap.append(el("h3", { className: "tl-h" }, `Похожие на «${label(base)}» (${fr(bm.cancel)} кадр ± `, tol, ")"));
+    wrap.append(near.length ? timeline(near) : el("div", { className: "tl-empty", textContent: "Ничего в этом окне." }));
+  }
+  return wrap;
+}
+
+/* ---------- 🧩 сет ---------- */
+function renderSet() {
+  const wrap = el("div", { className: "tl-pane" });
+  const list = S.set.map(byId).filter(Boolean);
+  const sc = comboScore(list, S.repeat);
+  const frames = comboFrames(list, S.stat, S.sos);
+
+  const rows = sc.parts.map(({ t, pct, pts }, i) => {
+    const m = tm(t), last = i === list.length - 1;
+    const mv = d => () => { const j = i + d; if (j < 0 || j >= S.set.length) return; [S.set[i], S.set[j]] = [S.set[j], S.set[i]]; save("set", S.set); renderTab(); };
+    const rm = () => { S.set.splice(i, 1); save("set", S.set); renderTab(); };
+    return el("tr", {},
+      el("td", { className: "num tl-muted", textContent: i + 1 }), el("td", { textContent: label(t) }),
+      el("td", { className: "num", textContent: int(t.s) }),
+      el("td", { className: "num" + (pct < 100 ? " warn" : ""), textContent: pct + "%" }),
+      el("td", { className: "num", textContent: int(pts) }),
+      el("td", { className: "num", textContent: m ? fr(last ? m.total : m.cancel) : "—", title: last ? "Последний трик нужно докрутить целиком" : "" }),
+      el("td", { className: "tl-acts" },
+        el("button", { className: "tl-mini", textContent: "↑", onclick: mv(-1) }),
+        el("button", { className: "tl-mini", textContent: "↓", onclick: mv(1) }),
+        el("button", { className: "tl-mini", textContent: "✕", onclick: rm })));
+  });
+
+  const totals = el("div", { className: "tl-totals" },
+    stat("Триков (множитель)", "×" + sc.mult), stat("Сумма очков", int(sc.base)),
+    stat("Итого", int(sc.total), true), stat("Время", list.length ? `${fr(frames)} кадр · ${sec(frames)}` : "—"),
+    stat("Очки/с", frames ? int(sc.total / (frames / FPS)) : "—"));
+
+  // подбор
+  const budget = el("input", { type: "number", className: "tl-input small", min: 0.3, max: 10, step: 0.1, value: S.budget });
+  budget.onchange = () => { S.budget = Math.max(0.3, +budget.value || 2.5); };
+  const spc = el("input", { type: "checkbox", checked: S.autoSpecials });
+  spc.onchange = () => { S.autoSpecials = spc.checked; };
+  const grb = el("input", { type: "checkbox", checked: S.autoGrabs });
+  grb.onchange = () => { S.autoGrabs = grb.checked; };
+  const pick = el("button", { className: "tl-btn primary", textContent: "✨ Подобрать" });
+  pick.onclick = () => {
+    const pool = data.tricks.filter(t => (t.c === "flip" || (S.autoGrabs && t.c === "grab")) && (S.autoSpecials || !t.sp));
+    const res = autoPick(pool, S.budget * FPS, S.stat, S.sos, S.repeat);
+    if (!res.length) return notify("Ничего не влезает в это время");
+    S.set = res.map(t => t.id); save("set", S.set); renderTab();
+  };
+  const rep = el("input", { className: "tl-input", value: S.repeat.join(", "), title: "Доля очков за 1-й, 2-й, 3-й… повтор одного трика в комбо" });
+  rep.onchange = () => {
+    const v = rep.value.split(/[,;\s]+/).map(Number).filter(x => x >= 0 && x <= 100);
+    if (v.length) { S.repeat = v; save("repeat", v); renderTab(); }
+  };
+  const clear = el("button", { className: "tl-btn", textContent: "Очистить" });
+  clear.onclick = () => { S.set = []; save("set", S.set); renderTab(); };
+  const exp = el("button", { className: "tl-btn", textContent: "⬇ Отчёт .md" });
+  exp.onclick = () => exportReport(list, sc, frames);
+  exp.disabled = !list.length;
+
+  wrap.append(
+    el("div", { className: "tl-bar" }, el("span", { textContent: "Время в воздухе" }), budget, el("span", { textContent: "с" }),
+      el("label", { className: "tl-check" }, grb, el("span", { textContent: "грэбы" })),
+      el("label", { className: "tl-check" }, spc, el("span", { textContent: "спешлы" })), pick, clear, exp),
+    el("div", { className: "tl-bar" }, el("span", { textContent: "Повторы, %" }), rep,
+      el("span", { className: "tl-muted", textContent: "предположение — проверить в игре" })),
+    totals,
+    list.length
+      ? el("div", { className: "tl-tablewrap" }, el("table", { className: "tl-table" },
+          el("thead", {}, el("tr", {}, ...["#", "Трик", "Очки", "Повтор", "Даёт", "Кадров", ""].map(h => el("th", { textContent: h })))),
+          el("tbody", {}, ...rows)))
+      : el("div", { className: "tl-empty", textContent: "Сет пуст. Добавляй трики кнопкой ＋ в таблице или жми «Подобрать»." }),
+    el("div", { className: "tl-hint", textContent: "Подбор жадный: каждый раз берёт трик с наибольшим приростом итоговых очков на кадр. Множитель = число триков; вращения, гэпы и бонусы за баланс пока не учитываются." }));
+  return wrap;
+}
+const stat = (k, v, big) => el("div", { className: "tl-stat-card" + (big ? " big" : "") }, el("span", { textContent: k }), el("b", { textContent: v }));
+
+function exportReport(list, sc, frames) {
+  const lines = [
+    "# THAW Lab — сет", "",
+    `Стат флипов: ×${Number(S.stat).toFixed(2)}${S.sos ? "" : " (на спешлы не действует)"} · повторы: ${S.repeat.join("/")} %`, "",
+    "| # | Трик | Очки | Повтор | Даёт | Кадров |", "|---|---|---|---|---|---|",
+    ...sc.parts.map(({ t, pct, pts }, i) => {
+      const m = tm(t);
+      return `| ${i + 1} | ${label(t)} | ${t.s} | ${pct}% | ${Math.round(pts)} | ${m ? fr(i === list.length - 1 ? m.total : m.cancel) : "—"} |`;
+    }), "",
+    `**Итого:** ${int(sc.base)} × ${sc.mult} = **${int(sc.total)}** за ${fr(frames)} кадр (${sec(frames)}), ${frames ? int(sc.total / (frames / FPS)) : 0} очк/с`, "",
+    `Данные: ${data.meta.source}, сборка ${data.meta.built}. Модель таймингов — во вкладке «Гайд».`, "",
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "thaw-set.md" });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/* ---------- 📖 гайд (своя разметка) ---------- */
+const GUIDE = `
+<h2>Что это</h2>
+<p>База таймингов триков <b>Tony Hawk's American Wasteland</b> с модом <b>reTHAWed</b> — для тех, кто ставит длинные комбо.
+Для каждого трика: сколько кадров его нельзя прервать, сколько анимации отменяется следующим триком и сколько очков он даёт.
+Цифры вытащены из скриптов и анимаций самой игры, часть проверена замерами по видео.</p>
+
+<h2>Как работают тайминги</h2>
+<p>Скрипт флипа (<code>fliptrick</code>) делает по шагам:</p>
+<pre>Skater_PlayAnim  от начала до endpos | конца,
+                 speed = min(speed × стат флипов, MaxSpeed | 1.3)
+wait 15 frames                       ← жёсткий минимум (или своё значение трика)
+[HoldFrame: держим кадр, пока зажата кнопка]
+Skater_WaitAnim framesfromend = Trickslack   (у трика нет своего — 10)
+bailoff → canspin → DoNextTrick      ← здесь стартует забуферизованный следующий трик
+WaitAnimWhilstChecking               ← хвост анимации, который этим и отменяется</pre>
+<ul>
+<li><b>Неотменяемая часть</b> = max(15 кадров, (длина анимации − Trickslack) / скорость).</li>
+<li><b>Хвост</b> — последние Trickslack кадров анимации; реальное время ≈ Trickslack / скорость.</li>
+<li><b>Буфер:</b> нажатия во время трика встают в очередь, <code>DoNextTrick</code> достаёт их в момент разрешения.
+Окно двойного нажатия для extra-триков — 14 кадров у флипов, 15 у грэбов.</li>
+<li><b>Скорость</b> умножается на стат флипов скейтера и упирается в потолок 1,3 (или в MaxSpeed трика).
+При полных статах базовые флипы идут на потолке — поэтому ползунок «Стат флипов» в шапке.</li>
+<li><b>Вступление.</b> У некоторых спешлов (например, C-Flip) сначала целиком играется отдельная анимация — всё это время тоже неотменяемо.</li>
+<li><b>Две анимации.</b> Трики вида «X to Y» после ожидания запускают вторую анимацию; Trickslack считается от её конца.</li>
+<li><b>Вход.</b> Новый трик 0,2 с (12 кадров) плавно смешивается со старым. Игра уже приняла трик, а глаз видит границу позже —
+не путай это с таймингом при замерах.</li>
+</ul>
+<p><b>Грэбы</b> (<code>grabtrick</code>): анимацию нельзя бросить раньше 60% (WaitPercent; с ForceInit — до конца),
+дальше грэб держится, пока зажата кнопка, и копит очки. Стат флипов на грэбы не влияет, вход — 0,3 с.</p>
+
+<h2>Проверено в игре</h2>
+<table class="tl-table small">
+<tr><th>Замер</th><th>Модель</th><th>Видео</th><th>Итог</th></tr>
+<tr><td>Heelflip ×N, полные статы</td><td>18,5 кадра между триками</td><td>~18</td><td>✅ сходится</td></tr>
+<tr><td>C-Flip → флип</td><td>43 неотм., 66 всего</td><td>~49, 66–68</td><td>✅ с учётом входа</td></tr>
+<tr><td>The 900 (TH4) → флип</td><td>61 (стат на спешлы) / 66 (без)</td><td>66</td><td>❓ похоже, стат на спешлы не действует</td></tr>
+</table>
+
+<h2>Трики, которые ценны не очками</h2>
+<ul>
+<li><b>Hot Rod</b> — спешл-мэнюал, который разгоняет скейтера. Скорость — главный ресурс длинного комбо, держи его в арсенале обязательно.</li>
+<li><b>Jango Jump Jet</b> — спешл-грэб: скейтер подлетает на ранце. Больше воздуха — больше триков, а acid drop с высоты даёт больше скорости.</li>
+</ul>
+
+<h2>Советы по уровню</h2>
+<ul>
+<li>В комбо нужно постоянно двигаться: быть в воздухе, держать скорость, связывать рейлы. Без рейлов игра рано или поздно сильно тормозит скейтера.</li>
+<li><b>Wallride</b> даёт высоту и не имеет полоски баланса — пользуйся им как можно чаще.</li>
+<li>Как можно больше времени проводи <b>в воздухе</b>.</li>
+<li>Если берёшь рейл — выбирай такой, где можно <b>шаффлить</b>: почти не теряешь баланс.</li>
+<li><b>Bert slide</b> вместо мэнюала: без полоски баланса, но сильно тормозит.</li>
+<li><b>Бонки</b> по столбикам — набрать высоту.</li>
+<li>Встань с доски в воздухе, чтобы <b>скорректировать траекторию</b>, если не дотягиваешь до рейла.</li>
+<li>Строй маршрут без потери скорости и через <b>ускорялки</b> и всё, что подбрасывает вверх.</li>
+</ul>
+
+<h2>Открытые вопросы</h2>
+<ul>
+<li>Действует ли стат флипов на спешлы (The 900).</li>
+<li>Сколько очков трик теряет при повторе в комбо — сейчас стоит предположение 100/75/50/25/10%.</li>
+<li>Когда у грэба срабатывает Trickslack (условие в скрипте пока не расшифровано).</li>
+<li>Мэнюалы, лип-трики, вращения и бонусы — ещё не разобраны.</li>
+</ul>
+
+<h2>Откуда данные</h2>
+<p>reTHAWed 4.4: распакованы архивы, декодированы QB-скрипты, найдены длительности анимаций.
+Здесь лежат только числа — никаких файлов игры. Инструменты для самостоятельной проверки будут опубликованы.</p>`;
+
+function renderGuide() {
+  const g = el("div", { className: "tl-pane tl-guide" });
+  g.innerHTML = GUIDE;   // своя разметка, без пользовательского текста
+  return g;
+}
+
+/* ---------- 🎬 анимации (заглушка v1) ---------- */
+function renderAnims() {
+  const g = el("div", { className: "tl-pane tl-guide" });
+  g.innerHTML = `
+<h2>Просмотр анимаций — скоро</h2>
+<p>Анимации — контент игры, поэтому сайт их не раздаёт. Просмотрщик будет брать их <b>из твоей копии игры</b>:</p>
+<ol>
+<li>Распакуй анимации своей копии reTHAWed (инструкция появится вместе с инструментами).</li>
+<li>Перетащи файлы в папку <code>/home/nikita/THAW Lab/anims</code> прямо в проводнике nikita.os.</li>
+<li>Эта папка — личный слой: файлы хранятся только в твоём браузере и не уходят на сервер.</li>
+</ol>
+<p>Трик будет показан на простом манекене (капсулы по костям) вместе с доской и разметкой фаз: вступление, неотменяемая часть, хвост.</p>`;
+  return g;
+}
