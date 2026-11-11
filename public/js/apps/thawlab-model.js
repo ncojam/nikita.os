@@ -52,6 +52,36 @@ function flipRaw(t, k) {
 
 export const ptsPerSec = (t, tm) => tm && tm.cancel > 0 ? t.s / (tm.cancel / FPS) : 0;
 
+/* ---------- рейтинг трика: формула посетителя ----------
+ * Переменные: s — очки, lock — неотменяемые кадры, tail — хвост, total — вся анимация,
+ * pps — очки в секунду, blend — кадры входа, intro — вступление, sp — 1 у спешла.
+ * Функции: min, max, pow, sqrt, log, abs, round. Больше ничего — формула не может
+ * обратиться ни к странице, ни к сети (проверяем каждое слово до компиляции). */
+export const RATING_VARS = ["s", "lock", "tail", "total", "pps", "blend", "intro", "sp"];
+const RATING_FUNCS = ["min", "max", "pow", "sqrt", "log", "abs", "round"];
+export const RATING_PRESETS = [
+  ["Сбалансированный", "pps * pow(20 / max(lock, 20), 0.8)"],
+  ["Очки в секунду", "pps"],
+  ["Только короткие", "pps * pow(18 / max(lock, 18), 2)"],
+  ["Очки за трик", "s"],
+];
+
+export function compileRating(src) {
+  const code = String(src || "").trim();
+  if (!code) throw new Error("пустая формула");
+  if (code.length > 300) throw new Error("слишком длинная формула");
+  if (!/^[\w\s.+\-*/%(),<>=!?:&|]*$/.test(code)) throw new Error("недопустимый символ");
+  for (const id of code.match(/[A-Za-z_]\w*/g) || [])
+    if (!RATING_VARS.includes(id) && !RATING_FUNCS.includes(id)) throw new Error(`неизвестное слово «${id}»`);
+  const fn = new Function(...RATING_VARS, ...RATING_FUNCS, `"use strict"; return (${code});`);
+  const M = RATING_FUNCS.map(f => Math[f]);
+  return (t, tm) => {
+    if (!tm) return null;
+    const v = fn(t.s, tm.cancel, tm.total - tm.cancel, tm.total, ptsPerSec(t, tm), tm.blend, tm.intro || 0, t.sp ? 1 : 0, ...M);
+    return Number.isFinite(v) ? v : null;
+  };
+}
+
 // очки комбо: сумма с учётом повторов × множитель (число триков)
 export function comboScore(list, repeat = DEFAULT_REPEAT) {
   const count = new Map();
