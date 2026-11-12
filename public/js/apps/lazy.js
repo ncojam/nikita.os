@@ -23,6 +23,7 @@ export const openSettings = lazy("./settings.js", "openSettings");
 export const openBrowser = lazy("./browser.js", "openBrowser");
 export const openChat = lazy("./chat.js", "openChat");
 export const openFakeDL = lazy("./fakedl.js", "openFakeDL");
+export const openRamDL = lazy("./ramdl.js", "openRamDL");
 export const openPost = lazy("./post.js", "openPost");
 export const createPost = lazy("./post.js", "createPost");
 export const reportPostByPath = lazy("./post.js", "reportPostByPath");

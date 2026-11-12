@@ -299,6 +299,28 @@ addPack({
   "Браузер — {0}": ["Browser — {0}", "ブラウザー — {0}"],
   "Ссылка:": ["Link:", "リンク:"],
 
+  // «Скачать RAM» (ramdl)
+  "Скачать RAM": ["Download RAM", "RAMをダウンロード"],
+  "Выбери объём": ["Choose the size", "容量を選択"],
+  "Сейчас установлено: {0}": ["Installed now: {0}", "現在のメモリ: {0}"],
+  "Память установлена": ["Memory installed", "メモリをインストールしました"],
+  "Было: {0} → стало: {1}": ["Before: {0} → now: {1}", "以前: {0} → 現在: {1}"],
+  "Перезагрузка не требуется": ["No restart required", "再起動は不要です"],
+  "Готово. Компьютер стал умнее": ["Done. Your computer got smarter", "完了。コンピューターが賢くなりました"],
+  "Подключение к складу в Шэньчжэне…": ["Connecting to a warehouse in Shenzhen…", "深圳の倉庫に接続中…"],
+  "Сид «Дядя Вася» раздаёт {0} ГБ": ["Seed “Uncle Vasya” is sharing {0} GB", "シード「ワーシャおじさん」が {0} GB を配布中"],
+  "Согласование таймингов CL{0}…": ["Negotiating CL{0} timings…", "CL{0} タイミングを調整中…"],
+  "Сортировка битов: нули налево, единицы направо": ["Sorting bits: zeros left, ones right", "ビットを整理中: 0 は左、1 は右"],
+  "Дефрагментация кэша L3…": ["Defragmenting L3 cache…", "L3 キャッシュをデフラグ中…"],
+  "Прогрев конденсаторов…": ["Warming up capacitors…", "コンデンサを温めています…"],
+  "Проверка чётности: вроде чётно": ["Parity check: seems even", "パリティチェック: たぶん偶数"],
+  "Уговариваю слот DIMM{0}…": ["Persuading slot DIMM{0}…", "DIMM{0} スロットを説得中…"],
+  "Распаковка .rar в .ram…": ["Unpacking .rar into .ram…", ".rar を .ram に展開中…"],
+  "BIOS не против": ["BIOS doesn't mind", "BIOS は気にしていません"],
+  "💬 Опять я…": ["💬 Me again…", "💬 また私です…"],
+  "Снова тот самый программист. Оперативную память нельзя скачать: это физическая планка в компьютере, а не файл. Здесь не загружается ни байта, цифры считает сам браузер.": ["The same programmer again. RAM can't be downloaded: it's a physical stick in your computer, not a file. Not a single byte is transferred here; your browser just does the math.", "また例のプログラマーです。RAM はダウンロードできません。ファイルではなく、コンピューターの中の物理的なモジュールです。ここでは 1 バイトも転送されず、数字はブラウザーが計算しているだけです。"],
+  "Число «стало» живёт только на этом сайте. Автор снова попросил спрятать это поглубже. Ты снова докопался.": ["The “now” number only exists on this site. The author asked me to bury this too. You dug it up again.", "「現在」の数字はこのサイトの中だけのものです。作者はまたこれを奥に隠すよう頼みましたが、あなたはまた見つけました。"],
+
   // «загрузка» (fakedl)
   "Подключение к пиру {0} из {1}…": ["Connecting to peer {0} of {1}…", "ピア {1} 中 {0} に接続中…"],
   "Рукопожатие с трекером (попытка {0})…": ["Handshake with tracker (attempt {0})…", "トラッカーとハンドシェイク中（{0} 回目）…"],
