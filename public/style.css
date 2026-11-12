@@ -1562,7 +1562,7 @@ select.tl-input option { background: #15151b; }
 .kn-grid { border-collapse: separate; border-spacing: 3px; margin: 0 auto; }
 .kn-grid th { font-size: 12px; font-weight: 600; color: var(--muted); padding: 2px 4px; text-align: center; border-radius: 6px; transition: background .12s, color .12s; }
 .kn-grid th.hl { background: var(--kn-hl); color: var(--text); }
-.kn-grid th.dk, .kn-grid td.dk .kn-cell { border-color: rgba(255,179,209,0.25); }
+
 .kn-cell { width: 54px; height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   border: 1px solid var(--glass-border); border-radius: 10px; background: rgba(255,255,255,0.05); color: inherit; cursor: pointer; padding: 0; }
 .kn-cell:hover { background: rgba(138,180,255,0.2); transform: translateY(-1px); }
@@ -1614,3 +1614,34 @@ select.tl-input option { background: #15151b; }
 .kn-bsel select { font: inherit; font-size: 13px; color: var(--text); background: rgba(255,255,255,0.08);
   border: 1px solid var(--glass-border); border-radius: 8px; padding: 4px 6px; }
 .kn-bsel option { background: #1a1a22; }
+/* Кана: режимы таблицы и числа */
+.kn-seg { display: inline-flex; padding: 2px; border-radius: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--glass-border); }
+.kn-segb { border: 0; border-radius: 8px; padding: 5px 11px; cursor: pointer; font: inherit; font-size: 13px; color: inherit; background: none; opacity: .75; }
+.kn-segb:hover { opacity: 1; }
+.kn-segb.on { background: rgba(138,180,255,0.3); opacity: 1; font-weight: 600; }
+.kn-grid th.dk { color: var(--kn-p); }
+.kn-grid th s { opacity: .45; font-weight: 400; }
+.kn-grid th.dim, .kn-grid td.dim { opacity: .28; transition: opacity .2s; }
+.kn-grid td.dim:hover { opacity: .7; }
+.kn-m-voiced td:not(.dim) .kn-cell, .kn-m-semi td:not(.dim) .kn-cell { border-color: rgba(255,179,209,0.45); }
+.kn-cell { position: relative; }
+.kn-cell.has-dk::after, .kn-cell.has-dkp::after { content: "゛"; position: absolute; top: 2px; right: 4px; font-size: 10px; color: var(--kn-p); opacity: .55; }
+.kn-cell.has-dkp::after { content: "゛゜"; }
+.kn-cell.morph .kn-ch { animation: kn-morph .35s var(--ease); }
+@keyframes kn-morph { from { opacity: 0; transform: translateY(-6px) scale(.85); } }
+html.fx-calm .kn-cell.morph .kn-ch { animation: none; }
+.kn-chip.kanji { cursor: default; font-family: "Noto Serif JP", serif; border-style: dashed; }
+.kn-btn.small { padding: 4px 9px; font-size: 12.5px; }
+.kn-ngrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; margin: 6px 0 8px; }
+.kn-ncard { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 6px; border-radius: 12px; text-align: center;
+  border: 1px solid var(--glass-border); background: rgba(255,255,255,0.04); }
+.kn-ncard.irr { background: rgba(255,179,209,0.12); border-color: rgba(255,179,209,0.4); }
+.kn-ncard.pun { background: rgba(138,180,255,0.12); border-color: rgba(138,180,255,0.4); }
+.kn-nv { font-size: 12px; color: var(--muted); }
+.kn-nk { font: 26px/1.15 "Noto Serif JP", "Yu Mincho", serif; }
+.kn-nr { font: 16px "Noto Sans JP", "Yu Gothic", sans-serif; }
+.kn-nro { font-size: 12px; }
+.kn-nalt { font-size: 11px; color: var(--muted); }
+.kn-nnote { font-size: 10.5px; color: var(--muted); line-height: 1.25; margin-top: 2px; }
+.kn-ninput { font: inherit; font-size: 15px; width: 180px; color: var(--text); background: rgba(255,255,255,0.08);
+  border: 1px solid var(--glass-border); border-radius: 8px; padding: 5px 8px; }
