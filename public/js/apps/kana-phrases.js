@@ -38,6 +38,18 @@ const TIME = [
   { k: "きょう", r: "kyō", ru: "сегодня" },
   { k: "あした", r: "ashita", ru: "завтра" },
   { k: "きのう", r: "kinō", ru: "вчера" },
+  { k: "あさって", r: "asatte", ru: "послезавтра" },
+  { k: "おととい", r: "ototoi", ru: "позавчера" },
+  { k: "らいしゅう", r: "raishū", ru: "на следующей неделе" },
+  { k: "せんしゅう", r: "senshū", ru: "на прошлой неделе" },
+  // дни недели: 〜ようび (曜日) + に — «в такой-то день»
+  { k: "げつようび", r: "getsuyōbi", ru: "в понедельник", ni: true },
+  { k: "かようび", r: "kayōbi", ru: "во вторник", ni: true },
+  { k: "すいようび", r: "suiyōbi", ru: "в среду", ni: true },
+  { k: "もくようび", r: "mokuyōbi", ru: "в четверг", ni: true },
+  { k: "きんようび", r: "kin'yōbi", ru: "в пятницу", ni: true },
+  { k: "どようび", r: "doyōbi", ru: "в субботу", ni: true },
+  { k: "にちようび", r: "nichiyōbi", ru: "в воскресенье", ni: true },
   { k: "まいにち", r: "mainichi", ru: "каждый день" },
   { k: "まいしゅう", r: "maishū", ru: "каждую неделю" },
   { k: "まいとし", r: "maitoshi", ru: "каждый год" },
@@ -326,7 +338,7 @@ function tripCompose(s) {
 }
 
 function tripBuilder() {
-  const s = Object.assign({ sub: 0, time: 10, dest: 0, purp: 1, form: "plan", q: false, name: 0 }, store.get("kana.trip", {}));
+  const s = Object.assign({ sub: 0, time: TIME.findIndex(x => x.k === "しゅうまつ"), dest: 0, purp: 1, form: "plan", q: false, name: 0 }, store.get("kana.trip", {}));
   const out = el("div"), hint = el("p", { className: "kn-muted" });
   const sels = {};
   const sel = (key, label, list, text) => el("label", { className: "kn-bsel" }, el("span", { textContent: label }),
