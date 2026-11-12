@@ -92,7 +92,7 @@ export function openKanaTable(script, ch = null) {
       const hr = el("tr", {}, el("th", { className: "kn-corner", textContent: "" }));
       for (const x of cols) {
         const to = map?.[x.c], up = s => s.toUpperCase();
-        const th = el("th", { className: (to ? "dk" : "") + (map && !to ? " dim" : "") });
+        const th = el("th", { className: (to ? "kn-on" : "") + (map && !to ? " dim" : "") });
         th.append(to ? el("span", {}, el("s", { textContent: up(x.c) }), " " + up(to)) : (x.head || up(x.c)));
         th.dataset.c = x.c; hr.append(th);
       }

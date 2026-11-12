@@ -1619,7 +1619,7 @@ select.tl-input option { background: #15151b; }
 .kn-segb { border: 0; border-radius: 8px; padding: 5px 11px; cursor: pointer; font: inherit; font-size: 13px; color: inherit; background: none; opacity: .75; }
 .kn-segb:hover { opacity: 1; }
 .kn-segb.on { background: rgba(138,180,255,0.3); opacity: 1; font-weight: 600; }
-.kn-grid th.dk { color: var(--kn-p); }
+.kn-grid th.kn-on { color: var(--kn-p); }
 .kn-grid th s { opacity: .45; font-weight: 400; }
 .kn-grid th.dim, .kn-grid td.dim { opacity: .28; transition: opacity .2s; }
 .kn-grid td.dim:hover { opacity: .7; }
