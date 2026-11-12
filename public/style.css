@@ -1659,3 +1659,7 @@ html.fx-calm .kn-cell.morph .kn-ch { animation: none; }
 .kn-more { margin-left: auto; }
 .kn-nav.inline { padding: 0 0 8px; border: 0; }
 .kn-btn.on { background: rgba(138,180,255,0.3); }
+.kn-pbtabs { margin-bottom: 8px; }
+.kn-own { display: flex; gap: 4px; margin-top: 3px; }
+.kn-own[hidden] { display: none; }
+.kn-ninput.small { width: 150px; font-size: 13px; padding: 3px 6px; }

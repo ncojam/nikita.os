@@ -65,12 +65,12 @@ const OBJ = [
   ["", [{ k: "", ru: "", label: "(без объекта)" }]],
   ["Еда и напитки", [{ k: "すし", r: "sushi", ru: "суши" }, { k: "ラーメン", r: "rāmen", ru: "рамен" }, { k: "コーヒー", r: "kōhī", ru: "кофе" },
     { k: "おちゃ", r: "ocha", ru: "чай" }, { k: "おさけ", r: "osake", ru: "алкоголь" }]],
-  ["Игры и разработка", [{ k: "ゲーム", r: "gēmu", ru: "игры", alt: { する: PLAY } }, { k: "コード", r: "kōdo", ru: "код" },
-    { k: "キャラクター", r: "kyarakutā", ru: "персонажей" }, { k: "マップ", r: "mappu", ru: "карты уровней" }, { k: "アプリ", r: "apuri", ru: "приложения" },
-    { k: "エーアイエージェント", r: "ēai ējento", ru: "ИИ-агентов" }]],
-  ["Творчество и досуг", [{ k: "え", r: "e", ru: "картины" }, { k: "ピクセルアート", r: "pikuseru āto", ru: "пиксель-арт" },
+  ["Игры и разработка", [{ k: "ゲーム", r: "gēmu", ru: "игры", one: "игру", alt: { する: PLAY } }, { k: "コード", r: "kōdo", ru: "код" },
+    { k: "キャラクター", r: "kyarakutā", ru: "персонажей", one: "персонажа" }, { k: "マップ", r: "mappu", ru: "карты уровней", one: "карту уровня" }, { k: "アプリ", r: "apuri", ru: "приложения", one: "приложение" },
+    { k: "エーアイエージェント", r: "ēai ējento", ru: "ИИ-агентов", one: "ИИ-агента" }]],
+  ["Творчество и досуг", [{ k: "え", r: "e", ru: "картины", one: "картину" }, { k: "ピクセルアート", r: "pikuseru āto", ru: "пиксель-арт" },
     { k: "デジタルアート", r: "dejitaru āto", ru: "диджитал-арт" }, { k: "おんがく", r: "ongaku", ru: "музыку" }, { k: "まんが", r: "manga", ru: "мангу" },
-    { k: "アニメ", r: "anime", ru: "аниме" }, { k: "えいが", r: "eiga", ru: "фильмы" }, { k: "ほん", r: "hon", ru: "книги" },
+    { k: "アニメ", r: "anime", ru: "аниме" }, { k: "えいが", r: "eiga", ru: "фильмы", one: "фильм" }, { k: "ほん", r: "hon", ru: "книги", one: "книгу" },
     { k: "しゃしん", r: "shashin", ru: "фото" }, { k: "にほんご", r: "nihongo", ru: "японский" }]],
   ["Скейт и транспорт", [{ k: "スケボー", r: "sukebō", ru: "скейт", na: "скейте" }, { k: "トリック", r: "torikku", ru: "трюки" },
     { k: "オーリー", r: "ōrī", ru: "олли" }, { k: "キックフリップ", r: "kikkufurippu", ru: "кикфлип" },
@@ -122,7 +122,25 @@ const QPREP = { в: "во что", на: "на чём" };   // «что» + пр
 
 const P = (k, r, g) => ({ k, r, g, p: true });
 
+// названия для «X という Y» — «Y под названием X»; последняя строка — своё название (store "kana.custom")
+export const NAMES = [
+  { k: "", label: "(без названия)" },
+  { k: "グレイブブラッド", r: "gureibuburaddo", ru: "Graveblood" },
+  { k: "ドリームス", r: "dorīmusu", ru: "Dreams" },
+  { k: "スパイロ", r: "supairo", ru: "Spyro" },
+  { k: "ニキータオーエス", r: "nikīta ōesu", ru: "nikita.os" },
+  { custom: true, label: "✏️ своё…" },
+];
+const nameOf = i => {
+  const n = NAMES[i] || NAMES[0];
+  if (!n.custom) return n;
+  const c = store.get("kana.custom", { k: "", r: "", ru: "" });
+  return c.k ? { k: c.k, r: c.r || c.ru, ru: c.ru || c.r } : NAMES[0];
+};
+const named = nm => nm.k ? [{ k: nm.k, r: nm.r, g: `«${nm.ru}»` }, P("という", "to iu", "под названием")] : [];
+
 export function compose(s) {
+  const nm = nameOf(s.name);
   const sub = SUBJ[s.sub] || SUBJ[0], tm = TIME[s.time] || TIME[0], pl = PLACE[s.place] || PLACE[0], v = VERBS[s.verb] || VERBS[0];
   const f = FORMS.find(x => x.id === s.form) || FORMS[0];
   const ob = v.intr ? OBJ_FLAT[0] : OBJ_FLAT[s.obj] || OBJ_FLAT[0];   // у すべる / はたらく объекта нет
@@ -136,8 +154,10 @@ export function compose(s) {
   // ぜんぜん с «не нравится» встаёт прямо перед すき: 〜のが ぜんぜん すきじゃないです
   const late = f.dict && tm.never;
   if (tm.k && !late) { t.push({ k: tm.k, r: tm.r, g: tm.ru }); if (tm.ni) t.push(P("に", "ni", "когда")); }
-  if (pl.k) t.push({ k: pl.k, r: pl.r, g: pl.ru }, P("で", "de", "где"));
-  if (ob.k) t.push({ k: ob.k, r: ob.r, g: v.na ? ob.na || ob.ru : ob.ru }, P(...(v.part || ["を", "o", "объект"])));
+  // название цепляется к объекту, а если объекта нет — к месту
+  const nmOb = nm.k && ob.k && !ob.q, nmPl = nm.k && !nmOb && pl.k && !pl.q;
+  if (pl.k) t.push(...(nmPl ? named(nm) : []), { k: pl.k, r: pl.r, g: pl.ru }, P("で", "de", "где"));
+  if (ob.k) t.push(...(nmOb ? named(nm) : []), { k: ob.k, r: ob.r, g: v.na ? ob.na || ob.ru : ob.ru }, P(...(v.part || ["を", "o", "объект"])));
   // 〜たいです — только про себя (или вопрос «ты хочешь?»); про других — 〜たがっています
   const fe = f.id === "want" && sub.p >= 3 ? { k: "たがっています", r: "tagatte imasu", g: "хочет" } : f;
   const vr = ob.alt?.[v.d] || v.ru;
@@ -158,22 +178,37 @@ export function compose(s) {
   if (f.id === "like") vp = "нравится " + verb[0];
   if (f.id === "dislike") vp = (tm.never ? "совсем не" : "не") + " нравится " + verb[0];
   if (tm.never) vp = vp.replace(/^не /, "никогда не ");
-  let obRu = v.na ? ob.na || ob.ru : ob.ru;
+  let obRu = v.na ? ob.na || ob.ru : nmOb ? ob.one || ob.ru : ob.ru;
+  if (nmOb) obRu += ` «${nm.ru}»`;
   if (ob.q) { const m = vp.match(/ (в|на)$/); if (m) { vp = vp.slice(0, -m[0].length); obRu = QPREP[m[1]]; } }
-  const words = [f.id === "let" ? "" : f.dict ? sub.dat : sub.ru, tm.never ? "" : tm.ru, pl.ru, vp, obRu];
+  const words = [f.id === "let" ? "" : f.dict ? sub.dat : sub.ru, tm.never ? "" : tm.ru, nmPl ? `${pl.ru} «${nm.ru}»` : pl.ru, vp, obRu];
   const qw = [tm.q && 1, pl.q && 2, ob.q && 4].filter(Boolean);   // все вопросительные слова — в начало
   let ru = [...qw.map(i => words[i]), ...words.filter((_, i) => !qw.includes(i))].filter(Boolean).join(" ");
   ru = ru[0].toUpperCase() + ru.slice(1) + (q ? "?" : ".");
   return { t, ru, v };
 }
 
-const DEF = { sub: 0, time: 1, place: 1, obj: 1, verb: 0, form: "pres", q: false };
+const DEF = { sub: 0, time: 1, place: 1, obj: 1, verb: 0, form: "pres", q: false, name: 0 };
 
-export function phraseBuilder() {
+// выбор названия + поля для своего (катакана и латиница)
+function nameField(get, set, onchange) {
+  const c = store.get("kana.custom", { k: "", r: "", ru: "" });
+  const inp = (key, ph) => el("input", { className: "kn-ninput small", placeholder: ph, value: c[key] || "",
+    oninput: e => { c[key] = e.target.value.trim(); store.set("kana.custom", c); onchange(); } });
+  const own = el("span", { className: "kn-own" }, inp("k", "катаканой: ドリームス"), inp("ru", "латиницей: Dreams"));
+  const sel = el("select", { onchange: e => { set(+e.target.value); paint(); onchange(); } },
+    ...NAMES.map((n, i) => el("option", { value: i, textContent: n.label || `${n.k} — ${n.ru}` })));
+  const paint = () => { sel.value = get(); own.hidden = !NAMES[get()]?.custom; };
+  paint();
+  return el("label", { className: "kn-bsel" }, el("span", { textContent: "Название (という)" }), sel, own);
+}
+
+function actionBuilder() {
   const s = Object.assign({}, DEF, store.get("kana.pb", {}));
+  if (!NAMES[s.name]) s.name = 0;
   if (!OBJ_FLAT[s.obj]) s.obj = DEF.obj;
   if (!VERBS[s.verb]) s.verb = DEF.verb;
-  const box = el("div", { className: "kn-pb" });
+  const box = el("div");
   const out = el("div"), forms = el("div", { className: "kn-forms" }), hint = el("p", { className: "kn-muted" });
   const selects = {};
   const opt = (v, text) => el("option", { value: v, textContent: text });
@@ -196,6 +231,7 @@ export function phraseBuilder() {
       })),
       mk("verb", "Действие", VERBS.map((x, i) => opt(i, x.label || `${x.d} — ${x.ru[0]}`))),
       mk("form", "Хвост", FORMS.map(x => opt(x.id, x.label))),
+      nameField(() => s.name, v => { s.name = v; }, () => draw()),
       el("label", { className: "kn-check" }, qchk, "？ Вопрос (か)")),
     out, forms, hint);
 
@@ -227,16 +263,184 @@ export function phraseBuilder() {
         ? "В «давай» тема — это «с кем»: みんなで — все вместе, かのじょと — с девушкой, いっしょに — вместе (с тобой). «Я» не говорят."
         : s.form === "want" && sub.p >= 3
           ? "〜たいです говорят только про себя. Про других — 〜たがっています: «он(а) хочет, по нему видно»."
-          : "Поменяй «Действие» — объект останется тем же: すしを たべます → すしを みます. Меняется только глагол.";
+          : s.name
+            ? "X という Y — «Y под названием X». Название встаёт перед объектом (а если объекта нет — перед местом): グレイブブラッドという ゲームを つくります."
+            : "Поменяй «Действие» — объект останется тем же: すしを たべます → すしを みます. Меняется только глагол.";
   }
   draw();
   return box;
+}
+
+
+/* ---------- 🧭 поездки: кто · когда · куда (に) · зачем · いく ---------- */
+const DEST = [
+  { k: "にしのみや", r: "nishinomiya", to: "в Нисиномию", in: "в Нисиномии" },
+  { k: "おおさか", r: "ōsaka", to: "в Осаку", in: "в Осаке" },
+  { k: "きょうと", r: "kyōto", to: "в Киото", in: "в Киото" },
+  { k: "とうきょう", r: "tōkyō", to: "в Токио", in: "в Токио" },
+  { k: "にほん", r: "nihon", to: "в Японию", in: "в Японии" },
+  { k: "カフェ", r: "kafe", to: "в кафе", in: "в кафе" },
+  { k: "スケートパーク", r: "sukētopāku", to: "в скейтпарк", in: "в скейтпарке" },
+  { k: "イベント", r: "ibento", to: "на ивент", in: "на ивенте" },
+  { k: "かいしゃ", r: "kaisha", to: "на работу", in: "на работе" },
+  { k: "どこ", r: "doko", to: "куда", in: "где", q: true, label: "どこ — куда?" },
+];
+// зачем: «развлечься-に», «скейт-を кататься-に» — цель + に перед いく
+const PURP = [
+  { t: [], ru: "", label: "(просто)" },
+  { t: [["あそび", "asobi", "развлечься"], ["に", "ni", "цель", 1]], ru: "погулять", label: "あそびに — погулять, развлечься" },
+  { t: [["かんこう", "kankō", "осмотр"], ["に", "ni", "цель", 1]], ru: "посмотреть город", label: "かんこうに — посмотреть город" },
+  { t: [["スケボー", "sukebō", "скейт"], ["を", "o", "объект", 1], ["し", "shi", "делать"], ["に", "ni", "цель", 1]], ru: "покататься на скейте", label: "スケボーを しに — покататься" },
+  { t: [["ラーメン", "rāmen", "рамен"], ["を", "o", "объект", 1], ["たべ", "tabe", "есть"], ["に", "ni", "цель", 1]], ru: "поесть рамен", label: "ラーメンを たべに — поесть рамен" },
+  { t: [["しごと", "shigoto", "работа"], ["で", "de", "по", 1]], ru: "по работе", label: "しごとで — по работе" },
+];
+// ru: я, ты, он/она, они (через лицо темы); past — по роду; dest: to — «куда», in — «где» (для «побывать»)
+const TRIP = [
+  { id: "pres", t: [["いき", "iki", "ехать"], ["ます", "masu", "делаю", 1]], ru: ["", "еду", "едешь", "едет", "едут"], label: "いきます — еду / поеду" },
+  { id: "past", t: [["いき", "iki", "ехать"], ["ました", "mashita", "делал", 1]], past: { m: "ездил", f: "ездила", pl: "ездили" }, label: "いきました — ездил" },
+  { id: "neg", t: [["いき", "iki", "ехать"], ["ません", "masen", "не", 1]], ru: ["", "не еду", "не едешь", "не едет", "не едут"], label: "いきません — не еду" },
+  { id: "let", t: [["いき", "iki", "ехать"], ["ましょう", "mashō", "давай", 1]], let: true, label: "いきましょう — давай поедем" },
+  { id: "want", t: [["いき", "iki", "ехать"], ["たいです", "tai desu", "хочу", 1]], t3: [["いき", "iki", "ехать"], ["たがっています", "tagatte imasu", "хочет", 1]], ru: ["", "хочу поехать", "хочешь поехать", "хочет поехать", "хотят поехать"], label: "いきたいです — хочу поехать" },
+  { id: "visit", t: [["いって", "itte", "съездив"], ["みたいです", "mitai desu", "хочу_попробовать", 1]], t3: [["いって", "itte", "съездив"], ["みたがっています", "mitagatte imasu", "хочет_попробовать", 1]], ru: ["", "хочу побывать", "хочешь побывать", "хочет побывать", "хотят побывать"], inPlace: true, label: "いって みたいです — хочу побывать" },
+  { id: "plan", t: [["いく", "iku", "ехать"], ["よていです", "yotei desu", "по_плану", 1]], ru: ["", "собираюсь поехать", "собираешься поехать", "собирается поехать", "собираются поехать"], label: "いく よていです — собираюсь поехать" },
+];
+const T = ([k, r, g, p]) => ({ k, r, g: g.replace(/_/g, " "), p: !!p });
+
+function tripCompose(s) {
+  const sub = SUBJ[s.sub] || SUBJ[0], tm = TIME[s.time] || TIME[0], d = DEST[s.dest] || DEST[0], pu = PURP[s.purp] || PURP[0];
+  const f = TRIP.find(x => x.id === s.form) || TRIP[0], nm = d.q ? NAMES[0] : nameOf(s.name), q = s.q || tm.q || d.q;
+  const t = [];
+  if (f.let && sub.let) { const [pk, pr, pg, , wk, wr, wg] = sub.let; t.push(wk ? { k: wk, r: wr, g: wg } : { k: sub.k, r: sub.r, g: sub.g }, P(pk, pr, pg)); }
+  else if (sub.k && !f.let) t.push({ k: sub.k, r: sub.r, g: sub.g }, P("は", "wa", "тема"));
+  if (tm.k) { t.push({ k: tm.k, r: tm.r, g: tm.ru }); if (tm.ni) t.push(P("に", "ni", "когда")); }
+  t.push(...named(nm), { k: d.k, r: d.r, g: d.q ? "куда" : d.to }, P("に", "ni", "куда"), ...pu.t.map(T));
+  t.push(...((sub.p >= 3 && f.t3) || f.t).map(T));
+  if (q) t.push(P("か", "ka", "вопрос"));
+  let vp = f.let ? (sub.p === 4 ? "давайте " : "давай ") + (sub.let ? sub.let[3] + " " : "") + "поедем" : f.past ? f.past[sub.gen] : f.ru[sub.p];
+  if (tm.never) vp = vp.replace(/^не /, "никогда не ");
+  const where = (f.inPlace ? d.in : d.to) + (nm.k ? ` «${nm.ru}»` : "");
+  const words = d.q ? [where, f.let ? "" : sub.ru, tm.never ? "" : tm.ru, vp, pu.ru] : [f.let ? "" : sub.ru, tm.never ? "" : tm.ru, vp, where, pu.ru];
+  let ru = words.filter(Boolean).join(" ");
+  ru = ru[0].toUpperCase() + ru.slice(1) + (q ? "?" : ".");
+  return { t, ru, f };
+}
+
+function tripBuilder() {
+  const s = Object.assign({ sub: 0, time: 10, dest: 0, purp: 1, form: "plan", q: false, name: 0 }, store.get("kana.trip", {}));
+  const out = el("div"), hint = el("p", { className: "kn-muted" });
+  const sels = {};
+  const sel = (key, label, list, text) => el("label", { className: "kn-bsel" }, el("span", { textContent: label }),
+    sels[key] = el("select", { onchange: e => { s[key] = key === "form" ? e.target.value : +e.target.value; draw(); } },
+      ...list.map((x, i) => el("option", { value: key === "form" ? x.id : i, selected: (key === "form" ? x.id : i) === s[key], textContent: text(x) }))));
+  const qchk = el("input", { type: "checkbox", checked: s.q, onchange: e => { s.q = e.target.checked; draw(); } });
+  const box = el("div", {}, el("div", { className: "kn-builder" },
+    sel("sub", "Кто", SUBJ, x => x.label || `${x.k} — ${x.ru}`),
+    sel("time", "Когда", TIME, x => x.label || `${x.k} — ${x.ru}`),
+    sel("dest", "Куда", DEST, x => x.label || `${x.k} — ${x.to}`),
+    sel("purp", "Зачем", PURP, x => x.label),
+    sel("form", "Как", TRIP, x => x.label),
+    nameField(() => s.name, v => { s.name = v; }, () => draw()),
+    el("label", { className: "kn-check" }, qchk, "？ Вопрос (か)")), out, hint);
+  function draw() {
+    if (TIME[s.time]?.never && s.form !== "neg") { s.form = "neg"; sels.form.value = "neg"; }   // ぜんぜん — только с отрицанием
+    store.set("kana.trip", s);
+    const { t, ru, f } = tripCompose(s);
+    out.replaceChildren(sentence(t, ru));
+    hint.textContent = {
+      plan: "よてい — «план»: いく よていです — «по плану еду», то есть собираюсь. Перед よてい глагол в словарной форме (いく), не いきます.",
+      visit: "〜て みたい — «хочу попробовать сделать»: いって みたい — «хочу съездить, побывать». Это и есть «посетить», а не «переехать» (переехать — ひっこす).",
+      want: "いきたい — просто «хочу поехать». Про других — いきたがっています.",
+    }[f.id] || "Куда — всегда に (или へ). Цель поездки — основа глагола + に: あそびに いく — поехать развлечься, たべに いく — поехать поесть.";
+  }
+  draw();
+  return box;
+}
+
+/* ---------- 🪪 обо мне: «я — …», работа, хобби, смысл жизни, любимое ---------- */
+const ROLES = [
+  { k: "ゲームかいはつしゃ", r: "gēmu kaihatsusha", ru: "разработчик игр" },
+  { k: "インディーゲームクリエイター", r: "indī gēmu kurieitā", ru: "инди-разработчик игр" },
+  { k: "プログラマー", r: "puroguramā", ru: "программист" },
+  { k: "エーアイエンジニア", r: "ēai enjinia", ru: "ИИ-инженер" },
+  { k: "イラストレーター", r: "irasutorētā", ru: "иллюстратор" },
+  { k: "スケーター", r: "sukētā", ru: "скейтер" },
+  { k: "ディージェー", r: "dījē", ru: "диджей" },
+];
+const ACTS = [
+  { k: "ゲームかいはつ", r: "gēmu kaihatsu", ru: "разработка игр" },
+  { k: "エーアイの ハーネスの かいはつ", r: "ēai no hānesu no kaihatsu", ru: "разработка харнесса для ИИ" },
+  { k: "プログラミング", r: "puroguramingu", ru: "программирование" },
+  { k: "スケボー", r: "sukebō", ru: "скейт" },
+  { k: "おえかき", r: "oekaki", ru: "рисование" },
+  { k: "ピクセルアート", r: "pikuseru āto", ru: "пиксель-арт" },
+  { k: "おんがくづくり", r: "ongakuzukuri", ru: "создание музыки" },
+  { k: "ゲーム", r: "gēmu", ru: "видеоигры" },
+];
+const CATS = [
+  { k: "ゲーム", r: "gēmu", g: "игра", ru: "Моя самая любимая игра" },
+  { k: "シリーズ", r: "shirīzu", g: "серия", ru: "Моя самая любимая серия" },
+  { k: "アニメ", r: "anime", g: "аниме", ru: "Моё самое любимое аниме" },
+  { k: "キャラクター", r: "kyarakutā", g: "персонаж", ru: "Мой самый любимый персонаж" },
+  { k: "バンド", r: "bando", g: "группа", ru: "Моя самая любимая группа" },
+];
+const ABOUT = [
+  { id: "role", label: "Я — … (профессия, кто я)", list: ROLES, build: x => [[["わたし", "watashi", "я"], ["は", "wa", "тема", 1], [x.k, x.r, x.ru], ["です", "desu", "есть", 1]], `Я — ${x.ru}.`],
+    hint: "〜しゃ (者) — «человек, который…»: かいはつしゃ — разработчик. Слова-профессии на катакане (プログラマー, スケーター) — заимствования из английского." },
+  { id: "job", label: "Моя работа — …", list: ACTS, build: x => [[["しごと", "shigoto", "работа"], ["は", "wa", "тема", 1], [x.k, x.r, x.ru], ["です", "desu", "есть", 1]], `Моя работа — ${x.ru}.`],
+    hint: "しごと — работа. «Моя» не нужно: о ком речь, и так понятно. X の Y — «Y для/от X»: エーアイの ハーネス — харнесс для ИИ." },
+  { id: "hobby", label: "Моё хобби — …", list: ACTS, build: x => [[["しゅみ", "shumi", "хобби"], ["は", "wa", "тема", 1], [x.k, x.r, x.ru], ["です", "desu", "есть", 1]], `Моё хобби — ${x.ru}.`],
+    hint: "しゅみ — хобби. Спросить у собеседника: しゅみは なんですか — «какое у вас хобби?»." },
+  { id: "ikigai", label: "… — смысл моей жизни", list: ACTS, build: x => [[[x.k, x.r, x.ru], ["は", "wa", "тема", 1], ["わたし", "watashi", "я"], ["の", "no", "чей", 1], ["いきがい", "ikigai", "смысл_жизни"], ["です", "desu", "есть", 1]], `${x.ru[0].toUpperCase() + x.ru.slice(1)} — смысл моей жизни.`],
+    hint: "いきがい (生きがい) — «то, ради чего живёшь». Так можно развести: しごとは エーアイの ハーネスの かいはつです — это работа, а ゲームかいはつは わたしの いきがいです — это страсть." },
+  { id: "fav", label: "Самое любимое … — …", list: CATS, named: true, build: (x, nm) => [[["いちばん", "ichiban", "самый"], ["すき", "suki", "любимый"], ["な", "na", "связка", 1], [x.k, x.r, x.g], ["は", "wa", "тема", 1], [nm.k || "なん", nm.r || "nan", nm.k ? `«${nm.ru}»` : "что"], ["です", "desu", "есть", 1]].concat(nm.k ? [] : [["か", "ka", "вопрос", 1]]), nm.k ? `${x.ru} — ${nm.ru}.` : `${x.ru.replace("Моя", "Твоя").replace("Моё", "Твоё").replace("Мой", "Твой")} — какая?`],
+    hint: "すきな — «любимый» (な-прилагательное перед существительным). いちばん — «номер один, самый». Без названия получается вопрос: いちばん すきな ゲームは なんですか." },
+];
+
+function aboutBuilder() {
+  const s = Object.assign({ pat: 0, val: 0, name: 3 }, store.get("kana.about", {}));
+  const out = el("div"), hint = el("p", { className: "kn-muted" }), vals = el("span"), nmBox = el("span");
+  const patSel = el("select", { onchange: e => { s.pat = +e.target.value; s.val = 0; draw(); } },
+    ...ABOUT.map((a, i) => el("option", { value: i, selected: i === s.pat, textContent: a.label })));
+  const box = el("div", {}, el("div", { className: "kn-builder" },
+    el("label", { className: "kn-bsel" }, el("span", { textContent: "Шаблон" }), patSel), vals, nmBox), out, hint);
+  function draw() {
+    const a = ABOUT[s.pat] || ABOUT[0];
+    if (!a.list[s.val]) s.val = 0;
+    store.set("kana.about", s);
+    vals.replaceChildren(el("label", { className: "kn-bsel" }, el("span", { textContent: a.named ? "Что" : "Кто / что" }),
+      el("select", { onchange: e => { s.val = +e.target.value; draw(); } },
+        ...a.list.map((x, i) => el("option", { value: i, selected: i === s.val, textContent: `${x.k} — ${x.g || x.ru}` })))));
+    nmBox.replaceChildren(a.named ? nameField(() => s.name, v => { s.name = v; }, () => draw()) : "");
+    const [toks, ru] = a.build(a.list[s.val], nameOf(s.name));
+    out.replaceChildren(sentence(toks.map(T), ru));
+    hint.textContent = a.hint;
+  }
+  draw();
+  return box;
+}
+
+// конструктор целиком: вкладки «Действие / Поездки / Обо мне» — каждая со своим набором полей
+const KINDS = [["act", "🔨 Действие", actionBuilder], ["trip", "🧭 Поездки", tripBuilder], ["about", "🪪 Обо мне", aboutBuilder]];
+export function phraseBuilder() {
+  let cur = store.get("kana.pbtab", "act");
+  const seg = el("div", { className: "kn-seg kn-pbtabs" }), body = el("div");
+  function show() {
+    store.set("kana.pbtab", cur);
+    const k = KINDS.find(x => x[0] === cur) || KINDS[0];
+    seg.replaceChildren(...KINDS.map(([id, label]) => el("button", { className: "kn-segb" + (id === k[0] ? " on" : ""), textContent: label,
+      onclick: () => { cur = id; show(); } })));
+    body.replaceChildren(k[2]());
+  }
+  show();
+  return el("div", { className: "kn-pb" }, seg, body);
 }
 
 /* ---------- готовые фразы по ситуациям ---------- */
 export const SITUATIONS = [
   { id: "dev", h: "🎮 Геймдев", tip: "〜て います — «делаю сейчас / занимаюсь этим»: つくって います — делаю (в процессе).", ex: [
     ex("わたし=watashi=я *は=wa=тема ゲーム=gēmu=игра *を=o=объект つくって=tsukutte=делая *います=imasu=(в_процессе)", "Я делаю игру."),
+    ex("グレイブブラッド=gureibuburaddo=«Graveblood» *という=toiu=под_названием ゲーム=gēmu=игра *を=o=объект つくって=tsukutte=делая *います=imasu=(в_процессе)", "Делаю игру под названием Graveblood."),
+    ex("わたし=watashi=я *は=wa=тема ゲームかいはつしゃ=gēmukaihatsusha=разработчик_игр です=desu=есть", "Я — разработчик игр."),
     ex("ひとり=hitori=один *で=de=как ゲーム=gēmu=игра *を=o=объект つくって=tsukutte=делая *います=imasu=(в_процессе)", "Делаю игру в одиночку."),
     ex("この=kono=этот ゲーム=gēmu=игра *は=wa=тема ゲームボーイアドバンス=gēmubōiadobansu=Game_Boy_Advance *で=de=на うごきます=ugokimasu=работает", "Эта игра работает на Game Boy Advance."),
     ex("しゅうまつ=shūmatsu=выходные *に=ni=когда コード=kōdo=код *を=o=объект かきます=kakimasu=пишу", "На выходных пишу код."),
@@ -253,6 +457,8 @@ export const SITUATIONS = [
   { id: "play", h: "🕹 Играю", tip: "どんな — «какой (по типу)». よく — «часто».", ex: [
     ex("どんな=donna=какие ゲーム=gēmu=игры *が=ga=подлеж. すき=suki=нравится です=desu=вежл. *か=ka=вопрос", "Какие игры тебе нравятся?"),
     ex("アクションゲーム=akushongēmu=экшены *が=ga=подлеж. すき=suki=нравится です=desu=вежл.", "Люблю экшены."),
+    ex("いちばん=ichiban=самый すき=suki=любимый *な=na=связка シリーズ=shirīzu=серия *は=wa=тема スパイロ=supairo=«Spyro» です=desu=есть", "Моя самая любимая серия — Spyro."),
+    ex("いちばん=ichiban=самый すき=suki=любимый *な=na=связка ゲーム=gēmu=игра *は=wa=тема なん=nan=что です=desu=есть *か=ka=вопрос", "Какая твоя самая любимая игра?"),
     ex("スケボー=sukebō=скейт *の=no=какой ゲーム=gēmu=игра *を=o=объект よく=yoku=часто します=shimasu=играю", "Часто играю в игры про скейт."),
     ex("よる=yoru=вечером ゲーム=gēmu=игра *を=o=объект します=shimasu=играю", "По вечерам играю."),
     ex("いっしょ=issho=вместе *に=ni=как あそびましょう=asobimashō=давай_поиграем", "Давай поиграем вместе!"),
@@ -301,6 +507,8 @@ export const SITUATIONS = [
   ] },
   { id: "work", h: "💼 Работа и ИИ", tip: "かいはつ (開発) — «разработка», かいはつする — разрабатывать. しくみ — «устройство, механизм». が между фразами — «но». しゅみで — «как хобби».", ex: [
     ex("わたし=watashi=я *は=wa=тема プログラマー=puroguramā=программист です=desu=есть", "Я программист."),
+    ex("しごと=shigoto=работа *は=wa=тема エーアイ=ēai=ИИ *の=no=для ハーネス=hānesu=харнесс *の=no=чей かいはつ=kaihatsu=разработка です=desu=есть", "Моя работа — разработка харнесса для ИИ."),
+    ex("でも=demo=но ゲームかいはつ=gēmukaihatsu=разработка_игр *は=wa=тема わたし=watashi=я *の=no=чей いきがい=ikigai=смысл_жизни です=desu=есть", "А разработка игр — смысл моей жизни."),
     ex("しごと=shigoto=работа *で=de=где エーアイ=ēai=ИИ *の=no=для ハーネス=hānesu=харнесс *を=o=объект かいはつして=kaihatsushite=разрабатывая *います=imasu=(в_процессе)", "На работе разрабатываю харнесс для ИИ."),
     ex("ハーネス=hānesu=харнесс *は=wa=тема エーアイエージェント=ēaiējento=ИИ-агент *を=o=объект うごかす=ugokasu=запускать しくみ=shikumi=механизм です=desu=есть", "Харнесс — это механизм, который запускает ИИ-агентов."),
     ex("エーアイ=ēai=ИИ *が=ga=подлеж. コード=kōdo=код *を=o=объект かいて=kaite=напишет テスト=tesuto=тест *も=mo=тоже します=shimasu=делает", "ИИ пишет код и сам его тестирует."),
@@ -333,6 +541,9 @@ export const SITUATIONS = [
   ] },
   { id: "road", h: "🚃 Дорога", tip: "へ и に — «куда». 〜えます / 〜せます — «можно, получается»: かえます — можно купить.", ex: [
     ex("おおさか=ōsaka=Осака *へ=e=куда いきたい=ikitai=хочу_поехать です=desu=вежл.", "Хочу поехать в Осаку."),
+    ex("にしのみや=nishinomiya=Нисиномия *に=ni=куда いく=iku=ехать *よてい=yotei=план です=desu=есть", "Собираюсь поехать в Нисиномию."),
+    ex("にしのみや=nishinomiya=Нисиномия *に=ni=куда いって=itte=съездив *みたい=mitai=хочу_попробовать です=desu=вежл.", "Хочу побывать в Нисиномии."),
+    ex("ドリームス=dorīmusu=«Dreams» *という=toiu=под_названием カフェ=kafe=кафе *に=ni=куда いきたい=ikitai=хочу_пойти です=desu=вежл.", "Хочу сходить в кафе «Dreams»."),
     ex("この=kono=этот でんしゃ=densha=поезд *は=wa=тема おおさか=ōsaka=Осака *に=ni=куда いきます=ikimasu=идёт *か=ka=вопрос", "Этот поезд идёт в Осаку?"),
     ex("きっぷ=kippu=билет *は=wa=тема どこ=doko=где *で=de=где かえます=kaemasu=можно_купить *か=ka=вопрос", "Где можно купить билет?"),
     ex("みち=michi=дорога *に=ni=в まよいました=mayoimashita=заблудился", "Я заблудился."),
