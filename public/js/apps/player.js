@@ -55,8 +55,9 @@ const Player = {
     });
   },
 
-  // открыть плеер на треке: плейлист = все аудиофайлы той же папки
-  async open(path) {
+  // открыть плеер на треке: плейлист = все аудиофайлы той же папки.
+  // { mini: true } — компактное окошко в правом верхнем углу (треки с форума NETWORK): без списка, поверх всего
+  async open(path, { mini = false } = {}) {
     const dir = parentOf(path);
     let list = [path];
     try {
@@ -68,8 +69,17 @@ const Player = {
       if (found.length) list = found;
     } catch {}
     this.list = list;
+    const fresh = !this.win;
     if (this.win) WM.restore(this.win);
     else this.win = WM.open({ title: "Плеер", icon: "🎧", width: 420, height: 640, key: "player", render: (c, w) => this.build(c, w) });
+    if (mini && (fresh || this.ui?.root.classList.contains("mini"))) {
+      this.ui?.root.classList.add("mini");
+      const W = Math.min(330, innerWidth - 20), H = 300;
+      WM.moveTo(this.win, { left: innerWidth - W - 12, top: 12 + WM.reservedTop(), width: W, height: H });
+    } else if (!mini && this.ui?.root.classList.contains("mini")) {
+      this.ui.root.classList.remove("mini");   // открыли трек обычным способом — плеер снова полный
+      WM.moveTo(this.win, { left: Math.max(10, innerWidth - 440), top: 40, width: 420, height: Math.min(640, innerHeight - 90) });
+    }
     this.renderList();
     this.play(Math.max(0, list.indexOf(path)));
   },

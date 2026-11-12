@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Псевдо-сайты встроенного браузера nikita.os. Первый — форум Kursk Artists (kursk.artists).
+Форумы псевдо-сайтов встроенного браузера nikita.os: Kursk Artists (kursk.artists) и форум NETWORK (net.work).
+Один класс, разные экземпляры: у каждого своё хранилище (name), свои разделы и свои префиксы адресов.
+Ниже адреса — для Kursk Artists; у NETWORK те же, но с /api/net/forum/... и /media/nf/... (без профилей —
+профили там свои, network.py; аватарку и подпись автора к посту даёт колбэк decorate(uid)).
 
 Аккаунт — общий с чатом (chat.user_by_token): регистрация/вход через /api/chat/auth.
 Картинки (аватарки и картинки в постах) жмёт браузер тем же инструментом, что и записи,
@@ -78,11 +81,16 @@ def check_jpeg(data, max_dim):
 
 
 class Forum:
-    def __init__(self, ufs_root, user_of):
+    def __init__(self, ufs_root, user_of, name="forum", sections=None, api="/api/forum", media="/media/f",
+                 decorate=None, profiles=True):
         self.dir = Path(ufs_root) / ".meta"
-        self.media = self.dir / "forum_media"
-        self.path = self.dir / "forum.json"
+        self.media = self.dir / f"{name}_media"
+        self.path = self.dir / f"{name}.json"
         self.user_of = user_of
+        self.sections = sections or SECTIONS
+        self.api, self.media_url = api, media
+        self.decorate = decorate          # uid -> dict, что добавить к посту (аватарка, имя) — для NETWORK
+        self.profiles = profiles          # свои профили (Kursk Artists) или чужие (NETWORK)
         self.rate = {}                  # (uid, kind) -> время последнего действия (в памяти)
         self.d = {"threads": {}, "posts": {}, "profiles": {}, "images": {}}
         try:
@@ -152,8 +160,11 @@ class Forum:
 
     def _pub_post(self, pid, p):
         prof = self.d["profiles"].get(str(p["uid"]), {})
-        return {"id": pid, "author": p["nick"], "ava": prof.get("ava"), "text": p["text"],
-                "created": p["created"], "edited": p.get("edited", 0)}
+        out = {"id": pid, "author": p["nick"], "ava": prof.get("ava"), "text": p["text"],
+               "created": p["created"], "edited": p.get("edited", 0)}
+        if self.decorate:
+            out.update(self.decorate(p["uid"]) or {})
+        return out
 
     def _pub_thread(self, tid, t):
         return {"id": tid, "section": t["section"], "title": t["title"], "author": t["nick"],
@@ -163,7 +174,7 @@ class Forum:
     # ---------- чтение ----------
     async def api_sections(self, request):
         out = []
-        for sid, name in SECTIONS.items():
+        for sid, name in self.sections.items():
             th = [t for t in self.d["threads"].values() if t["section"] == sid]
             out.append({"id": sid, "name": name, "threads": len(th),
                         "posts": sum(t.get("count", 1) for t in th),
@@ -172,7 +183,7 @@ class Forum:
 
     async def api_section(self, request):
         sid = request.match_info["sec"]
-        if sid not in SECTIONS:
+        if sid not in self.sections:
             return web.json_response({"error": "нет такого раздела"}, status=404)
         q = request.query.get("page", "1")
         page = max(1, int(q)) if q.isdigit() else 1
@@ -180,7 +191,7 @@ class Forum:
                     key=lambda x: -x[1].get("last", 0))
         pages = max(1, -(-len(th) // PAGE))
         chunk = th[(page - 1) * PAGE: page * PAGE]
-        return web.json_response({"section": {"id": sid, "name": SECTIONS[sid]}, "page": page, "pages": pages,
+        return web.json_response({"section": {"id": sid, "name": self.sections[sid]}, "page": page, "pages": pages,
                                   "threads": [self._pub_thread(tid, t) for tid, t in chunk]})
 
     async def api_thread(self, request):
@@ -194,7 +205,7 @@ class Forum:
         page = pages if q == "last" else max(1, min(pages, int(q) if q.isdigit() else 1))
         chunk = posts[(page - 1) * PAGE: page * PAGE]
         return web.json_response({"thread": self._pub_thread(tid, t), "page": page, "pages": pages,
-                                  "section_name": SECTIONS.get(t["section"], t["section"]),
+                                  "section_name": self.sections.get(t["section"], t["section"]),
                                   "posts": [self._pub_post(pid, p) for pid, p in chunk]})
 
     async def api_user(self, request):
@@ -246,7 +257,7 @@ class Forum:
             return web.json_response({"error": "нужно войти"}, status=401)
         b = await self._body(request)
         sid = b.get("section")
-        if sid not in SECTIONS:
+        if sid not in self.sections:
             return web.json_response({"error": "нет такого раздела"}, status=400)
         title = clean_title(b.get("title"))[:TITLE_MAX]
         text = clean_md(b.get("text"), POST_MAX)
@@ -343,7 +354,7 @@ class Forum:
             return mid
         self._enforce_cap()
         self.save()
-        return web.json_response({"url": "/media/f/" + mid})
+        return web.json_response({"url": f"{self.media_url}/{mid}"})
 
     async def api_me_edit(self, request):
         uid, nick = self._me(request)
@@ -364,7 +375,7 @@ class Forum:
             return mid
         pr = self._touch_profile(uid, nick)
         old = pr.get("ava")
-        pr["ava"] = "/media/f/" + mid
+        pr["ava"] = f"{self.media_url}/{mid}"
         if old:
             self._rm_img(old.rsplit("/", 1)[-1])
         self.save()
@@ -390,17 +401,32 @@ class Forum:
         return web.FileResponse(f, headers={"Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400"})
 
     def routes(self, app):
-        r = app.router
-        r.add_get("/api/forum/sections", self.api_sections)
-        r.add_get("/api/forum/s/{sec}", self.api_section)
-        r.add_get("/api/forum/t/{tid}", self.api_thread)
-        r.add_post("/api/forum/threads", self.api_new_thread)
-        r.add_post("/api/forum/t/{tid}/posts", self.api_reply)
-        r.add_patch("/api/forum/p/{id}", self.api_edit)
-        r.add_delete("/api/forum/p/{id}", self.api_delete)
-        r.add_post("/api/forum/img", self.api_img)
-        r.add_get("/api/forum/u/{nick}", self.api_user)
-        r.add_patch("/api/forum/me", self.api_me_edit)
-        r.add_post("/api/forum/me/avatar", self.api_avatar)
-        r.add_delete("/api/forum/me/avatar", self.api_avatar_del)
-        r.add_get("/media/f/{id}", self.serve_media)
+        r, a = app.router, self.api
+        r.add_get(f"{a}/sections", self.api_sections)
+        r.add_get(f"{a}/s/{{sec}}", self.api_section)
+        r.add_get(f"{a}/t/{{tid}}", self.api_thread)
+        r.add_post(f"{a}/threads", self.api_new_thread)
+        r.add_post(f"{a}/t/{{tid}}/posts", self.api_reply)
+        r.add_patch(f"{a}/p/{{id}}", self.api_edit)
+        r.add_delete(f"{a}/p/{{id}}", self.api_delete)
+        r.add_post(f"{a}/img", self.api_img)
+        if self.profiles:
+            r.add_get(f"{a}/u/{{nick}}", self.api_user)
+            r.add_patch(f"{a}/me", self.api_me_edit)
+            r.add_post(f"{a}/me/avatar", self.api_avatar)
+            r.add_delete(f"{a}/me/avatar", self.api_avatar_del)
+        r.add_get(f"{self.media_url}/{{id}}", self.serve_media)
+
+    # ---------- для других модулей ----------
+    def recent(self, n=8):
+        """Свежие ветки всех разделов (для ленты на главной)."""
+        th = sorted(self.d["threads"].items(), key=lambda x: -x[1].get("last", 0))[:n]
+        return [self._pub_thread(tid, t) for tid, t in th]
+
+    def user_threads(self, uid, n=10):
+        th = [(tid, t) for tid, t in self.d["threads"].items() if str(t["uid"]) == str(uid)]
+        th.sort(key=lambda x: -x[1]["created"])
+        return [self._pub_thread(tid, t) for tid, t in th[:n]]
+
+    def user_posts(self, uid):
+        return sum(1 for p in self.d["posts"].values() if str(p["uid"]) == str(uid))

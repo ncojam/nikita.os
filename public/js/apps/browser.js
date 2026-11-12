@@ -2,6 +2,8 @@ import { el } from "../core/util.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
 import { pickImage } from "./post.js";
+import { md, mdEditor } from "./mdkit.js";
+import { askAuth } from "../ui/auth.js";
 
 /* ================= Браузер =================
  * Ходит только по нашим псевдо-сайтам. Адрес вида «kursk.artists/general/<id>».
@@ -9,7 +11,6 @@ import { pickImage } from "./post.js";
  */
 const HOME = "about:home";
 const FORUM = "kursk.artists";
-const POST_IMG = { dim: 800, limit: 110 * 1024 };   // картинка в посте (сервер: ≤800px, ≤120 КБ)
 const AVA_IMG = { dim: 256, limit: 60 * 1024 };
 
 const fmtDate = ts => !ts ? "—" : new Date(ts * 1000).toLocaleString(globalThis.NOS_LOCALE,
@@ -38,97 +39,6 @@ function normAddr(a) {
 }
 const browserUrl = addr => location.origin + "/browser/" + (addr === HOME ? "" : encodeURI(addr));
 
-/* ---------- markdown (безопасный: сначала экранируем всё, потом размечаем) ---------- */
-const esc = s => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-function inline(s) {
-  const codes = [];
-  s = s.replace(/`([^`\n]+)`/g, (_, c) => (codes.push(c), `\u0000${codes.length - 1}\u0000`));
-  // картинки — только наши (/media/...), чужие адреса не грузим
-  s = s.replace(/!\[([^\]\n]*)\]\((\/media\/[A-Za-z0-9/_-]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy">');
-  s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, t, u) => linkTag(u, t));
-  s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre, u) => pre + linkTag(u, u));
-  s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
-       .replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<i>$2</i>")
-       .replace(/(^|[^_\w])_([^_\n]+)_/g, "$1<i>$2</i>")
-       .replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
-}
-
-function linkTag(u, text) {
-  const inner = normAddr(u.replace(/&amp;/g, "&"));
-  const ours = /^https?:\/\/[^/]+\/browser\//i.test(u) && u.startsWith(location.origin) || /^kursk\.artists(\/|$)/i.test(u);
-  if (ours) return `<a href="#" data-nav="${esc(inner)}">${text}</a>`;
-  if (/^https?:\/\//i.test(u)) return `<a href="${u}" target="_blank" rel="noopener nofollow">${text}</a>`;
-  return text;
-}
-
-function md(src) {
-  const lines = esc(src).split("\n");
-  const out = [];
-  let i = 0, para = [];
-  const flush = () => { if (para.length) { out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = []; } };
-  while (i < lines.length) {
-    const l = lines[i];
-    if (/^```/.test(l)) {
-      flush(); const buf = []; i++;
-      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
-      i++; out.push("<pre><code>" + buf.join("\n") + "</code></pre>"); continue;
-    }
-    let m;
-    if ((m = l.match(/^(#{1,3})\s+(.*)/))) { flush(); out.push(`<h${m[1].length + 2}>${inline(m[2])}</h${m[1].length + 2}>`); i++; continue; }
-    if (/^(-{3,}|\*{3,})\s*$/.test(l)) { flush(); out.push("<hr>"); i++; continue; }
-    if (/^&gt;\s?/.test(l)) {
-      flush(); const buf = [];
-      while (i < lines.length && /^&gt;\s?/.test(lines[i])) buf.push(lines[i++].replace(/^&gt;\s?/, ""));
-      out.push("<blockquote>" + buf.map(inline).join("<br>") + "</blockquote>"); continue;
-    }
-    if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
-      flush(); const ordered = /^\s*\d+\./.test(l), buf = [];
-      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s+/, ""));
-      const tag = ordered ? "ol" : "ul";
-      out.push(`<${tag}>` + buf.map(x => "<li>" + inline(x) + "</li>").join("") + `</${tag}>`); continue;
-    }
-    if (!l.trim()) { flush(); i++; continue; }
-    para.push(l); i++;
-  }
-  flush();
-  return out.join("");
-}
-
-/* ---------- редактор markdown: панель, загрузка картинок, превью ---------- */
-function mdEditor({ value = "", placeholder = "Текст (поддерживается Markdown)", rows = 8 } = {}) {
-  const ta = el("textarea", { className: "ka-ta", rows, maxLength: 8000, value, placeholder });
-  const prev = el("div", { className: "ka-md ka-prev", hidden: true });
-  const wrap = (a, b = a) => () => {
-    const { selectionStart: s, selectionEnd: e, value: v } = ta;
-    ta.value = v.slice(0, s) + a + v.slice(s, e) + b + v.slice(e);
-    ta.focus(); ta.selectionStart = s + a.length; ta.selectionEnd = e + a.length;
-  };
-  const insert = t => { const s = ta.selectionStart; ta.value = ta.value.slice(0, s) + t + ta.value.slice(ta.selectionEnd); ta.focus(); };
-  const btn = (t, title, fn) => el("button", { className: "ka-tool", type: "button", textContent: t, title, onclick: fn });
-  const imgBtn = btn("🖼", "Картинка (сожмём до 800px)", async () => {
-    const blob = await pickImage(POST_IMG.dim, POST_IMG.limit);
-    if (!blob) return;
-    imgBtn.disabled = true;
-    try {
-      const d = await api("/api/forum/img", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: blob });
-      insert(`\n![картинка](${d.url})\n`);
-    } catch (e) { notify(e.message); } finally { imgBtn.disabled = false; }
-  });
-  const prevBtn = btn("👁 Превью", "Показать как будет", () => {
-    const on = prev.hidden;
-    prev.hidden = !on; ta.hidden = on;
-    if (on) prev.innerHTML = md(ta.value) || "<p class='ka-muted'>(пусто)</p>";
-    prevBtn.classList.toggle("on", on);
-  });
-  const bar = el("div", { className: "ka-toolbar" },
-    btn("B", "Жирный", wrap("**")), btn("I", "Курсив", wrap("*")), btn("S", "Зачёркнутый", wrap("~~")),
-    btn("</>", "Код", wrap("`")), btn("❝", "Цитата", wrap("> ", "")), btn("🔗", "Ссылка", wrap("[", "](https://)")),
-    imgBtn, el("span", { className: "ka-sp" }), prevBtn);
-  return { node: el("div", { className: "ka-editor" }, bar, ta, prev), ta, get value() { return ta.value; } };
-}
-
 /* ================= сайт: Kursk Artists ================= */
 const KA = {
   title: "Kursk Artists",
@@ -142,7 +52,7 @@ const KA = {
           el("a", { href: "#", textContent: "выйти", onclick: async e => {
             e.preventDefault(); await fetch("/api/chat/logout", { method: "POST" }).catch(() => {}); b.reload(); } }))
       : el("div", { className: "ka-user" }, el("a", { href: "#", textContent: "Вход / регистрация",
-          onclick: e => (e.preventDefault(), b.go(`${FORUM}/login?back=${encodeURIComponent(b.addr)}`)) }));
+          onclick: async e => { e.preventDefault(); if (await askAuth()) b.reload(); } }));
     page.append(el("header", { className: "ka-head" },
       el("a", { className: "ka-logo", href: "#", onclick: e => (e.preventDefault(), b.go(FORUM)) },
         el("span", { className: "ka-mark", textContent: "✶" }),
@@ -249,6 +159,7 @@ const KA = {
   post(b, p, me, isFirst, self) {
     const body = el("div", { className: "ka-md" });
     body.innerHTML = md(p.text);
+    if (body.querySelector(".md-trk")) import("./trackcard.js").then(m => m.hydrateTracks(body));
     const mine = me && me === p.author;
     const tools = el("div", { className: "ka-post-tools" },
       el("span", { className: "ka-muted", textContent: fmtDate(p.created) + (p.edited ? " · изм." : "") }));
@@ -298,25 +209,13 @@ const KA = {
     title.focus();
   },
 
+  // вход — общим окошком регистрации системы (ui/auth.js); адрес …/login оставлен для старых ссылок
   login(b, main, back) {
-    const nick = el("input", { className: "ka-input", maxLength: 20, placeholder: "Ник", autocomplete: "username", spellcheck: false });
-    const pass = el("input", { className: "ka-input", type: "password", maxLength: 128, placeholder: "Пароль", autocomplete: "current-password" });
-    const err = el("div", { className: "ka-danger" });
-    const go = el("button", { className: "ka-btn", textContent: "Войти / зарегистрироваться" });
-    const submit = async () => {
-      err.textContent = ""; go.disabled = true;
-      try {
-        const d = await sendJSON("/api/chat/auth", "POST", { login: nick.value.trim(), password: pass.value });
-        if (d.created) notify("Аккаунт создан — он же работает в чате");
-        b.go(back || FORUM, true);
-      } catch (e) { err.textContent = e.message; go.disabled = false; }
-    };
-    go.onclick = submit;
-    nick.onkeydown = pass.onkeydown = e => { if (e.key === "Enter") submit(); };
+    const go = async () => { if (await askAuth({ why: "Вход на форум Kursk Artists" })) b.go(back || FORUM, true); };
     main.replaceChildren(el("div", { className: "ka-box ka-form ka-narrow" }, el("h2", { textContent: "Вход" }),
-      el("p", { className: "ka-muted", textContent: "Аккаунт общий с чатом nikita.os. Нет такого ника — зарегистрируем, есть — войдём." }),
-      nick, pass, go, err));
-    nick.focus();
+      el("p", { className: "ka-muted", textContent: "Аккаунт общий для всей nikita.os: чат, форумы, записи, DAWN." }),
+      el("button", { className: "ka-btn", textContent: "Войти / зарегистрироваться", onclick: go })));
+    go();
   },
 
   async user(b, main, nick, me) {
@@ -366,11 +265,22 @@ const KA = {
   },
 };
 
-const SITES = { [FORUM]: KA };
+/* NETWORK грузится лениво: его код (стена, плеер DAWN) нужен, только когда на него зашли */
+const NET_HOST = "net.work";
+const netMod = () => import("./net/site.js");
+const NET = {
+  title: "NETWORK",
+  async render(b, parts, q) { return (await netMod()).NET.render(b, parts, q); },
+  async enter(b) { (await netMod()).NET.enter(b); },
+  async leave(b) { (await netMod()).NET.leave(b); },
+};
+
+const SITES = { [FORUM]: KA, [NET_HOST]: NET };
 
 /* ================= стартовая страница ================= */
 function homePage(b) {
-  const marks = [{ addr: FORUM, name: "Kursk Artists", desc: "форум творцов", glyph: "✶" }];
+  const marks = [{ addr: NET_HOST, name: "NETWORK", desc: "нетворкинг криейтеров", glyph: "⚡" },
+    { addr: FORUM, name: "Kursk Artists", desc: "форум творцов", glyph: "✶" }];
   const grid = el("div", { className: "br-marks" });
   for (const m of marks)
     grid.append(el("button", { className: "br-mark", onclick: () => b.go(m.addr) },
@@ -408,7 +318,10 @@ class Browser {
         nb("⌂", "Закладки", () => this.go(HOME)), this.input,
         nb("🔗", "Скопировать ссылку", () => this.copy())),
       this.view));
-    w.onClose = () => { if (lastActive === this) { lastActive = null; history.replaceState(null, "", "/"); } };
+    w.onClose = () => {
+      this.site?.leave?.(this);
+      if (lastActive === this) { lastActive = null; history.replaceState(null, "", "/"); }
+    };
     c.addEventListener("pointerdown", () => this.claimUrl());
     this.go(start || HOME);
   }
@@ -438,13 +351,17 @@ class Browser {
     const top = this.view.scrollTop;
     this.addr = addr;
     this.input.value = addr === HOME ? "" : addr;
-    this.input.placeholder = "Адрес, например kursk.artists";
+    this.input.placeholder = "Адрес, например net.work";
     this.backB.disabled = this.pos <= 0; this.fwdB.disabled = this.pos >= this.hist.length - 1;
     this.claimUrl();
-    if (addr === HOME) { this.setTitle("Закладки"); return this.paint(homePage(this)); }
     const [path, qs = ""] = addr.split("?");
     const [host, ...parts] = path.split("/").filter(Boolean);
-    const site = SITES[host.toLowerCase()];
+    const site = addr === HOME ? null : SITES[host.toLowerCase()] || null;
+    if (site !== this.site) {          // сменили сайт: старый убирает своё с окна, новый — ставит (NETWORK: лого, подтёки)
+      const old = this.site; this.site = site;
+      old?.leave?.(this); site?.enter?.(this);
+    }
+    if (addr === HOME) { this.setTitle("Закладки"); return this.paint(homePage(this)); }
     if (!site) { this.setTitle("Нет сайта"); return this.paint(notFound(this, addr)); }
     this.setTitle(site.title);
     await site.render(this, parts, new URLSearchParams(qs));
@@ -472,4 +389,4 @@ function openBrowser(addr) {
   return br;
 }
 
-export { openBrowser, md };
+export { openBrowser, md };   // md — для старых импортов, живёт в mdkit.js

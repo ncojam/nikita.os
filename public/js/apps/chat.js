@@ -112,7 +112,10 @@ class ChatApp {
     this.peers = new Map(); this.view = PUBLIC;
     this.oldest = 0; this.loadingOld = false; this.noMore = false;
     this.closed = false;
-    w.onClose = () => this.shutdown();
+    // вошли через общее окно входа (ui/auth.js) где-то ещё — чат сразу пускает
+    const onAuth = e => { if (!this.me && !this.closed) { this.me = e.detail.nick; this.main(); } };
+    addEventListener("nos-auth", onAuth);
+    w.onClose = () => { removeEventListener("nos-auth", onAuth); this.shutdown(); };
     this.start();
   }
 

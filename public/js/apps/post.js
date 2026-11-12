@@ -33,7 +33,8 @@ const blobToDataURL = blob => new Promise((res, rej) => {
 });
 
 /* сжать картинку шакалом: вписать в IMG_DIM, JPEG с понижением качества до лимита. Blob | null */
-async function shrink(src, dim = IMG_DIM, limit = IMG_LIMIT) {
+// qs — своя лестница качества JPEG (напр. аватарки NETWORK: сначала почти без потерь)
+async function shrink(src, dim = IMG_DIM, limit = IMG_LIMIT, qs = null) {
   const url = URL.createObjectURL(src);
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("не картинка")); i.src = url; });
@@ -45,7 +46,7 @@ async function shrink(src, dim = IMG_DIM, limit = IMG_LIMIT) {
     cv.getContext("2d").drawImage(img, 0, 0, cw, ch);
     let blob = null;
     // мелкая картинка («шакал» записей) — с низкого качества; крупная — начинаем приличнее
-    const qs = dim > IMG_DIM ? [0.72, 0.55, 0.4, 0.28, 0.18] : [0.14, 0.1, 0.07, 0.05];
+    qs ||= dim > IMG_DIM ? [0.72, 0.55, 0.4, 0.28, 0.18] : [0.14, 0.1, 0.07, 0.05];
     for (const q of qs) {
       blob = await new Promise(res => cv.toBlob(res, "image/jpeg", q));
       if (blob && blob.size <= limit) return blob;
@@ -54,10 +55,10 @@ async function shrink(src, dim = IMG_DIM, limit = IMG_LIMIT) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function pickImage(dim, limit) {
+function pickImage(dim, limit, qs = null) {
   return new Promise(res => {
     const inp = el("input", { type: "file", accept: "image/*" });
-    inp.onchange = async () => { const f = inp.files?.[0]; res(f ? await shrink(f, dim, limit).catch(() => null) : null); };
+    inp.onchange = async () => { const f = inp.files?.[0]; res(f ? await shrink(f, dim, limit, qs).catch(() => null) : null); };
     inp.click();
   });
 }

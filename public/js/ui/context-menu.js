@@ -128,6 +128,8 @@ const windowMenu = w => [
 const fsLabel = () => document.fullscreenElement ? "Выйти из полного экрана" : "Полный экран";
 
 /* запуск — вызывается из main.js */
+export { Ctx };   // своё меню (напр. карточки треков NETWORK): Ctx.show(x, y, [{icon, label, run}, "-", …])
+
 export function init_ui_context_menu() {
   document.addEventListener("pointerdown", e => { if (Ctx.node && !Ctx.node.contains(e.target)) Ctx.hide(); }, true);
 

@@ -807,6 +807,21 @@ def make_app():
     from forum import Forum
     app["forum"] = Forum(UFS_ROOT, app["chat"].user_by_token)
     app["forum"].routes(app)
+    # NETWORK (net.work): профили криейтеров, поиск людей, стена граффити + свой экземпляр форума
+    from network import Network
+    def file_ok(v):
+        pf = resolve_inside(FS_ROOT, v)
+        pu = app["folders"].real(v)
+        return bool(pf and pf.is_file()) or bool(pu and pu.is_file())
+    app["net"] = Network(UFS_ROOT, app["chat"].user_by_token, app["folders"].real, file_ok)
+    app["netforum"] = Forum(UFS_ROOT, app["chat"].user_by_token, name="netforum",
+                            sections={"general": "Флуд и болтовня", "collab": "Ищу коллаб / команду",
+                                      "showcase": "Показываю работу", "help": "Вопросы и помощь",
+                                      "events": "Движ: ивенты, джемы, конкурсы"},
+                            api="/api/net/forum", media="/media/nf", decorate=app["net"].decorate, profiles=False)
+    app["net"].forum = app["netforum"]
+    app["net"].routes(app)
+    app["netforum"].routes(app)
     # находки: плейлисты по настроениям + лента от домашнего воркера (NOS_FINDS_TOKEN)
     from finds import Finds
     app["finds"] = Finds(DATA_DIR / "finds.db", app["chat"].user_by_token, client_ip)

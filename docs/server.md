@@ -10,7 +10,8 @@
 | `chat.py` | `Chat`, `ChatDB` | `NOS_DATA/chat.db` (SQLite, WAL) | Аккаунты, сессии, общий чат, WS, сигнализация WebRTC, комменты |
 | `posts.py` | `Posts` | `ufs/.meta/posts.json`, `.meta/media/` | Записи «.запись», картинки, жалобы |
 | `userfs.py` | `Folders` | `ufs/folders.json` + реальные каталоги в `ufs/` | Общие пользовательские папки |
-| `forum.py` | `Forum` | `ufs/.meta/forum.json`, `.meta/forum_media/` | Форум Kursk Artists |
+| `forum.py` | `Forum` | `ufs/.meta/forum.json`, `.meta/forum_media/` (у NETWORK — `netforum.json`, `netforum_media/`) | Форумы Kursk Artists и NETWORK (два экземпляра) |
+| `network.py` | `Network` | `ufs/.meta/network.json`, `.meta/network_media/`, `.meta/netwall.jsonl`, mp3 — `ufs/home/network/<ник>/` | NETWORK: профили криейтеров, поиск, подбор, стена граффити |
 | `airhockey.py` | `AirHockey` | `NOS_DATA` (таблица рекордов) | Арена «Джус» |
 | `dungeon.py` | `Dungeon` | `NOS_DATA` (`dungeon.json`) | Clown Dungeon, см. [dungeon.md](dungeon.md) |
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
@@ -43,6 +44,7 @@
 | POST | `/api/folders`, `/api/folders/delete` | userfs | Общие папки |
 | GET/POST | `/api/mod/reports`, `/api/mod/show/{id}?token=` | posts | Модерация, только с `NOS_ADMIN_TOKEN` (без него — 404) |
 | * | `/api/forum/...`, `/media/f/{id}` | forum | См. [browser.md](browser.md) |
+| * | `/api/net/...`, `/api/net/forum/...`, `/media/na/{id}`, `/media/nf/{id}` | network, netforum | См. [browser.md](browser.md#network-network) |
 | * | маршруты `AirHockey.routes` | airhockey | WS арены, таблица рекордов |
 | * | маршруты `Dungeon.routes` | dungeon | WS игры `/api/dungeon/ws`, кеш музыки `/api/dungeon/stem*` и `/api/dungeon/tracks` (запись — только владелец) |
 | GET | `/finds/...` | server | `index.html` — «Находки»; `/finds/<id>` — публичный плейлист |

@@ -6,6 +6,7 @@ import { chipFxGuard, chipNewChannel } from "./chip.js";
 import { computeOver } from "./modcore.js";
 import { DEMO } from "./demo.js";
 import { c4 } from "./tuning.js";
+import { playTick } from "./tick.js";
 
 export { SPECS, WAVES, WAVE_GLYPH, TYPES, BUILTIN, sampleNow } from "./instruments.js";
 export { PASTEL, barLen } from "./format.js";
@@ -27,25 +28,6 @@ export { PASTEL, barLen } from "./format.js";
 const LOOKAHEAD = 0.12, TIMER_MS = 25, TICK = 0.25;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
-/* ноты, начинающиеся в тике [beat, beat + 0.25): cb(канал, нота, смещение от начала тика в долях) */
-function collect(P, mode, beat, cb) {
-  if (mode === "pat") {
-    const pat = P.patterns.find(p => p.id === P.cur);
-    if (pat) emitPattern(P, pat, beat, beat + TICK, cb);
-    return;
-  }
-  for (const c of P.playlist) {
-    if (beat < c.s || beat >= c.s + c.l) continue;
-    const pat = P.patterns.find(p => p.id === c.p);
-    if (!pat) continue;
-    const len = patLen(P, pat.id), local = (beat - c.s + (c.o || 0)) % len;   // o — сдвиг внутри паттерна (после разреза)
-    const until = Math.min(local + TICK, local + (c.s + c.l - beat));   // нота должна начаться внутри клипа
-    emitPattern(P, pat, local, until, cb);
-  }
-}
-function emitPattern(P, pat, from, to, cb) {   // cb(канал, нота{s,l,n,v,b?}, смещение)
-  for (const ch of P.channels) for (const n of pat.notes[ch.id] || []) if (n.s >= from - 1e-9 && n.s < to - 1e-9) cb(ch, n, n.s - from);
-}
 /* цвет вспышки фона: задан на канале (null — выкл), иначе — бочке и малому по умолчанию */
 export const FLASH_COLORS = ["#ff5fa8", "#5fffd0", "#b58cff", "#ffb25f", "#5fb8ff", "#fff05f"];
 export function flashOf(ch) {
@@ -452,11 +434,6 @@ export const Engine = {
   serialize() { return stringifyFile(toFile(this.project)); },
 };
 
-function playTick(G, P, mode, beat, t) {
-  const bd = 60 / P.bpm, td = bd / 4;
-  const swing = (Math.round(beat * 4) % 2 === 1) ? (P.swing || 0) * td * 0.5 : 0;
-  collect(P, mode, beat, (ch, n, off) => G.voice(ch, Math.max(t + off * bd + swing, G.ctx.currentTime), n.l * bd, n.n, n.v, n.b || 0, n.x || 1));
-}
 
 /* JSON, где короткие массивы (ноты) — в одну строку: и человеку, и нейросети читать удобнее */
 export function stringifyFile(obj) {
