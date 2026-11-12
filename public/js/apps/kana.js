@@ -2,8 +2,9 @@ import { el, store } from "../core/util.js";
 import "../i18n/kana.js";
 import { WM } from "../wm.js";
 import { openKanaNumbers } from "./kana-num.js";
+import { openKanaPhrases, phraseBuilder, sentence } from "./kana-phrases.js";
 import {
-  ALL, BUILDER, COLS, GRAMMAR, IRREG_NOTE, MNEMO, SAME_PAIRS, TEMPLATE, TIME_NI, VOWELS,
+  ALL, COLS, GRAMMAR, IRREG_NOTE, MNEMO, SAME_PAIRS, TEMPLATE, VOWELS,
   KANJI_LIKE, cell, kanjiLikeOf, originOf, other, twinsOf, voicing, wordsFor,
 } from "./kana-data.js";
 
@@ -15,6 +16,7 @@ import {
  *     Пока ничего не выбрано, справа — «Как запоминать». Режим «Основные / ゛ / ゜» меняет знаки прямо в клетках
  *     (K→G, S→Z, T→D, H→B / H→P) — таблица не растёт. «Прятать латиницу» — для самопроверки;
  *   • «Числа и время» — kana-num.js;
+ *   • «Фразы» — конструктор и готовые фразы по ситуациям, kana-phrases.js;
  *   • «Строй предложения» — шаблон фразы, конструктор и частицы с примерами (латиница под каждым словом).
  * Данные — kana-data.js. Состояние посетителя — store("kana.*").
  */
@@ -34,7 +36,7 @@ const VOICES = { k: "dk", s: "dk", t: "dk", h: "dkp" };
 
 /* ---------- менеджер ---------- */
 export function openKana() {
-  WM.open({ title: "Кана", icon: "🎌", width: 300, height: 360, key: "kana", render(c) {
+  WM.open({ title: "Кана", icon: "🎌", width: 300, height: 430, key: "kana", render(c) {
     c.classList.add("kn", "kn-mgr");
     const b = (icon, text, sub, fn) => el("button", { className: "kn-mbtn", onclick: fn },
       el("span", { className: "kn-micon", textContent: icon }),
@@ -43,6 +45,7 @@ export function openKana() {
       b("あ", "Хирагана", "японские слова, частицы", () => openKanaTable("hira")),
       b("ア", "Катакана", "заимствования, имена", () => openKanaTable("kata")),
       b("文", "Строй предложения", "частицы и порядок слов", () => openKanaGrammar()),
+      b("🧩", "Фразы", "конструктор и ситуации", () => openKanaPhrases()),
       b("一", "Числа и время", "счёт, половины, часы и минуты", () => openKanaNumbers()),
     );
   } });
@@ -229,17 +232,6 @@ function word(w, ch) {
 }
 
 /* ---------- строй предложения ---------- */
-// слово фразы: кана, под ней латиница, ниже — перевод/роль
-const tok = t => el("span", { className: "kn-tok" + (t.p ? " p" : "") },
-  el("span", { className: "kn-tk", textContent: t.k }),
-  el("span", { className: "kn-tr", textContent: t.r }),
-  el("span", { className: "kn-tg", textContent: t.g }));
-const sentence = (tokens, ru) => el("div", { className: "kn-ex" },
-  el("div", { className: "kn-sent" }, ...tokens.map(tok)),
-  el("div", { className: "kn-ru", textContent: ru }));
-
-const ME = { ест: "ем", пьёт: "пью", читает: "читаю", смотрит: "смотрю" };
-
 export function openKanaGrammar() {
   WM.open({ title: "Строй предложения", icon: "文", width: 760, height: 620, key: "kana:grammar", render(c) {
     c.classList.add("kn", "kn-gram");
@@ -254,32 +246,11 @@ export function openKanaGrammar() {
         el("span", { textContent: role }), p ? el("b", { textContent: p }) : ""))),
       el("p", { className: "kn-muted", textContent: "Любой кусок, кроме глагола, можно выкинуть. Частица всегда стоит сразу после своего слова — она и есть «падеж»." })));
 
-    // конструктор
-    const B = BUILDER;
-    const pick = { topic: 0, time: 1, place: 0, act: 0 };
-    const out = el("div");
-    const sel = (key, label, fmt) => el("label", { className: "kn-bsel" }, el("span", { textContent: label }),
-      el("select", { onchange: e => { pick[key] = +e.target.value; build(); } },
-        ...B[key].map((o, i) => el("option", { value: i, selected: i === pick[key], textContent: fmt(o) }))));
-    function build() {
-      const tp = B.topic[pick.topic], tm = B.time[pick.time], pl = B.place[pick.place], a = B.act[pick.act];
-      const t = [{ k: tp[0], r: tp[1], g: tp[2] }, { k: "は", r: "wa", g: "тема", p: true }];
-      if (tm[0]) { t.push({ k: tm[0], r: tm[1], g: tm[2] }); if (TIME_NI.has(tm[0])) t.push({ k: "に", r: "ni", g: "когда", p: true }); }
-      t.push({ k: pl[0], r: pl[1], g: pl[2] }, { k: "で", r: "de", g: "где", p: true },
-        { k: a[0], r: a[1], g: a[2] }, { k: "を", r: "o", g: "объект", p: true }, { k: a[3], r: a[4], g: a[5] });
-      const verb = tp[0] === "わたし" ? ME[a[5]] : a[5];
-      const ru = [tp[2], tm[0] ? tm[2] : "", pl[2], verb, a[2]].filter(Boolean).join(" ");
-      out.replaceChildren(sentence(t, ru[0].toUpperCase() + ru.slice(1) + "."));
-    }
+    // конструктор (тот же, что в окне «Фразы»)
     body.append(el("section", { className: "kn-sec" },
-      el("h3", { textContent: "Собери сам" }),
-      el("div", { className: "kn-builder" },
-        sel("topic", "Кто", o => `${o[0]} — ${o[2]}`),
-        sel("time", "Когда", o => o[0] ? `${o[0]} — ${o[2]}` : o[2]),
-        sel("place", "Где", o => `${o[0]} — ${o[2]}`),
-        sel("act", "Что делает", o => `${o[0]}を ${o[3]} — ${o[5]} ${o[2]}`)),
-      out));
-    build();
+      el("div", { className: "kn-row" }, el("h3", { textContent: "Собери сам" }),
+        el("button", { className: "kn-btn small kn-more", textContent: "🧩 Больше: ситуации и фразы →", onclick: () => openKanaPhrases() })),
+      phraseBuilder()));
 
     // частицы
     GRAMMAR.forEach(g => {

@@ -1645,3 +1645,17 @@ html.fx-calm .kn-cell.morph .kn-ch { animation: none; }
 .kn-nnote { font-size: 10.5px; color: var(--muted); line-height: 1.25; margin-top: 2px; }
 .kn-ninput { font: inherit; font-size: 15px; width: 180px; color: var(--text); background: rgba(255,255,255,0.08);
   border: 1px solid var(--glass-border); border-radius: 8px; padding: 5px 8px; }
+/* Кана: конструктор фраз */
+.kn-pb .kn-builder { align-items: flex-end; }
+.kn-pb .kn-check { padding-bottom: 5px; }
+.kn-forms { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 4px 0 6px; }
+.kn-form { display: flex; flex-direction: column; align-items: center; border: 1px solid var(--glass-border); border-radius: 9px;
+  padding: 3px 8px; cursor: pointer; color: inherit; font: inherit; background: rgba(255,255,255,0.04); }
+.kn-form:hover { background: rgba(138,180,255,0.18); }
+.kn-form.on { background: rgba(138,180,255,0.3); border-color: var(--accent); }
+.kn-fk { font: 16px "Noto Sans JP", "Yu Gothic", sans-serif; }
+.kn-fk b { color: var(--kn-p); font-weight: 400; }
+.kn-fr { font-size: 11px; color: var(--muted); }
+.kn-more { margin-left: auto; }
+.kn-nav.inline { padding: 0 0 8px; border: 0; }
+.kn-btn.on { background: rgba(138,180,255,0.3); }
