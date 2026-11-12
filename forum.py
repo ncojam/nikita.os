@@ -23,7 +23,14 @@
   PATCH  /api/forum/me        {about, site, city}
   POST   /api/forum/me/avatar <jpeg> / DELETE
   GET    /media/f/{id}                         -> картинка
+  GET    /api/forum/quota                      -> {used, cap, total, totalCap} — склад картинок (свой и общий)
+
+Склад картинок: у каждого свой (USER_CAP, по умолчанию 10 МБ — сверх него не грузим, пусть удаляет старое) и общий
+на форум (store_cap: Kursk Artists 50 МБ, NETWORK 150 МБ — переполнился: снимаем самые старые картинки постов).
+Удалили пост/ветку — удаляются и картинки из него. Раз в сутки — уборка: картинки постов старше суток, на которые
+не ссылается ни один пост (загрузили и не отправили, убрали правкой), удаляются. Аватарки не трогаем.
 """
+import asyncio
 import json
 import logging
 import os
@@ -45,7 +52,8 @@ ABOUT_MAX, FIELD_MAX = 600, 60
 IMG_MAX_BYTES = int(os.environ.get("NOS_FORUM_IMG_MAX", str(120 * 1024)))
 IMG_MAX_DIM = int(os.environ.get("NOS_FORUM_IMG_DIM", "800"))    # картинка в посте
 AVA_MAX_DIM = 256                                                # аватарка
-STORE_CAP = int(os.environ.get("NOS_FORUM_STORE_CAP", str(300 * 1024 * 1024)))
+STORE_CAP = int(os.environ.get("NOS_FORUM_STORE_CAP", str(50 * 1024 * 1024)))     # Kursk Artists; у NETWORK свой
+USER_CAP = int(os.environ.get("NOS_FORUM_USER_MB", "10")) * 1024 * 1024             # картинки постов одного человека
 IMG_PER_DAY = 30                         # загрузок картинок на пользователя в сутки
 THREAD_EVERY = 10 * 60                   # новая ветка — не чаще раза в 10 минут
 POST_EVERY = 20                          # пост — не чаще раза в 20 секунд
@@ -82,7 +90,7 @@ def check_jpeg(data, max_dim):
 
 class Forum:
     def __init__(self, ufs_root, user_of, name="forum", sections=None, api="/api/forum", media="/media/f",
-                 decorate=None, profiles=True):
+                 decorate=None, profiles=True, store_cap=None):
         self.dir = Path(ufs_root) / ".meta"
         self.media = self.dir / f"{name}_media"
         self.path = self.dir / f"{name}.json"
@@ -91,6 +99,9 @@ class Forum:
         self.api, self.media_url = api, media
         self.decorate = decorate          # uid -> dict, что добавить к посту (аватарка, имя) — для NETWORK
         self.profiles = profiles          # свои профили (Kursk Artists) или чужие (NETWORK)
+        self.store_cap = store_cap or STORE_CAP
+        self.ref_re = re.compile(re.escape(media) + r"/([A-Za-z0-9_-]{1,32})")
+        self.sweeper = None
         self.rate = {}                  # (uid, kind) -> время последнего действия (в памяти)
         self.d = {"threads": {}, "posts": {}, "profiles": {}, "images": {}}
         try:
@@ -134,13 +145,59 @@ class Forum:
 
     def _enforce_cap(self):
         # склад переполнен — снимаем самые старые картинки постов (аватарки не трогаем)
-        if self._store_size() <= STORE_CAP:
+        if self._store_size() <= self.store_cap:
             return
         old = sorted((i.get("ts", 0), mid) for mid, i in self.d["images"].items() if i.get("kind") == "post")
         for _, mid in old:
-            if self._store_size() <= STORE_CAP:
+            if self._store_size() <= self.store_cap:
                 break
             self._rm_img(mid)
+
+    def _user_used(self, uid):
+        return sum(i.get("size", 0) for i in self.d["images"].values() if i["uid"] == uid and i.get("kind") == "post")
+
+    def _drop_post_images(self, p):
+        """Картинки, вставленные в пост, — уходят вместе с ним (только картинки его автора)."""
+        for mid in set(self.ref_re.findall(p.get("text", ""))):
+            i = self.d["images"].get(mid)
+            if i and i["uid"] == p["uid"] and i.get("kind") == "post":
+                self._rm_img(mid)
+
+    def sweep(self):
+        """Уборка: картинки постов старше суток, на которые не ссылается ни один пост."""
+        used = set()
+        for p in self.d["posts"].values():
+            used.update(self.ref_re.findall(p.get("text", "")))
+        old = time.time() - DAY
+        gone = [mid for mid, i in self.d["images"].items()
+                if i.get("kind") == "post" and i.get("ts", 0) < old and mid not in used]
+        for mid in gone:
+            self._rm_img(mid)
+        if gone:
+            self.save()
+            log.info("форум %s: убрано %s ничейных картинок", self.path.stem, len(gone))
+        return len(gone)
+
+    async def _sweep_loop(self):
+        await asyncio.sleep(90)                    # не мешаем запуску
+        while True:
+            try:
+                await asyncio.to_thread(self.sweep)
+            except Exception as e:                 # уборка не должна ронять сервер
+                log.warning("уборка картинок форума: %s", e)
+            await asyncio.sleep(DAY)
+
+    async def _start(self, app):
+        self.sweeper = asyncio.create_task(self._sweep_loop())
+
+    async def _stop(self, app):
+        if self.sweeper:
+            self.sweeper.cancel()
+
+    async def api_quota(self, request):
+        uid, _ = self._me(request)
+        return web.json_response({"used": self._user_used(uid) if uid else 0, "cap": USER_CAP,
+                                  "total": self._store_size(), "totalCap": self.store_cap})
 
     # ---------- помощники ----------
     def _me(self, request):
@@ -319,10 +376,12 @@ class Forum:
         if first["_id"] == p["_id"]:
             # первый пост = вся ветка (удалить ветку может только её автор, а он и есть автор 1-го поста)
             for q in self._thread_posts(tid):
+                self._drop_post_images(q)
                 self.d["posts"].pop(q["_id"], None)
             self.d["threads"].pop(tid, None)
             self.save()
             return web.json_response({"ok": True, "thread_gone": True})
+        self._drop_post_images(p)
         self.d["posts"].pop(p["_id"], None)
         t = self.d["threads"][tid]
         t["count"] = max(1, t.get("count", 1) - 1)
@@ -341,6 +400,9 @@ class Forum:
         today = sum(1 for i in self.d["images"].values() if i["uid"] == uid and i.get("ts", 0) // DAY == day)
         if today >= IMG_PER_DAY:
             return None, None, web.json_response({"error": "на сегодня картинок хватит"}, status=429)
+        if kind == "post" and self._user_used(uid) + len(data) > USER_CAP:
+            return None, None, web.json_response({"error": f"твой склад картинок полон ({USER_CAP // 1048576} МБ) — "
+                                                           "удали старые посты с картинками", "quota": True}, status=507)
         try:
             mid = self._store_img(data)
         except OSError:
@@ -410,6 +472,9 @@ class Forum:
         r.add_patch(f"{a}/p/{{id}}", self.api_edit)
         r.add_delete(f"{a}/p/{{id}}", self.api_delete)
         r.add_post(f"{a}/img", self.api_img)
+        r.add_get(f"{a}/quota", self.api_quota)
+        app.on_startup.append(self._start)
+        app.on_cleanup.append(self._stop)
         if self.profiles:
             r.add_get(f"{a}/u/{{nick}}", self.api_user)
             r.add_patch(f"{a}/me", self.api_me_edit)

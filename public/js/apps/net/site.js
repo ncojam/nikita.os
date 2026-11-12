@@ -6,7 +6,7 @@ import { md, mdEditor } from "../mdkit.js";
 import { pickImage } from "../post.js";
 import { hydrateTracks, trackCard } from "../trackcard.js";
 import { ACTIVITIES, STATUSES, linkKind } from "./data.js";
-import { ding, scratch, spray } from "./sfx.js";
+import { blip, ding, pop, riser, scratch, shake as rattleCan, spray, thud, tick, whoosh } from "./sfx.js";
 
 /* ================= NETWORK (net.work) — нетворкинг криейтеров =================
  * Псевдо-сайт встроенного браузера (browser.js грузит этот модуль лениво). Сервер — network.py + второй экземпляр
@@ -23,6 +23,8 @@ import { ding, scratch, spray } from "./sfx.js";
  * окну, а не к странице: страница обрезается окном); при заходе на сайт низ окна «подтекает». enter/leave ставят и
  * убирают это с окна браузера.
  * Звук: запрет — скретч + окно трясётся (deny), добавили пост — «динь», сохранили профиль — баллончик.
+ * Переходы тоже звучат (navSound): страница — «шух», ветка — щелчок, профиль — бип, стена — баллончик гремит.
+ * Если действие уже прозвучало своим звуком и потом перерисовывает страницу — hush(): переход промолчит.
  */
 const HOST = "net.work";
 const API = "/api/net", FAPI = "/api/net/forum";
@@ -112,13 +114,13 @@ function tagInput({ value = [], max = 30, placeholder = "начни вводит
   const norm = s => s.toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ").trim().slice(0, 32);
   const draw = () => {
     box.replaceChildren(...tags.map(t => el("span", { className: "nw-chip on" }, t,
-      el("button", { type: "button", textContent: "×", title: "убрать", onclick: () => { tags = tags.filter(x => x !== t); draw(); onChange?.(tags); } }))), inp, list);
+      el("button", { type: "button", textContent: "×", title: "убрать", onclick: () => { tick(); tags = tags.filter(x => x !== t); draw(); onChange?.(tags); } }))), inp, list);
   };
   const add = t => {
     t = norm(t);
     if (!t || tags.includes(t)) { inp.value = ""; return hide(); }
     if (tags.length >= max) return onLimit?.(`не больше ${max}`);
-    tags.push(t); inp.value = ""; hide(); draw(); onChange?.(tags); inp.focus();
+    tags.push(t); inp.value = ""; hide(); draw(); onChange?.(tags); inp.focus(); tick();
   };
   const hide = () => { list.hidden = true; };
   const suggest = () => {
@@ -170,15 +172,17 @@ export const NET = {
     const word = "NETWORK";
     const logo = el("a", { className: "nw-logo", href: "#", title: "NETWORK — на главную", onclick: e => (e.preventDefault(), b.go(HOST)) },
       ...[...word].map((ch, i) => el("span", { textContent: ch, style: `--i:${i}` })));
-    // подтёки по низу окна: разной длины, со «шляпкой»
+    // подтёки по низу окна: размеры в пикселях (не тянутся вместе с окном), гуще к правому краю;
+    // каждый «дышит» (тянется и подбирается) и с кончика срывается капля
     const drips = el("div", { className: "nw-drips" });
-    const cols = ["#ff2e93", "#3dffc5", "#ff2e93", "#0c0b0f", "#ff2e93", "#3dffc5"];
-    let svg = `<svg viewBox="0 0 1000 120" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">`;
-    for (let i = 0; i < 16; i++) {
-      const x = 20 + i * 61 + Math.random() * 30, w = 5 + Math.random() * 11, len = 16 + Math.random() ** 1.6 * 90, c = cols[i % cols.length];
-      svg += `<g class="nw-drip" style="--d:${(Math.random() * 0.7).toFixed(2)}s;--l:${(len / 100).toFixed(2)}"><path fill="${c}" d="M${x - w},0 h${w * 2} v${len - w} a${w},${w} 0 1,1 -${w * 2},0 z"/></g>`;
+    const N = 22;
+    for (let i = 0; i < N; i++) {
+      const u = (i + 0.5) / N, x = Math.pow(u, 0.62) * 100;          // степень < 1 — плотнее справа
+      const w = 6 + ((i * 7) % 5) * 2.2, len = 14 + ((i * 37) % 11) * 7 + (x > 70 ? 18 : 0);
+      const black = i % 3 === 1, dur = 2.6 + ((i * 13) % 7) * 0.45, delay = ((i * 29) % 10) / 10;
+      drips.append(el("i", { className: "nw-drip" + (black ? " k" : ""),
+        style: `left:${x.toFixed(2)}%;--w:${w}px;--l:${len}px;--t:${dur}s;--d:${delay}s` }, el("b")));
     }
-    drips.innerHTML = svg + "</svg>";
     n.append(logo, drips);
     this.placeLogo(b);
     b._netRO = new ResizeObserver(() => this.placeLogo(b));
@@ -203,6 +207,7 @@ export const NET = {
     b._wall?.destroy(); b._wall = null;
     const me = await whoami();
     const [a, x, y] = parts.map(decodeURIComponent);
+    if (this._quiet) this._quiet = false; else this.navSound(a, x, y);
     const nav = [["", "🏠", "Главная"], ["forum", "💬", "Форум"], ["people", "👥", "Люди"], ["match", "🎯", "Найти своих"],
       ["wall", "🎨", "Стена"], [me ? "me" : "join", "👤", me ? "Мой профиль" : "Вступить"]];
     const side = el("aside", { className: "nw-side" }, el("div", { className: "nw-side-logo" }),
@@ -210,7 +215,7 @@ export const NET = {
         onclick: e => (e.preventDefault(), b.go(r ? `${HOST}/${r}` : HOST)) }, el("i", { textContent: ic }), el("span", { textContent: t })))),
       el("div", { className: "nw-side-sp" }),
       me ? el("div", { className: "nw-side-me" }, el("span", { textContent: "@" + me }),
-        el("a", { href: "#", textContent: "выйти", onclick: async e => { e.preventDefault(); await fetch("/api/chat/logout", { method: "POST" }).catch(() => {}); b.reload(); } }))
+        el("a", { href: "#", textContent: "выйти", onclick: async e => { e.preventDefault(); await fetch("/api/chat/logout", { method: "POST" }).catch(() => {}); blip(false); this.hush(); b.reload(); } }))
         : el("button", { className: "nw-btn small", textContent: "🔑 Войти", onclick: () => this.login(b) }));
     const main = el("main", { className: "nw-main" });
     b.paint(el("div", { className: "nw" }, side, main));
@@ -235,8 +240,18 @@ export const NET = {
 
   async login(b, why) {
     const nick = await askAuth({ why: why || "Вход в NETWORK — тот же аккаунт, что во всей nikita.os" });
-    if (nick) b.reload();
+    if (nick) { blip(true); this.hush(); b.reload(); }
     return nick;
+  },
+
+  hush() { this._quiet = true; },
+  navSound(a, x, y) {
+    if (!a || a === "forum" && !x || a === "people") return whoosh();
+    if (a === "forum") return y ? pop() : whoosh();
+    if (a === "wall") return rattleCan();
+    if (a === "u" || a === "me" || a === "join") return blip(true);
+    if (a === "match") return;                       // там свой звук — свист подбора
+    whoosh();
   },
 
   /* ---------- главная ---------- */
@@ -277,7 +292,7 @@ export const NET = {
         el("li", { textContent: "Чем занимаешься (до 30 тегов) и статус: хочешь коллаб, ищешь кого-то или занят." }),
         el("li", { textContent: "Можно прикрепить свои треки: mp3 или проект DAWN." })),
       el("button", { className: "nw-btn big", textContent: "🔑 Создать аккаунт / войти", onclick: async () => {
-        if (await askAuth({ why: "Регистрация в NETWORK (аккаунт работает во всей системе)" })) b.go(`${HOST}/me`, true);
+        if (await askAuth({ why: "Регистрация в NETWORK (аккаунт работает во всей системе)" })) { blip(true); this.hush(); b.go(`${HOST}/me`, true); }
       } })));
   },
 
@@ -311,13 +326,13 @@ export const NET = {
           grid.replaceChildren(...d.people.map(p => personCard(b, p, { hl })));
           info.textContent = d.total ? `Нашлось: ${d.total}` : "Никого не нашли. Ослабь фильтры — или позови друзей.";
           pager.replaceChildren(...(d.pages > 1 ? Array.from({ length: d.pages }, (_, i) => i + 1).map(i =>
-            i === d.page ? el("b", { textContent: i }) : el("a", { href: "#", textContent: i, onclick: e => (e.preventDefault(), apply(i)) })) : []));
+            i === d.page ? el("b", { textContent: i }) : el("a", { href: "#", textContent: i, onclick: e => (e.preventDefault(), tick(), apply(i)) })) : []));
         } catch (e) { info.textContent = e.message; }
       }, 220);
     };
     for (const i of [text, seeks, loc]) i.oninput = () => apply();
-    status.onchange = web.onchange = () => apply();
-    const quick = (t, set) => el("button", { className: "nw-btn ghost small", textContent: t, onclick: () => { set(); apply(); } });
+    status.onchange = web.onchange = () => { tick(); apply(); };
+    const quick = (t, set) => el("button", { className: "nw-btn ghost small", textContent: t, onclick: () => { tick(); set(); apply(); } });
     main.replaceChildren(
       el("h2", { className: "nw-h2", textContent: "Люди" }),
       el("div", { className: "nw-quick" },
@@ -341,6 +356,7 @@ export const NET = {
     const grid = el("div", { className: "nw-grid" }), info = el("p", { className: "nw-dim", textContent: "Ищем…" });
     const btn = el("button", { className: "nw-btn big nw-match-btn", textContent: "🎯 Найти ещё раз" });
     const run = async () => {
+      riser();
       btn.disabled = true; grid.classList.add("nw-loading");
       try {
         const d = await api(`${API}/match`);
@@ -385,7 +401,7 @@ export const NET = {
     hydrateTracks(about);
     const links = el("div", { className: "nw-links" }, ...(d.links || []).map(l => {
       const k = linkKind(l.u);
-      return el("a", { className: "nw-link k-" + (k?.k || "web"), href: l.u, target: "_blank", rel: "noopener nofollow", title: l.u },
+      return el("a", { className: "nw-link k-" + (k?.k || "web"), href: l.u, target: "_blank", rel: "noopener nofollow", title: l.u, onclick: () => pop() },
         el("i", { textContent: k?.icon || "🌐" }), el("span", { textContent: l.t || k?.name || l.u }));
     }));
     const tracks = el("div", { className: "nw-tracks" }, ...(d.tracks || []).map(p => trackCard(p)));
@@ -429,7 +445,7 @@ export const NET = {
       catch (e) { lim(e.message); }
     } });
     const avaDel = el("button", { className: "nw-btn ghost small", type: "button", textContent: "убрать", onclick: async () => {
-      pendingAva = null;
+      thud(); pendingAva = null;
       if (avaUrl) { await api(`${API}/me/avatar`, { method: "DELETE" }).catch(e => lim(e.message)); avaUrl = null; }
       drawAva();
     } });
@@ -451,7 +467,7 @@ export const NET = {
       u.oninput = upd;
       u.onblur = () => { if (u.value.trim() && !/^https?:\/\//i.test(u.value.trim())) { u.value = "https://" + u.value.trim(); upd(); } };
       const row = el("div", { className: "nw-link-row" }, badge, u, t,
-        el("button", { className: "nw-x", type: "button", textContent: "×", title: "убрать", onclick: () => row.remove() }));
+        el("button", { className: "nw-x", type: "button", textContent: "×", title: "убрать", onclick: () => { tick(); row.remove(); } }));
       row._get = () => ({ u: u.value.trim(), t: t.value.trim() });
       upd();
       return row;
@@ -459,7 +475,7 @@ export const NET = {
     (P.links.length ? P.links : [{ u: "", t: "" }]).forEach(l => linkRows.append(linkRow(l)));
     const addLink = el("button", { className: "nw-btn ghost small", type: "button", textContent: "＋ ссылка", onclick: () => {
       if (linkRows.children.length >= L.links) return lim(`не больше ${L.links} ссылок`);
-      const r = linkRow(); linkRows.append(r); r.querySelector("input").focus();
+      const r = linkRow(); linkRows.append(r); r.querySelector("input").focus(); tick();
     } });
 
     const tags = tagInput({ value: P.tags, max: L.tags, placeholder: "digital art, beat maker, skater…", onLimit: lim });
@@ -470,7 +486,7 @@ export const NET = {
     const withIn = el("input", { className: "nw-in", maxLength: 120, placeholder: "с кем (ники или имена)", value: P.status?.with || "" });
     const stExtra = el("div", { className: "nw-st-extra" });
     const stBtns = Object.entries(STATUSES).map(([k, s]) => el("button", { type: "button", className: "nw-st-btn st-" + k,
-      onclick: () => { stK = k; drawSt(); } }, s.icon + " " + s.label));
+      onclick: () => { stK = k; drawSt(); tick(); } }, s.icon + " " + s.label));
     const drawSt = () => {
       stBtns.forEach((x, i) => x.classList.toggle("on", Object.keys(STATUSES)[i] === stK));
       const S = STATUSES[stK];
@@ -491,9 +507,9 @@ export const NET = {
     const attach = p => {
       if (attached.includes(p)) return;
       if (attached.length >= L.tracks) return lim(`не больше ${L.tracks} треков в профиле`);
-      attached.push(p); drawAtt();
+      attached.push(p); drawAtt(); pop();
     };
-    const drawAtt = () => attBox.replaceChildren(...(attached.length ? attached.map(p => trackCard(p, { onRemove: () => { attached = attached.filter(x => x !== p); drawAtt(); } }))
+    const drawAtt = () => attBox.replaceChildren(...(attached.length ? attached.map(p => trackCard(p, { onRemove: () => { tick(); attached = attached.filter(x => x !== p); drawAtt(); } }))
       : [el("p", { className: "nw-dim", textContent: "Пока ничего не прикреплено." })]));
     const dawnBox = el("div", { className: "nw-up" });
     api("/api/dawn/mine").then(m => dawnBox.replaceChildren(...(m.projects.length ? m.projects.map(p => el("div", { className: "nw-up-row" },
@@ -505,7 +521,7 @@ export const NET = {
       el("button", { className: "nw-x", type: "button", textContent: "🗑", title: "удалить файл", onclick: async () => {
         if (!confirm(`Удалить ${u.name}?`)) return;
         try { uploads = (await api(`${API}/tracks?name=${encodeURIComponent(u.name)}`, { method: "DELETE" })).uploads;
-          attached = attached.filter(x => x !== u.path); drawUp(); drawAtt(); }
+          attached = attached.filter(x => x !== u.path); drawUp(); drawAtt(); thud(); }
         catch (e) { lim(e.message); }
       } }))), el("p", { className: "nw-dim", textContent: `Твоя папка: /home/network/${me} — до ${L.mp3} mp3, каждый до ${L.mp3MB} МБ.` }));
     const upBtn = el("button", { className: "nw-btn small", type: "button", textContent: "⬆ Загрузить mp3", onclick: () => {
@@ -551,7 +567,7 @@ export const NET = {
         spray();
         notify(first ? "Профиль создан — добро пожаловать в NETWORK ⚡" : "Сохранено");
         usedTags = null;
-        b.go(`${HOST}/u/${me}`);
+        this.hush(); b.go(`${HOST}/u/${me}`);
       } catch (e) { lim(e.message); save.disabled = false; }
     };
 
@@ -620,7 +636,7 @@ export const NET = {
 
   /* редактор поста NETWORK: + трек, подсказка эмодзи, лимит со скретчем */
   editor2(b, opts = {}) {
-    return mdEditor({ ...opts, max: POST_MAX, hint: true, imgApi: `${FAPI}/img`, cls: "nw-ed",
+    return mdEditor({ ...opts, max: POST_MAX, hint: true, imgApi: `${FAPI}/img`, cls: "nw-ed", quota: `${FAPI}/quota`, onTool: tick,
       onLimit: () => deny(b, `Пост — до ${POST_MAX} символов`),
       extra: [{ text: "🎵", title: "Прикрепить трек (mp3 или DAWN)", run: insert => this.pickTrack(b, insert) }] });
   },
@@ -632,7 +648,8 @@ export const NET = {
     const items = [...(mine.profile?.tracks || []), ...(mine.uploads || []).map(u => u.path), ...dawn.projects.map(p => p.path)];
     const uniq = [...new Set(items)];
     const box = el("div", { className: "nw-pick" });
-    const close = () => box.remove();
+    const close = () => { tick(); box.remove(); };
+    pop();
     const pathIn = el("input", { className: "nw-in", placeholder: "или путь: /home/…/трек.mp3", spellcheck: false });
     const put = p => { insert(`\n[[track:${p}]]\n`); close(); };
     box.append(el("div", { className: "nw-pick-in" },
@@ -663,7 +680,7 @@ export const NET = {
       go.onclick = async () => {
         if (!ed.value.trim()) return deny(b, "Пустой пост");
         go.disabled = true;
-        try { await send(`${FAPI}/t/${tid}/posts`, "POST", { text: ed.value }); ding(); b.go(`${self}?page=last`, true); }
+        try { await send(`${FAPI}/t/${tid}/posts`, "POST", { text: ed.value }); ding(); this.hush(); b.go(`${self}?page=last`, true); }
         catch (e) { deny(b, e.message); go.disabled = false; }
       };
       reply = el("div", { className: "nw-box nw-reply" }, el("h3", { textContent: "Ответить" }), ed.node, el("div", { className: "nw-actions" }, go));
@@ -692,21 +709,22 @@ export const NET = {
     if (me && me === p.author) {
       tools.append(el("span", { className: "nw-sp" }),
         el("a", { href: "#", textContent: "изменить", onclick: e => {
-          e.preventDefault();
+          e.preventDefault(); pop();
           const ed = this.editor2(b, { value: p.text });
           const save = el("button", { className: "nw-btn", textContent: "Сохранить" });
           save.onclick = async () => {
             save.disabled = true;
-            try { await send(`${FAPI}/p/${p.id}`, "PATCH", { text: ed.value }); ding(); b.reload(); }
+            try { await send(`${FAPI}/p/${p.id}`, "PATCH", { text: ed.value }); ding(); this.hush(); b.reload(); }
             catch (er) { deny(b, er.message); save.disabled = false; }
           };
           body.replaceWith(el("div", {}, ed.node, el("div", { className: "nw-actions" },
-            el("button", { className: "nw-btn ghost", textContent: "Отмена", onclick: () => b.reload() }), save)));
+            el("button", { className: "nw-btn ghost", textContent: "Отмена", onclick: () => { tick(); this.hush(); b.reload(); } }), save)));
         } }),
         el("a", { href: "#", className: "nw-danger", textContent: isFirst ? "удалить ветку" : "удалить", onclick: async e => {
           e.preventDefault();
           if (!confirm(isFirst ? "Удалить всю ветку со всеми ответами?" : "Удалить пост?")) return;
           try { const r = await api(`${FAPI}/p/${p.id}`, { method: "DELETE" });
+            thud(); this.hush();
             r.thread_gone ? b.go(self.split("/").slice(0, 3).join("/")) : b.reload(); }
           catch (er) { deny(b, er.message); }
         } }));
@@ -725,7 +743,7 @@ export const NET = {
       go.disabled = true;
       try {
         const d = await send(`${FAPI}/threads`, "POST", { section: sid, title: title.value, text: ed.value });
-        ding(); sessionStorage.setItem("nw-new", d.id);
+        ding(); this.hush(); sessionStorage.setItem("nw-new", d.id);
         b.go(`${HOST}/forum/${d.section}/${d.id}?page=last`, true);
       } catch (e) { deny(b, e.message); go.disabled = false; }
     };

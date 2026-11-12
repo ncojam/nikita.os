@@ -135,3 +135,79 @@ export function clack() {
   rattle(a, o, a.currentTime, 1);
   setTimeout(() => o.disconnect(), 300);
 }
+
+/* ---------- звуки навигации и мелких действий (сайт NETWORK) ----------
+ *   whoosh()   — перешли на страницу (главная, разделы, люди): «шух» фильтрованного шума
+ *   pop()      — открыли ветку / окошко: упругий щелчок
+ *   blip(up)   — профиль, вход (вверх) / выход (вниз): двузвучный бип
+ *   tick()     — мелочь: кнопка панели, тег, статус, страница списка
+ *   thud()     — удалили: глухой удар
+ *   riser()    — «найди своих»: восходящий свист
+ *   rattle()   — стена: погремели баллончиком
+ */
+export function whoosh() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = out(a, vol(0.55)), n = noise(a);
+  const bp = a.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.2;
+  bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(3800, t + 0.16); bp.frequency.exponentialRampToValueAtTime(1500, t + 0.26);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.9, t + 0.07); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+  n.connect(bp); bp.connect(g); g.connect(o); n.start(t, Math.random()); n.stop(t + 0.3);
+  n.onended = () => o.disconnect();
+}
+
+function tone(a, o, t, f1, f2, len, type = "sine", peak = 0.6) {
+  const osc = a.createOscillator(), g = a.createGain();
+  osc.type = type; osc.frequency.setValueAtTime(f1, t); osc.frequency.exponentialRampToValueAtTime(f2, t + len);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  osc.connect(g); g.connect(o); osc.start(t); osc.stop(t + len + 0.02);
+  return osc;
+}
+
+export function pop() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = out(a, vol(0.7));
+  tone(a, o, t, 420, 980, 0.07, "sine", 0.9).onended = () => o.disconnect();
+}
+
+export function tick() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = out(a, vol(0.35));
+  tone(a, o, t, 2400, 1700, 0.03, "triangle", 0.7).onended = () => o.disconnect();
+}
+
+export function blip(up = true) {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = out(a, vol(0.45));
+  const [f1, f2] = up ? [660, 990] : [880, 520];
+  tone(a, o, t, f1, f1, 0.07, "square", 0.25);
+  tone(a, o, t + 0.07, f2, f2, 0.09, "square", 0.25).onended = () => o.disconnect();
+}
+
+export function thud() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = out(a, vol(0.9));
+  tone(a, o, t, 180, 45, 0.22, "sine", 1).onended = () => o.disconnect();
+  const n = noise(a), lp = a.createBiquadFilter(), g = a.createGain();
+  lp.type = "lowpass"; lp.frequency.value = 600;
+  g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+  n.connect(lp); lp.connect(g); g.connect(o); n.start(t); n.stop(t + 0.14);
+}
+
+export function riser() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = out(a, vol(0.4));
+  const osc = tone(a, o, t, 300, 1800, 0.45, "sawtooth", 0.18);
+  osc.onended = () => o.disconnect();
+  const n = noise(a), hp = a.createBiquadFilter(), g = a.createGain();
+  hp.type = "highpass"; hp.frequency.setValueAtTime(800, t); hp.frequency.exponentialRampToValueAtTime(6000, t + 0.45);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  n.connect(hp); hp.connect(g); g.connect(o); n.start(t); n.stop(t + 0.52);
+}
+
+export function shake() {
+  const a = audio(); if (!a) return;
+  const o = out(a, vol(0.8));
+  rattle(a, o, a.currentTime, 3);
+  setTimeout(() => o.disconnect(), 600);
+}

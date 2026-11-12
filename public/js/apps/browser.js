@@ -138,7 +138,7 @@ const KA = {
     d.posts.forEach((p, i) => list.append(this.post(b, p, me, d.page === 1 && i === 0, self)));
     let reply = "";
     if (me) {
-      const ed = mdEditor({ placeholder: "Ваш ответ (Markdown)…", rows: 5 });
+      const ed = mdEditor({ placeholder: "Ваш ответ (Markdown)…", rows: 5, quota: "/api/forum/quota" });
       const send = el("button", { className: "ka-btn", textContent: "Ответить" });
       send.onclick = async () => {
         if (!ed.value.trim()) return;
@@ -170,7 +170,7 @@ const KA = {
       tools.append(el("span", { className: "ka-sp" }),
         el("a", { href: "#", textContent: "изменить", onclick: e => {
           e.preventDefault();
-          const ed = mdEditor({ value: p.text });
+          const ed = mdEditor({ value: p.text, quota: "/api/forum/quota" });
           const save = el("button", { className: "ka-btn", textContent: "Сохранить" });
           save.onclick = async () => {
             save.disabled = true;
@@ -194,7 +194,7 @@ const KA = {
   newThread(b, main, sid, me) {
     if (!me) return b.go(`${FORUM}/login?back=${encodeURIComponent(`${FORUM}/${sid}/new`)}`, true);
     const title = el("input", { className: "ka-input", maxLength: 100, placeholder: "Заголовок ветки" });
-    const ed = mdEditor({ placeholder: "Первый пост (Markdown: **жирный**, *курсив*, > цитата, - список, ```код```)…", rows: 10 });
+    const ed = mdEditor({ placeholder: "Первый пост (Markdown: **жирный**, *курсив*, > цитата, - список, ```код```)…", rows: 10, quota: "/api/forum/quota" });
     const go = el("button", { className: "ka-btn", textContent: "Создать ветку" });
     go.onclick = async () => {
       if (!title.value.trim() || !ed.value.trim()) return notify("Нужны заголовок и текст");

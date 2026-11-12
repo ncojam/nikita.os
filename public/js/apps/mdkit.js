@@ -12,7 +12,9 @@ import { pickImage } from "./post.js";
  * mdEditor(opts) — панель кнопок + textarea + превью. opts:
  *   value, placeholder, rows, max (потолок символов), imgApi (куда грузить картинку), imgDim/imgLimit,
  *   extra: [кнопки] — добавить в панель (напр. «трек»), onLimit() — упёрлись в потолок (звук, тряска),
- *   hint: true — подсказка, как открыть выбор эмодзи с клавиатуры.
+ *   hint: true — подсказка, как открыть выбор эмодзи с клавиатуры;
+ *   quota: адрес …/quota — полоска «склад картинок: занято / 10 МБ» (обновляется после загрузки картинки);
+ *   onTool() — нажали кнопку панели (звук).
  */
 export const SITE_HOSTS = /^(kursk\.artists|net\.work)(\/|$)/i;
 const TRACK_RE = /\[\[track:(\/[^\]\n]{1,300}?\.(?:mp3|dawn|wav|ogg|flac|m4a|opus))\]\]/gi;
@@ -108,7 +110,8 @@ export function emojiHint() {
 
 /* ---------- редактор ---------- */
 export function mdEditor({ value = "", placeholder = "Текст (поддерживается Markdown)", rows = 8, max = 8000,
-  imgApi = "/api/forum/img", imgDim = 800, imgLimit = 110 * 1024, extra = [], onLimit = null, hint = false, cls = "" } = {}) {
+  imgApi = "/api/forum/img", imgDim = 800, imgLimit = 110 * 1024, extra = [], onLimit = null, hint = false, cls = "",
+  quota = null, onTool = null } = {}) {
   const ta = el("textarea", { className: "ka-ta", rows, maxLength: max, value, placeholder });
   const prev = el("div", { className: "ka-md ka-prev", hidden: true });
   const count = el("span", { className: "md-count" });
@@ -135,7 +138,21 @@ export function mdEditor({ value = "", placeholder = "Текст (поддерж
     const s = ta.selectionStart; ta.value = ta.value.slice(0, s) + t + ta.value.slice(ta.selectionEnd);
     ta.focus(); ta.selectionStart = ta.selectionEnd = s + t.length; recount();
   };
-  const btn = (t, title, fn) => el("button", { className: "ka-tool", type: "button", textContent: t, title, onclick: fn });
+  const btn = (t, title, fn) => el("button", { className: "ka-tool", type: "button", textContent: t, title, onclick: () => { onTool?.(); fn(); } });
+  // склад картинок человека: полоска под редактором
+  const qBar = el("i"), qText = el("span");
+  const qBox = quota ? el("span", { className: "md-quota", title: "Склад твоих картинок на этом форуме" }, qText, el("b", {}, qBar)) : "";
+  const fmtMB = n => (n / 1048576).toFixed(n < 10485760 ? 1 : 0);
+  const loadQuota = async () => {
+    if (!quota) return;
+    try {
+      const q = await (await fetch(quota, { cache: "no-store" })).json();
+      const k = q.cap ? Math.min(1, q.used / q.cap) : 0;
+      qText.textContent = `🖼 ${fmtMB(q.used)} / ${fmtMB(q.cap)} МБ`;
+      qBar.style.width = (k * 100).toFixed(1) + "%";
+      qBox.classList.toggle("warn", k > 0.75); qBox.classList.toggle("full", k >= 0.98);
+    } catch {}
+  };
   const imgBtn = btn("🖼", `Картинка (сожмём до ${imgDim}px)`, async () => {
     const blob = await pickImage(imgDim, imgLimit);
     if (!blob) return;
@@ -145,7 +162,7 @@ export function mdEditor({ value = "", placeholder = "Текст (поддерж
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "Ошибка " + r.status);
       insert(`\n![картинка](${d.url})\n`);
-    } catch (e) { notify(e.message); onLimit?.(); } finally { imgBtn.disabled = false; }
+    } catch (e) { notify(e.message); onLimit?.(); } finally { imgBtn.disabled = false; loadQuota(); }
   });
   const prevBtn = btn("👁 Превью", "Показать как будет", () => {
     const on = prev.hidden;
@@ -157,7 +174,8 @@ export function mdEditor({ value = "", placeholder = "Текст (поддерж
     btn("B", "Жирный", wrap("**")), btn("I", "Курсив", wrap("*")), btn("S", "Зачёркнутый", wrap("~~")),
     btn("</>", "Код", wrap("`")), btn("❝", "Цитата", wrap("> ", "")), btn("🔗", "Ссылка", wrap("[", "](https://)")),
     imgBtn, ...extra.map(x => btn(x.text, x.title, () => x.run(insert))), el("span", { className: "ka-sp" }), count, prevBtn);
-  const foot = hint ? el("div", { className: "md-foot" }, emojiHint()) : "";
+  const foot = hint || quota ? el("div", { className: "md-foot" }, qBox, el("span", { className: "ka-sp" }), hint ? emojiHint() : "") : "";
+  loadQuota();
   const ed = { node: el("div", { className: "ka-editor " + cls }, bar, ta, prev, foot), ta, insert, onPreview: null,
     get value() { return ta.value; }, set value(v) { ta.value = v; recount(); } };
   recount();

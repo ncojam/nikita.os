@@ -904,7 +904,8 @@ def make_app():
                             sections={"general": "Флуд и болтовня", "collab": "Ищу коллаб / команду",
                                       "showcase": "Показываю работу", "help": "Вопросы и помощь",
                                       "events": "Движ: ивенты, джемы, конкурсы"},
-                            api="/api/net/forum", media="/media/nf", decorate=app["net"].decorate, profiles=False)
+                            api="/api/net/forum", media="/media/nf", decorate=app["net"].decorate, profiles=False,
+                            store_cap=int(os.environ.get("NOS_NETFORUM_STORE_CAP", str(150 * 1024 * 1024))))
     app["net"].forum = app["netforum"]
     app["net"].routes(app)
     app["netforum"].routes(app)
