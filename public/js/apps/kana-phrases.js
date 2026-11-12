@@ -23,12 +23,12 @@ export const sentence = (tokens, ru) => el("div", { className: "kn-ex" },
 /* ---------- словарь конструктора ---------- */
 // p — лицо (1, 2, 3, 4 = они), gen — род для прошедшего времени
 const SUBJ = [
-  { k: "わたし", r: "watashi", g: "я", ru: "я", p: 1, gen: "m" },
-  { k: "", r: "", g: "", ru: "я", p: 1, gen: "m", label: "(опустить «я» — так и говорят)" },
-  { k: "かのじょ", r: "kanojo", g: "девушка", ru: "моя девушка", p: 3, gen: "f" },
-  { k: "ともだち", r: "tomodachi", g: "друг", ru: "мой друг", p: 3, gen: "m" },
-  { k: "あなた", r: "anata", g: "ты", ru: "ты", p: 2, gen: "m" },
-  { k: "みんな", r: "minna", g: "все", ru: "все", p: 4, gen: "pl" },
+  { k: "わたし", r: "watashi", g: "я", ru: "я", p: 1, gen: "m", let: null },
+  { k: "", r: "", g: "", ru: "я", p: 1, gen: "m", label: "(опустить «я» — так и говорят)", let: null },
+  { k: "かのじょ", r: "kanojo", g: "девушка", ru: "моя девушка", p: 3, gen: "f", let: ["と", "to", "с кем", "с моей девушкой"] },
+  { k: "ともだち", r: "tomodachi", g: "друг", ru: "мой друг", p: 3, gen: "m", let: ["と", "to", "с кем", "с моим другом"] },
+  { k: "あなた", r: "anata", g: "ты", ru: "ты", p: 2, gen: "m", let: ["に", "ni", "как", "вместе", "いっしょ", "issho", "вместе"] },
+  { k: "みんな", r: "minna", g: "все", ru: "все", p: 4, gen: "pl", let: ["で", "de", "все вместе", "все вместе"] },
 ];
 const TIME = [
   { k: "", ru: "", label: "(не уточнять)" },
@@ -100,11 +100,17 @@ export function compose(s) {
   const sub = SUBJ[s.sub], tm = TIME[s.time], pl = PLACE[s.place], ob = OBJ_FLAT[s.obj], v = VERBS[s.verb], f = FORMS.find(x => x.id === s.form);
   const q = s.q || tm.q || pl.q || ob.q;
   const t = [];
-  if (sub.k && f.id !== "let") t.push({ k: sub.k, r: sub.r, g: sub.g }, P("は", "wa", "тема"));
+  // в «давай» тема — не «кто», а «с кем»: みんなで, かのじょと, いっしょに
+  if (f.id === "let" && sub.let) {
+    const [pk, pr, pg, , wk, wr, wg] = sub.let;
+    t.push(wk ? { k: wk, r: wr, g: wg } : { k: sub.k, r: sub.r, g: sub.g }, P(pk, pr, pg));
+  } else if (sub.k && f.id !== "let") t.push({ k: sub.k, r: sub.r, g: sub.g }, P("は", "wa", "тема"));
   if (tm.k) { t.push({ k: tm.k, r: tm.r, g: tm.ru }); if (tm.ni) t.push(P("に", "ni", "когда")); }
   if (pl.k) t.push({ k: pl.k, r: pl.r, g: pl.ru }, P("で", "de", "где"));
   if (ob.k) t.push({ k: ob.k, r: ob.r, g: ob.ru }, P("を", "o", "объект"));
-  t.push({ k: v.s, r: v.sr, g: v.ru[0] }, P(f.k, f.r, f.g));
+  // 〜たいです — только про себя (или вопрос «ты хочешь?»); про других — 〜たがっています
+  const fe = f.id === "want" && sub.p >= 3 ? { k: "たがっています", r: "tagatte imasu", g: "хочет" } : f;
+  t.push({ k: v.s, r: v.sr, g: v.ru[0] }, P(fe.k, fe.r, fe.g));
   if (q) t.push(P("か", "ka", "вопрос"));
 
   // русский: тема · время · место · глагол · объект, вопросительное слово — вперёд
@@ -114,7 +120,7 @@ export function compose(s) {
   if (f.id === "neg") vp = "не " + verb[sub.p];
   if (f.id === "past") vp = verb[PAST[sub.gen]];
   if (f.id === "pastneg") vp = "не " + verb[PAST[sub.gen]];
-  if (f.id === "let") vp = (sub.p === 4 ? "давайте " : "давай ") + verb[8];
+  if (f.id === "let") vp = (sub.p === 4 ? "давайте " : "давай ") + (sub.let ? sub.let[3] + " " : "") + verb[8];
   if (f.id === "want") vp = WANT[sub.p] + " " + verb[0];
   if (tm.never) vp = vp.replace(/^не /, "никогда не ");
   const words = [f.id === "let" ? "" : sub.ru, tm.never ? "" : tm.ru, pl.ru, vp, ob.ru];
@@ -166,9 +172,14 @@ export function phraseBuilder() {
       el("button", { className: "kn-form" + (f.id === s.form ? " on" : ""), title: f.label, onclick: () => { s.form = f.id; draw(); } },
         el("span", { className: "kn-fk" }, v.s, el("b", { textContent: f.k })),
         el("span", { className: "kn-fr", textContent: v.sr + f.r.replace(" ", "") }))));
+    const sub = SUBJ[s.sub];
     hint.textContent = TIME[s.time]?.never
       ? "ぜんぜん дословно «совсем», и дружит только с отрицанием: ぜんぜん みません — «вообще не смотрю»."
-      : "Поменяй «Действие» — объект останется тем же: すしを たべます → すしを みます. Меняется только глагол.";
+      : s.form === "let"
+        ? "В «давай» тема — это «с кем»: みんなで — все вместе, かのじょと — с девушкой, いっしょに — вместе (с тобой). «Я» не говорят."
+        : s.form === "want" && sub.p >= 3
+          ? "〜たいです говорят только про себя. Про других — 〜たがっています: «он(а) хочет, по нему видно»."
+          : "Поменяй «Действие» — объект останется тем же: すしを たべます → すしを みます. Меняется только глагол.";
   }
   draw();
   return box;
