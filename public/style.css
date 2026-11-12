@@ -1663,3 +1663,15 @@ html.fx-calm .kn-cell.morph .kn-ch { animation: none; }
 .kn-own { display: flex; gap: 4px; margin-top: 3px; }
 .kn-own[hidden] { display: none; }
 .kn-ninput.small { width: 150px; font-size: 13px; padding: 3px 6px; }
+/* Кана: словарики цветов и предметов */
+.kn-wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; margin: 6px 0 4px; }
+.kn-wcard { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 6px 8px; border-radius: 12px; text-align: center;
+  border: 1px solid var(--glass-border); background: rgba(255,255,255,0.04); }
+.kn-wcard:hover { background: rgba(138,180,255,0.12); }
+.kn-swatch { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.35); margin-bottom: 3px; }
+.kn-emoji { font-size: 30px; line-height: 1.1; margin-bottom: 2px; }
+.kn-words .kn-wk { font-size: 18px; }
+.kn-wparts { font-size: 10.5px; color: var(--muted); line-height: 1.25; }
+.kn-hidetr .kn-wcard .kn-wm, .kn-hidetr .kn-wcard .kn-wparts { visibility: hidden; }
+.kn-hidetr .kn-wcard:hover .kn-wm, .kn-hidetr .kn-wcard:hover .kn-wparts { visibility: visible; }
+.kn-words .kn-nav { align-items: center; }

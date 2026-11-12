@@ -3,6 +3,7 @@ import "../i18n/kana.js";
 import { WM } from "../wm.js";
 import { openKanaNumbers } from "./kana-num.js";
 import { openKanaPhrases, phraseBuilder, sentence } from "./kana-phrases.js";
+import { openKanaColors, openKanaItems } from "./kana-words.js";
 import {
   ALL, COLS, GRAMMAR, IRREG_NOTE, MNEMO, SAME_PAIRS, TEMPLATE, VOWELS,
   KANJI_LIKE, cell, kanjiLikeOf, originOf, other, twinsOf, voicing, wordsFor,
@@ -17,6 +18,7 @@ import {
  *     (K→G, S→Z, T→D, H→B / H→P) — таблица не растёт. «Прятать латиницу» — для самопроверки;
  *   • «Числа и время» — kana-num.js;
  *   • «Фразы» — конструктор и готовые фразы по ситуациям, kana-phrases.js;
+ *   • «Цвета» и «Предметы» — словарики, сгруппированные по общему кусочку слова, kana-words.js;
  *   • «Строй предложения» — шаблон фразы, конструктор и частицы с примерами (латиница под каждым словом).
  * Данные — kana-data.js. Состояние посетителя — store("kana.*").
  */
@@ -36,7 +38,7 @@ const VOICES = { k: "dk", s: "dk", t: "dk", h: "dkp" };
 
 /* ---------- менеджер ---------- */
 export function openKana() {
-  WM.open({ title: "Кана", icon: "🎌", width: 300, height: 430, key: "kana", render(c) {
+  WM.open({ title: "Кана", icon: "🎌", width: 300, height: 560, key: "kana", render(c) {
     c.classList.add("kn", "kn-mgr");
     const b = (icon, text, sub, fn) => el("button", { className: "kn-mbtn", onclick: fn },
       el("span", { className: "kn-micon", textContent: icon }),
@@ -46,6 +48,8 @@ export function openKana() {
       b("ア", "Катакана", "заимствования, имена", () => openKanaTable("kata")),
       b("文", "Строй предложения", "частицы и порядок слов", () => openKanaGrammar()),
       b("🧩", "Фразы", "конструктор и ситуации", () => openKanaPhrases()),
+      b("🎨", "Цвета", "あか, あお и всё, что на 〜いろ", () => openKanaColors()),
+      b("🧳", "Предметы", "вещи для жизни и поездки", () => openKanaItems()),
       b("一", "Числа и время", "счёт, половины, часы и минуты", () => openKanaNumbers()),
     );
   } });
