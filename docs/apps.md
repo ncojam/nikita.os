@@ -8,7 +8,7 @@
 | Плеер | `apps/player.js`, `apps/id3.js` | аудиофайл; плейлист из папки, теги и обложки ID3 (cp1251 для старых русских тегов), `POST /api/listen` |
 | Просмотр видео / картинок / текста | `open.js` | по типу файла |
 | GBA / GB | `public/apps/gba.html`, `gba.js`, `vendor/mgba` | `.gba/.gb/.gbc` → iframe `gba.html?rom=`. Настройки `fs/etc/gba.json`, сохранения в IndexedDB. Нужны COOP/COEP |
-| Flash | `public/apps/flash.html`, `vendor/ruffle` | `.swf` → iframe |
+| Flash | `public/apps/flash.html`, `vendor/ruffle` | `.swf` → iframe; только файлы из своей `/fs/` (см. [security.md](security.md)) |
 | Веб-игры (Unity и др.) | `open.js` | `index.html` → iframe; `.br/.gz` сервер отдаёт с `Content-Encoding` |
 | Записи | `apps/post.js`, `apps/comments.js` | `.запись`, см. [social.md](social.md) |
 | Чат | `apps/chat.js` | `app: "chat"` |
