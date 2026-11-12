@@ -8,11 +8,15 @@ NETWORK (net.work) — нетворкинг-сайт для криейтеров
   • свои mp3: ≤ MP3_PER_USER файлов в папке /home/network/<ник> (настоящие файлы общего слоя /ufs —
     проводник, плеер и /fs видят их без особого кода);
   • поиск людей (фильтры) и «найди мне своих» (подбор по интересам);
-  • общая стена граффити: штрихи баллончика, хранятся списком (стена перерисовывается у клиента по штрихам).
+  • общая стена граффити: штрихи баллончика. Свежие хранятся списком (клиент рисует их сам), а раз в какое-то время
+    браузер владельца (WALL_ADMIN, по умолчанию cojam) «запекает» всю краску в одну картинку WebP/PNG —
+    штрихи до неё удаляются. Сервер не рисует (рисовалка спрея — только в JS) и чужие картинки стены не принимает.
 Форум NETWORK — тот же forum.Forum, отдельный экземпляр (см. server.py), аватарки постов берёт отсюда (decorate).
 
 Хранилище: UFS_ROOT/.meta/network.json (профили), .meta/network_media/<id>.jpg (аватарки),
-           .meta/netwall.jsonl (штрихи: по строке на штрих, дописываем в конец; переполнилось — переписываем хвост).
+           .meta/netwall.jsonl (незапечённые штрихи: по строке на штрих, дописываем в конец),
+           .meta/netwall_bake.json + netwall_bake.webp|png (запечённая краска), .meta/netwall_log.jsonl (кто где
+           рисовал: id, uid, время, рамка — для модерации; сами точки после запекания не хранятся).
 
   GET    /api/net/me                       -> {nick, profile|null, uploads, limits}
   PUT    /api/net/me        {профиль}      -> {profile}
@@ -24,8 +28,10 @@ NETWORK (net.work) — нетворкинг-сайт для криейтеров
   GET    /api/net/home                     -> счётчики и новенькие
   POST   /api/net/tracks?name=…  <mp3>     -> {path}     (потоком)
   DELETE /api/net/tracks?name=…
-  GET    /api/net/wall?since=ID            -> {strokes, last}
+  GET    /api/net/wall?since=ID            -> {strokes, last, bake: {url, upto} | null, canBake}
   POST   /api/net/wall      {c,k,s,p}      -> {id}
+  POST   /api/net/wall/bake?upto=ID <webp|png 1600×900>   (только WALL_ADMIN) -> {ok, upto}
+  GET    /media/nw/bake                    -> запечённая краска
   GET    /media/na/{id}                    -> аватарка
 """
 import json
@@ -60,7 +66,9 @@ WALL_W, WALL_H = 1600, 900
 WALL_COLORS, WALL_CAPS = 10, 3
 WALL_PTS = 260                         # точек в штрихе (x, y, dt)
 WALL_DUR = 9000                        # мс: дольше держать кнопку в одном штрихе нельзя
-WALL_CAP = int(os.environ.get("NOS_NET_WALL_STROKES", "1600"))   # столько последних штрихов живёт на стене
+WALL_CAP = int(os.environ.get("NOS_NET_WALL_STROKES", "2500"))   # потолок незапечённых: дальше старые уходят
+WALL_ADMIN = os.environ.get("NOS_NET_WALL_ADMIN", os.environ.get("NOS_SHARE_OWNER", "cojam")).lower()
+BAKE_MAX = 8 * 1024 * 1024                                        # картинка запекания (обычно 0.3–2 МБ)
 WALL_DAY = int(os.environ.get("NOS_NET_WALL_DAY", "600"))        # штрихов на человека в сутки
 WALL_EVERY = 0.15
 DAY = 24 * 3600
@@ -98,6 +106,8 @@ class Network:
         self.path = self.dir / "network.json"
         self.media = self.dir / "network_media"
         self.wall_path = self.dir / "netwall.jsonl"
+        self.log_path = self.dir / "netwall_log.jsonl"
+        self.bake_meta = self.dir / "netwall_bake.json"
         self.user_of, self.real, self.file_ok = user_of, real, file_ok
         self.forum = forum                       # форум NETWORK: свежие ветки и счётчики в профиле
         self.rate = {}
@@ -108,7 +118,8 @@ class Network:
                 self.profiles = raw["profiles"]
         except (FileNotFoundError, ValueError, OSError):
             pass
-        self.wall, self.wall_last = [], 0
+        self.wall, self.wall_last = [], 0      # wall: [(id, готовая JSON-строка штриха)] — в памяти ≈ размер файла
+        self.bake = None                       # {upto, v, ext}
         self._load_wall()
 
     # ---------- диск ----------
@@ -123,34 +134,50 @@ class Network:
 
     def _load_wall(self):
         try:
+            b = json.loads(self.bake_meta.read_text(encoding="utf-8"))
+            if isinstance(b.get("upto"), int) and (self.dir / f"netwall_bake.{b.get('ext')}").is_file():
+                self.bake = b
+        except (OSError, ValueError):
+            pass
+        upto = self.bake["upto"] if self.bake else 0
+        try:
             with self.wall_path.open(encoding="utf-8") as f:
                 for line in f:
                     try:
-                        s = json.loads(line)
+                        x = json.loads(line)
                     except ValueError:
                         continue
-                    if isinstance(s, dict) and isinstance(s.get("id"), int):
-                        self.wall.append(s)
+                    if isinstance(x, dict) and isinstance(x.get("id"), int) and x["id"] > upto:
+                        self.wall.append((x["id"], self._pub_line(x)))
         except OSError:
             pass
         self.wall = self.wall[-WALL_CAP:]
-        self.wall_last = self.wall[-1]["id"] if self.wall else 0
+        self.wall_last = max(self.wall[-1][0] if self.wall else 0, upto)
 
-    def _append_wall(self, s):
+    @staticmethod
+    def _pub_line(x):
+        return json.dumps({k: x[k] for k in ("id", "c", "k", "s", "p")}, separators=(",", ":"))
+
+    def _rewrite_wall(self):
+        tmp = self.wall_path.with_suffix(".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            for _, line in self.wall:
+                f.write(line + "\n")
+        os.replace(tmp, self.wall_path)
+
+    def _append_wall(self, sid, line, log):
         try:
             self.dir.mkdir(parents=True, exist_ok=True)
-            if len(self.wall) > WALL_CAP:          # стена «закрашивается»: старые штрихи уходят, файл переписываем
+            if len(self.wall) > WALL_CAP:          # давно не запекали: старые штрихи уходят, файл переписываем
                 self.wall = self.wall[-WALL_CAP:]
-                tmp = self.wall_path.with_suffix(".tmp")
-                with tmp.open("w", encoding="utf-8") as f:
-                    for x in self.wall:
-                        f.write(json.dumps(x, separators=(",", ":")) + "\n")
-                os.replace(tmp, self.wall_path)
+                self._rewrite_wall()
             else:
                 with self.wall_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(s, separators=(",", ":")) + "\n")
+                    f.write(line + "\n")
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log, separators=(",", ":")) + "\n")
         except OSError as e:
-            log.warning("стена не сохранилась: %s", e)
+            logging.getLogger("nikita.os.network").warning("стена не сохранилась: %s", e)
 
     # ---------- помощники ----------
     def _me(self, request):
@@ -528,19 +555,83 @@ class Network:
     async def api_home(self, request):
         fresh = sorted(self.profiles.values(), key=lambda p: -p.get("joined", 0))[:8]
         collab = sum(1 for p in self.profiles.values() if (p.get("status") or {}).get("k") in ("collab", "looking"))
-        return web.json_response({"people": len(self.profiles), "collab": collab, "strokes": len(self.wall),
+        return web.json_response({"people": len(self.profiles), "collab": collab, "strokes": self.wall_last,
                                   "fresh": [self.card(p) for p in fresh],
                                   "threads": self.forum.recent(6) if self.forum else []})
 
     # ---------- стена граффити ----------
+    def _can_bake(self, request):
+        u = self.user_of(request)
+        return bool(u and u[1].lower() == WALL_ADMIN)
+
     async def api_wall(self, request):
         s = request.query.get("since", "0")
         since = int(s) if s.isdigit() else 0
-        strokes = [x for x in self.wall if x["id"] > since] if since else self.wall
-        resp = web.json_response({"w": WALL_W, "h": WALL_H, "last": self.wall_last,
-                                  "strokes": [{k: x[k] for k in ("id", "c", "k", "s", "p")} for x in strokes]})
+        lines = [line for sid, line in self.wall if sid > since]
+        bake = {"url": f"/media/nw/bake?v={self.bake['v']}", "upto": self.bake["upto"]} if self.bake and not since else None
+        head = json.dumps({"w": WALL_W, "h": WALL_H, "last": self.wall_last, "bake": bake, "canBake": self._can_bake(request)})
+        # строки штрихов уже готовые — склеиваем, а не разбираем и собираем заново
+        resp = web.Response(text=head[:-1] + ',"strokes":[' + ",".join(lines) + "]}", content_type="application/json",
+                            headers={"Cache-Control": "no-store"})
         resp.enable_compression()
         return resp
+
+    @staticmethod
+    def _img_dims(data):
+        """Размер картинки по заголовку (без декодирования): PNG или WebP (VP8X / VP8L / VP8)."""
+        if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
+            return "png", int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            ch = data[12:16]
+            if ch == b"VP8X":
+                return "webp", 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+            if ch == b"VP8L" and data[20] == 0x2F:
+                b = int.from_bytes(data[21:25], "little")
+                return "webp", (b & 0x3FFF) + 1, ((b >> 14) & 0x3FFF) + 1
+            if ch == b"VP8 " and data[23:26] == b"\x9d\x01\x2a":
+                return "webp", int.from_bytes(data[26:28], "little") & 0x3FFF, int.from_bytes(data[28:30], "little") & 0x3FFF
+        return None, 0, 0
+
+    async def api_wall_bake(self, request):
+        if not self._can_bake(request):
+            return self._err("запекать стену может только владелец сайта", 403)
+        q = request.query.get("upto", "")
+        upto = int(q) if q.isdigit() else -1
+        done = self.bake["upto"] if self.bake else 0
+        if not done < upto <= self.wall_last:
+            return self._err("нечего запекать")
+        data = bytearray()
+        async for chunk in request.content.iter_chunked(64 * 1024):
+            data += chunk
+            if len(data) > BAKE_MAX:
+                return self._err("картинка стены слишком большая", 413)
+        ext, w, h = self._img_dims(bytes(data[:64]))
+        if not ext or (w, h) != (WALL_W, WALL_H):
+            return self._err(f"нужна картинка PNG или WebP {WALL_W}×{WALL_H}")
+        try:
+            dst = self.dir / f"netwall_bake.{ext}"
+            tmp = dst.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, dst)
+            for other in ("png", "webp"):
+                if other != ext:
+                    (self.dir / f"netwall_bake.{other}").unlink(missing_ok=True)
+            self.bake = {"upto": upto, "v": int(time.time()), "ext": ext}
+            tmp = self.bake_meta.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.bake), encoding="utf-8")
+            os.replace(tmp, self.bake_meta)
+            self.wall = [x for x in self.wall if x[0] > upto]
+            self._rewrite_wall()
+        except OSError:
+            return self._err("не удалось сохранить", 500)
+        log.info("стена запечена до штриха %s (%s КБ, осталось штрихов %s)", upto, len(data) // 1024, len(self.wall))
+        return web.json_response({"ok": True, "upto": upto, "left": len(self.wall)})
+
+    async def serve_bake(self, request):
+        if not self.bake:
+            raise web.HTTPNotFound()
+        f = self.dir / f"netwall_bake.{self.bake['ext']}"
+        return web.FileResponse(f, headers={"Content-Type": "image/" + self.bake["ext"], "Cache-Control": "public, max-age=31536000"})
 
     async def api_wall_add(self, request):
         uid, _ = self._me(request)
@@ -570,10 +661,12 @@ class Network:
             return self._err("не так быстро", 429)
         self.rate[(uid, "wall-day")] = (day, n[1] + 1)
         self.wall_last += 1
-        s = {"id": self.wall_last, "u": uid, "t": int(time.time()), "c": c, "k": k, "s": seed, "p": p}
-        self.wall.append(s)
-        self._append_wall(s)
-        return web.json_response({"id": s["id"]})
+        sid = self.wall_last
+        line = self._pub_line({"id": sid, "c": c, "k": k, "s": seed, "p": p})
+        self.wall.append((sid, line))
+        xs, ys = p[0::3], p[1::3]
+        self._append_wall(sid, line, {"id": sid, "u": uid, "t": int(time.time()), "b": [min(xs), min(ys), max(xs), max(ys)]})
+        return web.json_response({"id": sid})
 
     def routes(self, app):
         r = app.router
@@ -590,4 +683,6 @@ class Network:
         r.add_delete("/api/net/tracks", self.api_upload_del)
         r.add_get("/api/net/wall", self.api_wall)
         r.add_post("/api/net/wall", self.api_wall_add)
+        r.add_post("/api/net/wall/bake", self.api_wall_bake)
+        r.add_get("/media/nw/bake", self.serve_bake)
         r.add_get("/media/na/{id}", self.serve_media)

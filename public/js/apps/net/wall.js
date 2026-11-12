@@ -5,7 +5,7 @@ import { clack, hiss } from "./sfx.js";
 
 /* ================= NETWORK — общая стена граффити =================
  * Три холста друг над другом (их сводит браузер, мы ничего не смешиваем покадрово):
- *   base   — бетон: цвет, пятна, швы между плитами;
+ *   base   — кирпичная стена: кирпичи разного тона, утопленные швы раствора, пятна;
  *   paint  — краска (все штрихи);
  *   relief — рельеф стены поверх краски: блики на бугорках, тени в ямках. Поэтому шероховатости видно и сквозь краску.
  * Рельеф и бетон — из сида, у всех одинаковые. В ямки краска ложится хуже: по рамке штриха вычитаем маску ямок.
@@ -14,7 +14,9 @@ import { clack, hiss } from "./sfx.js";
  * а не по расстоянию, как у настоящего баллона: ведёшь быстро — тонко, держишь на месте — густо и потечёт.
  * Подтёки считаются из самого штриха (сид + порядок пшиков), поэтому у всех получаются одинаковые.
  * Одинаковый код рисует штрих вживую (StrokeRenderer.push по мере движения) и при загрузке стены.
- * Сервер хранит последние ~1600 штрихов (network.py) — старые «закрашиваются».
+ * Запекание: сервер хранит только свежие штрихи, а всю старую краску — одной картинкой (bake). Запекает браузер
+ * владельца сайта (canBake): открыл стену, а незапечённых ≥ BAKE_AT — слой краски уходит на сервер WebP-ом, штрихи
+ * до него сервер удаляет. Загрузка стены: картинка → поверх свежие штрихи.
  */
 const W = 1600, H = 900;
 const DAB_MS = 10;            // пшик каждые 10 мс времени нажатия
@@ -22,6 +24,8 @@ const SAMPLE_MS = 28;         // держим кнопку на месте — �
 const MAX_PTS = 250, MAX_DUR = 8500;
 const CELL = 6;               // клетка «мокроты» для подтёков
 const WALL_SEED = 1337;
+const BAKE_AT = 300;          // столько незапечённых штрихов — и браузер владельца запекает стену сам
+const BRICK_W = 58, BRICK_H = 20, MORTAR = 4;   // кирпич в пикселях стены (стена 1600×900 → ~43 ряда)
 
 /* ---------- детерминированный случай ---------- */
 function rng(seed) {
@@ -46,19 +50,23 @@ function buildWall() {
   const r = rng(WALL_SEED);
   const n1 = valueNoise(r, 260, W, H), n2 = valueNoise(r, 70, W, H), n3 = valueNoise(r, 18, W, H), n4 = valueNoise(r, 5, W, H);
   const hgt = new Float32Array(W * H);
-  // швы плит: горизонтальные через 300, вертикальные со сдвигом через ряд
-  const seam = (x, y) => {
-    const row = Math.floor(y / 300), dy = Math.min(y % 300, 300 - y % 300);
-    const off = row % 2 ? 260 : 0, dx = Math.min((x + off) % 520, 520 - (x + off) % 520);
-    const d = Math.min(dy, dx);
-    return d < 3 ? (3 - d) / 3 : 0;
+  // кирпичная кладка: ряды со сдвигом на полкирпича; шов раствора утоплен, края кирпичей чуть скруглены
+  const RH = BRICK_H + MORTAR, RW = BRICK_W + MORTAR;
+  const brickOf = (x, y) => {
+    const row = Math.floor(y / RH), off = row % 2 ? RW / 2 : 0, col = Math.floor((x + off) / RW);
+    const dy = Math.min(y % RH, RH - MORTAR - y % RH), dx = Math.min((x + off) % RW, RW - MORTAR - (x + off) % RW);
+    return { id: row * 1000 + col, d: Math.min(dx, dy) };          // d < 0 — шов, 0..2 — скос края
   };
+  const tones = new Float32Array(50000);
+  for (let i = 0; i < tones.length; i++) tones[i] = r();
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    hgt[y * W + x] = n2(x, y) * 0.35 + n3(x, y) * 0.3 + n4(x, y) * 0.22 + r() * 0.13 - seam(x, y) * 0.9;
+    const { d } = brickOf(x, y);
+    const edge = d < 0 ? -0.75 : d < 2.5 ? (d - 2.5) * 0.12 : 0;
+    hgt[y * W + x] = n2(x, y) * 0.3 + n3(x, y) * 0.25 + n4(x, y) * 0.22 + r() * 0.15 + edge;
   }
   // ямки-раковины бетона
   const pits = new Uint8ClampedArray(W * H);
-  for (let k = 0; k < 2600; k++) {
+  for (let k = 0; k < 1800; k++) {
     const cx = r() * W, cy = r() * H, rad = 0.8 + r() ** 3 * 4.5;
     for (let y = Math.max(0, cy - rad | 0); y < Math.min(H, cy + rad + 1); y++)
       for (let x = Math.max(0, cx - rad | 0); x < Math.min(W, cx + rad + 1); x++) {
@@ -69,8 +77,16 @@ function buildWall() {
   const base = new ImageData(W, H), rel = new ImageData(W, H), pitMask = new ImageData(W, H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, o = i * 4;
-    const tone = 72 + n1(x, y) * 34 + n2(x, y) * 10;      // пятна и разводы
-    base.data[o] = tone + 4; base.data[o + 1] = tone + 1; base.data[o + 2] = tone - 3; base.data[o + 3] = 255;
+    const { id, d } = brickOf(x, y);
+    const grime = n1(x, y) * 30 + n2(x, y) * 8;            // грязь и разводы — поверх всей кладки
+    if (d < 0) {                                           // раствор: светлее и холоднее
+      const t = 92 + grime * 0.6;
+      base.data[o] = t; base.data[o + 1] = t; base.data[o + 2] = t + 2;
+    } else {                                               // кирпич: свой тон, тёплый серо-коричневый
+      const bt = tones[(id % 50000 + 50000) % 50000], t = 58 + bt * 26 + grime;
+      base.data[o] = t + 10 + bt * 6; base.data[o + 1] = t + 2; base.data[o + 2] = t - 4;
+    }
+    base.data[o + 3] = 255;
     const a = hgt[Math.max(0, i - W - 1)], b = hgt[Math.min(W * H - 1, i + W + 1)];
     let s = (a - b) * 2.4;                                 // свет слева сверху
     s += (hgt[i] - 0.45) * 0.35;
@@ -186,7 +202,7 @@ function eatPits(g, pitMask, box) {
   g.drawImage(pitMask, x, y, w, h, x, y, w, h); g.restore();
 }
 
-function replay(g, s, pitMask) {
+function replay(g, s) {
   const R = new StrokeRenderer(g, s, false), p = s.p;
   for (let i = 0; i < p.length; i += 3) R.push(p[i], p[i + 1], i ? p[i + 2] : 0);
   return R.box;
@@ -210,10 +226,12 @@ export function mountWall(host, { getMe, askLogin, deny }) {
   const caps = WALL_CAPS.map((c, i) => el("button", { className: "nw-cap" + (i === cap ? " on" : ""), title: c.ru,
     onclick: () => { cap = i; caps.forEach((b, j) => b.classList.toggle("on", j === i)); clack(); paintRing(); } },
     el("i", { style: `--s:${6 + i * 7}px` }), el("span", { textContent: c.name })));
+  const bakeBtn = el("button", { className: "nw-btn ghost small", hidden: true, textContent: "🔥 запечь", onclick: () => bake() });
   host.append(el("div", { className: "nw-wall" },
-    el("div", { className: "nw-wall-tools" }, el("div", { className: "nw-cans" }, ...swatches), el("div", { className: "nw-caps" }, ...caps)),
+    el("div", { className: "nw-wall-tools" }, el("div", { className: "nw-cans" }, ...swatches),
+      el("div", { className: "nw-caps" }, ...caps, bakeBtn)),
     stage,
-    el("p", { className: "nw-hint", textContent: "Зажми и веди — краска ложится по времени: быстро — тонко, задержишься — потечёт. Стена общая: видят все. Старые слои со временем закрашиваются." })));
+    el("p", { className: "nw-hint", textContent: "Зажми и веди — краска ложится по времени: быстро — тонко, задержишься — потечёт. Стена общая: видят все. Нарисованное остаётся навсегда — разве что закрасят сверху." })));
 
   const paintRing = () => {
     const k = stage.clientWidth / W || 1;
@@ -234,27 +252,54 @@ export function mountWall(host, { getMe, askLogin, deny }) {
     let d;
     try { d = await (await fetch("/api/net/wall", { cache: "no-store" })).json(); }
     catch { status.textContent = "Стена не загрузилась"; return; }
+    if (d.bake) {                                          // старая краска — одной картинкой
+      try {
+        const img = new Image(); img.src = d.bake.url; await img.decode();
+        g.drawImage(img, 0, 0, W, H);
+      } catch { notify("Запечённый слой стены не загрузился"); }
+    }
     const list = d.strokes || [];
     let i = 0;
     while (alive && i < list.length) {
       const t0 = performance.now();
-      while (i < list.length && performance.now() - t0 < 14) replay(g, list[i++]);
+      while (i < list.length && performance.now() - t0 < 14) eatPits(g, wallCache.pitCv, replay(g, list[i++]));
       status.textContent = `Краска сохнет… ${Math.round(i / list.length * 100)}%`;
       await new Promise(r => requestAnimationFrame(r));
     }
     if (!alive) return;
-    eatPits(g, wallCache.pitCv, [0, 0, W, H]);
     last = d.last || 0;
     status.remove();
     stage.classList.add("ready");
     poll = setInterval(pull, 3500);
+    if (d.canBake) {
+      bakeBtn.hidden = false;
+      bakeBtn.title = `Незапечённых штрихов: ${list.length}. Слить всю краску в одну картинку — сервер забудет точки.`;
+      if (list.length >= BAKE_AT) bake(true);
+    }
   })();
+
+  /* запекание (только владелец сайта): весь слой краски → WebP, сервер удаляет штрихи до upto */
+  async function bake(auto = false) {
+    bakeBtn.disabled = true;
+    try {
+      await pull();                                        // всё, что успели нарисовать другие, — тоже на холсте
+      const upto = Math.max(last, ...mine);
+      let blob = await new Promise(r => paint.toBlob(r, "image/webp", 0.9));
+      if (!blob || blob.type !== "image/webp") blob = await new Promise(r => paint.toBlob(r, "image/png"));
+      const r = await fetch("/api/net/wall/bake?upto=" + upto, { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
+      const res = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(res.error || "Ошибка " + r.status);
+      notify(`🔥 Стена запечена (${Math.round(blob.size / 1024)} КБ)${auto ? " — автоматически" : ""}`);
+      bakeBtn.title = "Незапечённых штрихов: 0";
+    } catch (e) { if (!auto || !/нечего/.test(e.message)) deny("Не запеклось: " + e.message); }
+    finally { bakeBtn.disabled = false; }
+  }
 
   async function pull() {
     if (!alive || document.hidden || !stage.isConnected) return;
     try {
       const d = await (await fetch("/api/net/wall?since=" + last, { cache: "no-store" })).json();
-      for (const s of d.strokes || []) if (!mine.has(s.id)) eatPits(g, wallCache.pitCv, replay(g, s));
+      for (const s of d.strokes || []) if (!mine.has(s.id) && s.id > last) eatPits(g, wallCache.pitCv, replay(g, s));
       last = Math.max(last, d.last || 0);
     } catch {}
   }
