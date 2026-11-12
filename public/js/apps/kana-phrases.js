@@ -23,12 +23,12 @@ export const sentence = (tokens, ru) => el("div", { className: "kn-ex" },
 /* ---------- словарь конструктора ---------- */
 // p — лицо (1, 2, 3, 4 = они), gen — род для прошедшего времени
 const SUBJ = [
-  { k: "わたし", r: "watashi", g: "я", ru: "я", p: 1, gen: "m", let: null },
-  { k: "", r: "", g: "", ru: "я", p: 1, gen: "m", label: "(опустить «я» — так и говорят)", let: null },
-  { k: "かのじょ", r: "kanojo", g: "девушка", ru: "моя девушка", p: 3, gen: "f", let: ["と", "to", "с кем", "с моей девушкой"] },
-  { k: "ともだち", r: "tomodachi", g: "друг", ru: "мой друг", p: 3, gen: "m", let: ["と", "to", "с кем", "с моим другом"] },
-  { k: "あなた", r: "anata", g: "ты", ru: "ты", p: 2, gen: "m", let: ["に", "ni", "как", "вместе", "いっしょ", "issho", "вместе"] },
-  { k: "みんな", r: "minna", g: "все", ru: "все", p: 4, gen: "pl", let: ["で", "de", "все вместе", "все вместе"] },
+  { k: "わたし", r: "watashi", g: "я", ru: "я", dat: "мне", p: 1, gen: "m", let: null },
+  { k: "", r: "", g: "", ru: "я", dat: "мне", p: 1, gen: "m", label: "(опустить «я» — так и говорят)", let: null },
+  { k: "かのじょ", r: "kanojo", g: "девушка", ru: "моя девушка", dat: "моей девушке", p: 3, gen: "f", let: ["と", "to", "с кем", "с моей девушкой"] },
+  { k: "ともだち", r: "tomodachi", g: "друг", ru: "мой друг", dat: "моему другу", p: 3, gen: "m", let: ["と", "to", "с кем", "с моим другом"] },
+  { k: "あなた", r: "anata", g: "ты", ru: "ты", dat: "тебе", p: 2, gen: "m", let: ["に", "ni", "как", "вместе", "いっしょ", "issho", "вместе"] },
+  { k: "みんな", r: "minna", g: "все", ru: "все", dat: "всем", p: 4, gen: "pl", let: ["で", "de", "все вместе", "все вместе"] },
 ];
 const TIME = [
   { k: "", ru: "", label: "(не уточнять)" },
@@ -108,7 +108,14 @@ const FORMS = [
   { id: "pastneg", k: "ませんでした", r: "masen deshita", g: "не сделал", label: "〜ませんでした — не делал" },
   { id: "let", k: "ましょう", r: "mashō", g: "давай", label: "〜ましょう — давай!" },
   { id: "want", k: "たいです", r: "tai desu", g: "хочу", label: "〜たいです — хочу" },
+  // «нравится делать»: словарная форма + のが すき — действие превращается в «это» (の), и это «это» нравится
+  { id: "like", dict: true, k: "のがすきです", r: "no ga suki desu", g: "нравится", label: "〜のが すきです — нравится делать" },
+  { id: "dislike", dict: true, k: "のがすきじゃないです", r: "no ga suki janai desu", g: "не нравится", label: "〜のが すきじゃないです — не нравится" },
 ];
+// ромадзи словарной формы (たべる — taberu): нужна для «нравится делать»
+const DICT_R = { たべる: "taberu", のむ: "nomu", みる: "miru", よむ: "yomu", かく: "kaku", つくる: "tsukuru", かいはつする: "kaihatsu suru",
+  する: "suru", れんしゅうする: "renshū suru", のる: "noru", すべる: "suberu", きく: "kiku", かう: "kau", とる: "toru", すう: "suu",
+  はたらく: "hataraku", べんきょうする: "benkyō suru" };
 const WANT = { 1: "хочу", 2: "хочешь", 3: "хочет", 4: "хотят" };
 const PAST = { m: 5, f: 6, pl: 7 };
 const QPREP = { в: "во что", на: "на чём" };   // «что» + предлог глагола: «во что играешь», «на чём катаешься»
@@ -126,13 +133,17 @@ export function compose(s) {
     const [pk, pr, pg, , wk, wr, wg] = sub.let;
     t.push(wk ? { k: wk, r: wr, g: wg } : { k: sub.k, r: sub.r, g: sub.g }, P(pk, pr, pg));
   } else if (sub.k && f.id !== "let") t.push({ k: sub.k, r: sub.r, g: sub.g }, P("は", "wa", "тема"));
-  if (tm.k) { t.push({ k: tm.k, r: tm.r, g: tm.ru }); if (tm.ni) t.push(P("に", "ni", "когда")); }
+  // ぜんぜん с «не нравится» встаёт прямо перед すき: 〜のが ぜんぜん すきじゃないです
+  const late = f.dict && tm.never;
+  if (tm.k && !late) { t.push({ k: tm.k, r: tm.r, g: tm.ru }); if (tm.ni) t.push(P("に", "ni", "когда")); }
   if (pl.k) t.push({ k: pl.k, r: pl.r, g: pl.ru }, P("で", "de", "где"));
   if (ob.k) t.push({ k: ob.k, r: ob.r, g: v.na ? ob.na || ob.ru : ob.ru }, P(...(v.part || ["を", "o", "объект"])));
   // 〜たいです — только про себя (или вопрос «ты хочешь?»); про других — 〜たがっています
   const fe = f.id === "want" && sub.p >= 3 ? { k: "たがっています", r: "tagatte imasu", g: "хочет" } : f;
   const vr = ob.alt?.[v.d] || v.ru;
-  t.push({ k: v.s, r: v.sr, g: vr[0] }, P(fe.k, fe.r, fe.g));
+  if (f.dict) t.push({ k: v.d, r: DICT_R[v.d], g: vr[0] }, P("の", "no", "(это)"), P("が", "ga", "подлеж."),
+    ...(late ? [{ k: tm.k, r: tm.r, g: "совсем" }] : []), { k: "すき", r: "suki", g: "нравится" }, P(f.id === "like" ? "です" : "じゃないです", f.id === "like" ? "desu" : "janai desu", f.id === "like" ? "вежл." : "не"));
+  else t.push({ k: v.s, r: v.sr, g: vr[0] }, P(fe.k, fe.r, fe.g));
   if (q) t.push(P("か", "ka", "вопрос"));
 
   // русский: тема · время · место · глагол · объект, вопросительное слово — вперёд
@@ -144,10 +155,12 @@ export function compose(s) {
   if (f.id === "pastneg") vp = "не " + verb[PAST[sub.gen]];
   if (f.id === "let") vp = (sub.p === 4 ? "давайте " : "давай ") + (sub.let ? sub.let[3] + " " : "") + verb[8];
   if (f.id === "want") vp = WANT[sub.p] + " " + verb[0];
+  if (f.id === "like") vp = "нравится " + verb[0];
+  if (f.id === "dislike") vp = (tm.never ? "совсем не" : "не") + " нравится " + verb[0];
   if (tm.never) vp = vp.replace(/^не /, "никогда не ");
   let obRu = v.na ? ob.na || ob.ru : ob.ru;
   if (ob.q) { const m = vp.match(/ (в|на)$/); if (m) { vp = vp.slice(0, -m[0].length); obRu = QPREP[m[1]]; } }
-  const words = [f.id === "let" ? "" : sub.ru, tm.never ? "" : tm.ru, pl.ru, vp, obRu];
+  const words = [f.id === "let" ? "" : f.dict ? sub.dat : sub.ru, tm.never ? "" : tm.ru, pl.ru, vp, obRu];
   const qw = [tm.q && 1, pl.q && 2, ob.q && 4].filter(Boolean);   // все вопросительные слова — в начало
   let ru = [...qw.map(i => words[i]), ...words.filter((_, i) => !qw.includes(i))].filter(Boolean).join(" ");
   ru = ru[0].toUpperCase() + ru.slice(1) + (q ? "?" : ".");
@@ -187,7 +200,7 @@ export function phraseBuilder() {
     out, forms, hint);
 
   function draw() {
-    if (TIME[s.time]?.never && !["neg", "pastneg"].includes(s.form)) s.form = "neg";   // «никогда» живёт только с отрицанием
+    if (TIME[s.time]?.never && !["neg", "pastneg", "dislike"].includes(s.form)) s.form = "neg";   // «никогда» живёт только с отрицанием
     for (const k in selects) selects[k].value = s[k];
     qchk.checked = s.q;
     store.set("kana.pb", s);
@@ -196,8 +209,8 @@ export function phraseBuilder() {
     // все хвосты выбранного глагола: видно, что основа одна, а меняется только конец
     forms.replaceChildren(el("span", { className: "kn-label", textContent: v.d + " →" }), ...FORMS.map(f =>
       el("button", { className: "kn-form" + (f.id === s.form ? " on" : ""), title: f.label, onclick: () => { s.form = f.id; draw(); } },
-        el("span", { className: "kn-fk" }, v.s, el("b", { textContent: f.k })),
-        el("span", { className: "kn-fr", textContent: v.sr + f.r.replace(" ", "") }))));
+        el("span", { className: "kn-fk" }, f.dict ? v.d : v.s, el("b", { textContent: f.k })),
+        el("span", { className: "kn-fr", textContent: f.dict ? DICT_R[v.d] + " " + f.r : v.sr + f.r.replace(" ", "") }))));
     const sub = SUBJ[s.sub];
     selects.obj.disabled = !!v.intr;
     hint.textContent = v.intr
@@ -208,7 +221,9 @@ export function phraseBuilder() {
           ? `${v.d}: する в форме ます превращается в し — ${v.s}·ます. Поэтому в фразе «し», а не «する». То же у くる → き·ます.`
           : TIME[s.time]?.never
       ? "ぜんぜん дословно «совсем», и дружит только с отрицанием: ぜんぜん みません — «вообще не смотрю»."
-      : s.form === "let"
+      : FORMS.find(f => f.id === s.form)?.dict
+        ? `«Нравится» — это すき, а не глагол. Действие сначала ставят в словарную форму (${v.d}, а не ${v.s}ます), добавляют の — «это», и уже это «это» すき: ${v.d}のが すきです. Тот же приём: 〜のが じょうずです — хорошо умею, 〜のが へたです — плохо получается.`
+        : s.form === "let"
         ? "В «давай» тема — это «с кем»: みんなで — все вместе, かのじょと — с девушкой, いっしょに — вместе (с тобой). «Я» не говорят."
         : s.form === "want" && sub.p >= 3
           ? "〜たいです говорят только про себя. Про других — 〜たがっています: «он(а) хочет, по нему видно»."
