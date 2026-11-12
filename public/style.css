@@ -2027,3 +2027,44 @@ a.nw-chip:hover { border-color: var(--mt); }
 .md-quota.warn b i { background: #ffb02e; }
 .md-quota.full { color: #ff5f7a; }
 .md-quota.full b i { background: #ff2e4d; }
+
+/* NETWORK: «в сети», игры, личные сообщения */
+.nw-ava-w { position: relative; display: inline-block; flex: none; line-height: 0; }
+.nw-on { position: absolute; right: 1px; bottom: 1px; width: 13px; height: 13px; border-radius: 50%; background: #38ff86;
+  border: 2.5px solid #0c0b0f; box-shadow: 0 0 8px rgba(56,255,134,0.8); animation: nw-on 2.4s ease-in-out infinite; }
+.nw-ava-w.big .nw-on { width: 26px; height: 26px; right: 8px; bottom: 8px; border-width: 4px; }
+@keyframes nw-on { 50% { box-shadow: 0 0 2px rgba(56,255,134,0.4); } }
+.nw-on-txt { margin-top: 8px; text-align: center; color: #38ff86; font: 800 12px system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.05em; }
+.nw-prof-ava { display: flex; flex-direction: column; align-items: center; }
+.nw-badge { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: #ff2e93; color: #000;
+  font: 800 11px/18px system-ui, sans-serif; font-style: normal; text-align: center; }
+.nw-nav.on .nw-badge { background: #0c0b0f; color: #ff2e93; }
+.nw-card-games { font-size: 12.5px; color: #d8d2df; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nw-chip.nw-game { border-color: #ff2e93; }
+.nw-talks { padding: 4px; }
+.nw-talk { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 4px; color: var(--ink) !important; text-decoration: none !important; border-top: 1px dashed var(--line); }
+.nw-talk:first-child { border-top: 0; }
+.nw-talk:hover { background: rgba(255,46,147,0.08); }
+.nw-talk.new { background: rgba(56,255,134,0.07); }
+.nw-talk-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.nw-talk-prev { font-size: 13px; color: #cfc8d6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nw-talk.new .nw-talk-prev { color: var(--ink); font-weight: 600; }
+.nw-talk-end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.nw-main.nw-main-dm { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 12px; }
+.nw-dm { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.nw-dm-head { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 2px solid var(--line); }
+.nw-dm-back { font-size: 22px; padding: 0 6px; color: var(--ink) !important; text-decoration: none !important; }
+.nw-dm-who { display: flex; flex-direction: column; }
+.nw-dm-on { font-size: 11.5px; color: var(--dim); }
+.nw-dm-on.on { color: #38ff86; font-weight: 700; }
+.nw-dm-feed { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 6px 2px; }
+.nw-day { align-self: center; font-size: 11px; color: var(--dim); background: #17141c; border: 1px solid var(--line); padding: 1px 10px; border-radius: 10px; margin: 6px 0; }
+.nw-msg { align-self: flex-start; max-width: min(78%, 560px); background: #1d1923; border: 2px solid var(--line); border-radius: 4px 14px 14px 14px; padding: 7px 11px 4px; }
+.nw-msg.mine { align-self: flex-end; background: #ff2e93; border-color: #0c0b0f; color: #0c0b0f; border-radius: 14px 4px 14px 14px; box-shadow: 3px 3px 0 #38ff86; }
+.nw-msg-text { white-space: pre-wrap; word-break: break-word; line-height: 1.4; }
+.nw-msg.mine a { color: #0c0b0f; text-decoration: underline; }
+.nw-msg small { display: block; text-align: right; font-size: 10.5px; opacity: 0.65; margin-top: 2px; }
+.nw-dm-empty { text-align: center; margin: auto; }
+.nw-dm-compose { display: flex; gap: 8px; align-items: flex-end; }
+.nw-dm-in { resize: none; min-height: 46px; max-height: 140px; }
+.nw-dm-compose .nw-btn { height: 46px; font-size: 18px; }

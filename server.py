@@ -899,7 +899,8 @@ def make_app():
         pf = resolve_inside(FS_ROOT, v)
         pu = app["folders"].real(v)
         return bool(pf and pf.is_file()) or bool(pu and pu.is_file())
-    app["net"] = Network(UFS_ROOT, app["chat"].user_by_token, app["folders"].real, file_ok)
+    app["net"] = Network(UFS_ROOT, app["chat"].user_by_token, app["folders"].real, file_ok,
+                         chat_online=lambda nick: nick in app["chat"].online)
     app["netforum"] = Forum(UFS_ROOT, app["chat"].user_by_token, name="netforum",
                             sections={"general": "Флуд и болтовня", "collab": "Ищу коллаб / команду",
                                       "showcase": "Показываю работу", "help": "Вопросы и помощь",

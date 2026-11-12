@@ -8,6 +8,8 @@ NETWORK (net.work) — нетворкинг-сайт для криейтеров
   • свои mp3: ≤ MP3_PER_USER файлов в папке /home/network/<ник> (настоящие файлы общего слоя /ufs —
     проводник, плеер и /fs видят их без особого кода);
   • поиск людей (фильтры) и «найди мне своих» (подбор по интересам);
+  • личные сообщения (хранятся на сервере, .meta/netdm.db) и «в сети» (пинг NETWORK раз в ~25 с или открытый чат);
+  • «сейчас играет» — список игр в профиле;
   • общая стена граффити: штрихи баллончика. Свежие хранятся списком (клиент рисует их сам), а раз в какое-то время
     браузер владельца (WALL_ADMIN, по умолчанию cojam) «запекает» всю краску в одну картинку WebP/PNG —
     штрихи до неё удаляются. Сервер не рисует (рисовалка спрея — только в JS) и чужие картинки стены не принимает.
@@ -33,12 +35,18 @@ NETWORK (net.work) — нетворкинг-сайт для криейтеров
   POST   /api/net/wall/bake?upto=ID <webp|png 1600×900>   (только WALL_ADMIN) -> {ok, upto}
   GET    /media/nw/bake                    -> запечённая краска
   GET    /media/na/{id}                    -> аватарка
+  GET    /api/net/ping                     -> {unread} (заодно «я в сети»)
+  GET    /api/net/dm                       -> разговоры: [{nick, name, ava, on, last, unread, blocked}]
+  GET    /api/net/dm/{nick}?before=ID|after=ID -> сообщения (страницами), входящие помечаются прочитанными
+  POST   /api/net/dm/{nick}  {text}        -> {msg}
+  POST   /api/net/dm/{nick}/block {on}     -> не принимать от него сообщения
 """
 import json
 import logging
 import os
 import re
 import secrets
+import sqlite3
 import time
 from pathlib import Path
 
@@ -50,6 +58,13 @@ log = logging.getLogger("nikita.os.network")
 
 NAME_MAX, ABOUT_MAX, WITH_MAX = 40, 1000, 120
 LINKS_MAX, TAGS_MAX, ROLES_MAX, TRACKS_MAX = 30, 30, 10, 6
+GAMES_MAX, GAME_LEN = 20, 60
+DM_MAX = 2000                            # символов в сообщении
+DM_PAGE = 50
+DM_EVERY = 0.8                           # не чаще раза в 0.8 с
+DM_DAY = int(os.environ.get("NOS_NET_DM_DAY", "400"))           # сообщений от человека в сутки
+DM_KEEP = int(os.environ.get("NOS_NET_DM_KEEP", "2000"))        # столько последних сообщений живёт в одном разговоре
+ONLINE_FOR = 75                          # с: столько после последнего пинга человек «в сети»
 TAG_MAX_LEN = 32
 AVA_DIM = int(os.environ.get("NOS_NET_AVA_DIM", "400"))                # аватарка: крупнее и качественнее форумной
 AVA_BYTES = int(os.environ.get("NOS_NET_AVA_KB", "180")) * 1024
@@ -100,7 +115,7 @@ def is_mp3(head):
 class Network:
     """user_of(request) -> (uid, nick) | None; real(v) -> путь в /ufs; file_ok(v) -> есть ли файл в сшитой ФС."""
 
-    def __init__(self, ufs_root, user_of, real, file_ok, forum=None):
+    def __init__(self, ufs_root, user_of, real, file_ok, forum=None, chat_online=None):
         self.root = Path(ufs_root)
         self.dir = self.root / ".meta"
         self.path = self.dir / "network.json"
@@ -111,6 +126,8 @@ class Network:
         self.user_of, self.real, self.file_ok = user_of, real, file_ok
         self.forum = forum                       # форум NETWORK: свежие ветки и счётчики в профиле
         self.rate = {}
+        self.seen = {}                           # uid(str) -> когда последний раз был на NETWORK
+        self.chat_online = chat_online or (lambda nick: False)
         self.profiles = {}                       # uid(str) -> профиль
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
@@ -118,6 +135,17 @@ class Network:
                 self.profiles = raw["profiles"]
         except (FileNotFoundError, ValueError, OSError):
             pass
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.dm = sqlite3.connect(self.dir / "netdm.db", check_same_thread=False)
+        self.dm.execute("PRAGMA journal_mode=WAL")
+        self.dm.executescript("""
+        CREATE TABLE IF NOT EXISTS dm(id INTEGER PRIMARY KEY, a TEXT NOT NULL, b TEXT NOT NULL, text TEXT NOT NULL,
+            t INTEGER NOT NULL, seen INTEGER NOT NULL DEFAULT 0);     -- a -> b; seen: b прочитал
+        CREATE INDEX IF NOT EXISTS dm_pair ON dm(a, b, id);
+        CREATE INDEX IF NOT EXISTS dm_to ON dm(b, seen);
+        CREATE TABLE IF NOT EXISTS dm_block(who TEXT NOT NULL, whom TEXT NOT NULL, PRIMARY KEY(who, whom));
+        """)
+        self.dm.commit()
         self.wall, self.wall_last = [], 0      # wall: [(id, готовая JSON-строка штриха)] — в памяти ≈ размер файла
         self.bake = None                       # {upto, v, ext}
         self._load_wall()
@@ -182,7 +210,15 @@ class Network:
     # ---------- помощники ----------
     def _me(self, request):
         u = self.user_of(request)
-        return (str(u[0]), u[1]) if u else (None, None)
+        if not u:
+            return None, None
+        self.seen[str(u[0])] = time.time()           # любой запрос вошедшего к NETWORK — «я в сети»
+        return str(u[0]), u[1]
+
+    def online(self, uid, nick=None):
+        if time.time() - self.seen.get(str(uid), 0) < ONLINE_FOR:
+            return True
+        return bool(nick and self.chat_online(nick))
 
     def _too_soon(self, uid, kind, every):
         now = time.time()
@@ -203,19 +239,30 @@ class Network:
         except (ValueError, TypeError):
             return {}
 
-    def pub(self, pr):
-        return {k: pr.get(k) for k in ("nick", "name", "ava", "links", "tags", "status", "loc", "about",
-                                        "tracks", "joined", "updated")}
+    def _uid_of(self, pr):
+        for k, v in self.profiles.items():
+            if v is pr:
+                return k
+        return None
 
-    def card(self, pr):
+    def pub(self, pr, uid=None):
+        out = {k: pr.get(k) for k in ("nick", "name", "ava", "links", "tags", "status", "loc", "about",
+                                       "tracks", "games", "joined", "updated")}
+        out["on"] = self.online(uid or self._uid_of(pr), pr.get("nick"))
+        return out
+
+    def card(self, pr, uid=None):
         """Короткая карточка для списков."""
-        return {k: pr.get(k) for k in ("nick", "name", "ava", "tags", "status", "loc", "updated")}
+        out = {k: pr.get(k) for k in ("nick", "name", "ava", "tags", "status", "loc", "games", "updated")}
+        out["on"] = self.online(uid or self._uid_of(pr), pr.get("nick"))
+        return out
 
     def decorate(self, uid):
         pr = self.profiles.get(str(uid))
         if not pr:
             return {}
-        return {"ava": pr.get("ava"), "name": pr.get("name"), "st": (pr.get("status") or {}).get("k")}
+        return {"ava": pr.get("ava"), "name": pr.get("name"), "st": (pr.get("status") or {}).get("k"),
+                "on": self.online(uid, pr.get("nick"))}
 
     def by_nick(self, nick):
         nick = nick.lower()
@@ -320,7 +367,7 @@ class Network:
         pr = self.profiles.get(uid)
         return web.json_response({"nick": nick, "profile": self.pub(pr) if pr else None, "uploads": self.uploads(nick),
                                   "limits": {"mp3": MP3_PER_USER, "mp3MB": MP3_MAX // 1048576, "links": LINKS_MAX,
-                                             "tags": TAGS_MAX, "tracks": TRACKS_MAX, "about": ABOUT_MAX,
+                                             "tags": TAGS_MAX, "tracks": TRACKS_MAX, "about": ABOUT_MAX, "games": GAMES_MAX, "dm": DM_MAX,
                                              "avaDim": AVA_DIM, "avaKB": AVA_BYTES // 1024}})
 
     def _clean_links(self, raw):
@@ -366,6 +413,13 @@ class Network:
             if len(tracks) >= TRACKS_MAX:
                 break
         loc = b.get("loc") if isinstance(b.get("loc"), dict) else {}
+        games, seen_g = [], set()
+        for g in b.get("games") if isinstance(b.get("games"), list) else []:
+            g = clean_line(g, GAME_LEN)
+            if g and g.lower() not in seen_g:
+                games.append(g); seen_g.add(g.lower())
+            if len(games) >= GAMES_MAX:
+                break
         wait = self._too_soon(uid, "save", SAVE_EVERY)
         if wait:
             return self._err(f"не так быстро — подождите {wait} с", 429)
@@ -376,7 +430,7 @@ class Network:
             "tags": norm_tags(b.get("tags"), TAGS_MAX), "status": self._clean_status(b.get("status")),
             "loc": {"city": clean_line(loc.get("city"), 60), "country": clean_line(loc.get("country"), 60),
                     "web": bool(loc.get("web"))},
-            "about": clean_md(b.get("about"), ABOUT_MAX), "tracks": tracks, "updated": now,
+            "about": clean_md(b.get("about"), ABOUT_MAX), "tracks": tracks, "games": games, "updated": now,
         })
         self.save()
         return web.json_response({"profile": self.pub(pr)})
@@ -455,7 +509,10 @@ class Network:
         uid, pr = self.by_nick(request.match_info["nick"])
         if not pr:
             return self._err("такого криейтера в NETWORK нет", 404)
-        out = self.pub(pr)
+        out = self.pub(pr, uid)
+        me, _ = self._me(request)
+        if me and me != uid:
+            out["blocked"] = bool(self.dm.execute("SELECT 1 FROM dm_block WHERE who=? AND whom=?", (me, uid)).fetchone())
         if self.forum:
             out["threads"] = self.forum.user_threads(uid)
             out["posts"] = self.forum.user_posts(uid)
@@ -474,9 +531,15 @@ class Network:
         status = q.get("status") if q.get("status") in STATUS else None
         seeks = norm_tag(q.get("seeks") or "")
         loc = (q.get("loc") or "").strip().lower()[:60]
+        game = (q.get("game") or "").strip().lower()[:60]
         web_only = q.get("web") == "1"
+        only_on = q.get("on") == "1"
         rows = []
-        for pr in self.profiles.values():
+        for puid, pr in self.profiles.items():
+            if game and not any(game in g.lower() for g in pr.get("games") or []):
+                continue
+            if only_on and not self.online(puid, pr.get("nick")):
+                continue
             st = pr.get("status") or {}
             if status and st.get("k") != status:
                 continue
@@ -495,14 +558,14 @@ class Network:
                                 " ".join(pr.get("tags") or [])]).lower()
                 if text not in hay:
                     continue
-            rows.append((-hit, -pr.get("updated", 0), pr))
+            rows.append((-hit, -pr.get("updated", 0), pr, puid))
         rows.sort(key=lambda r: (r[0], r[1]))
         p = request.query.get("page", "1")
         page = max(1, int(p)) if p.isdigit() else 1
         pages = max(1, -(-len(rows) // PAGE))
         chunk = rows[(page - 1) * PAGE: page * PAGE]
         return web.json_response({"total": len(rows), "page": page, "pages": pages,
-                                  "people": [dict(self.card(r[2]), hit=-r[0]) for r in chunk]})
+                                  "people": [dict(self.card(r[2], r[3]), hit=-r[0]) for r in chunk]})
 
     async def api_match(self, request):
         uid, _ = self._me(request)
@@ -536,12 +599,16 @@ class Network:
                 score += 1.5; why.append("тоже " + lc["country"])
             if lc.get("web") and ml.get("web"):
                 score += 1; why.append("оба в вебе")
+            mg = {g.lower(): g for g in me.get("games") or []}
+            games = [g for g in pr.get("games") or [] if g.lower() in mg]
+            if games:
+                score += 1.5 * len(games); why.append("оба играют в " + ", ".join(games[:3]))
             k = (pr.get("status") or {}).get("k")
             score += {"collab": 1.5, "looking": 1.5, "creating": 0.5, "busy": -0.5, "idle": -1}.get(k, 0)
             if score <= 0.5:
                 continue
             score += min(1.0, (pr.get("updated", 0) - time.time() + 90 * DAY) / (90 * DAY))   # свежим — чуть выше
-            out.append((score, dict(self.card(pr), why=why, score=round(score, 1))))
+            out.append((score, dict(self.card(pr, ouid), why=why, score=round(score, 1))))
         out.sort(key=lambda x: -x[0])
         return web.json_response({"people": [x[1] for x in out[:24]]})
 
@@ -550,14 +617,135 @@ class Network:
         for pr in self.profiles.values():
             for t in set((pr.get("tags") or []) + list(self._seeks(pr))):
                 cnt[t] = cnt.get(t, 0) + 1
-        return web.json_response({"tags": sorted(cnt.items(), key=lambda x: (-x[1], x[0]))[:400]})
+        games = {}
+        for pr in self.profiles.values():
+            for g in pr.get("games") or []:
+                k = g.lower()
+                n, name = games.get(k, (0, g))
+                games[k] = (n + 1, name)
+        return web.json_response({"tags": sorted(cnt.items(), key=lambda x: (-x[1], x[0]))[:400],
+                                  "games": [v[1] for v in sorted(games.values(), key=lambda v: -v[0])[:300]]})
 
     async def api_home(self, request):
         fresh = sorted(self.profiles.values(), key=lambda p: -p.get("joined", 0))[:8]
         collab = sum(1 for p in self.profiles.values() if (p.get("status") or {}).get("k") in ("collab", "looking"))
         return web.json_response({"people": len(self.profiles), "collab": collab, "strokes": self.wall_last,
                                   "fresh": [self.card(p) for p in fresh],
+                                  "online": sum(1 for u, p in self.profiles.items() if self.online(u, p.get("nick"))),
                                   "threads": self.forum.recent(6) if self.forum else []})
+
+    # ---------- личные сообщения ----------
+    def _peer(self, request):
+        _, pr = self.by_nick(request.match_info["nick"])
+        uid = self._uid_of(pr) if pr else None
+        return uid, pr
+
+    @staticmethod
+    def _msg(row, me):
+        return {"id": row[0], "mine": row[1] == me, "text": row[3], "t": row[4], "seen": bool(row[5])}
+
+    async def api_ping(self, request):
+        uid, _ = self._me(request)
+        if not uid:
+            return web.json_response({"unread": 0, "nick": None})
+        n = self.dm.execute("SELECT COUNT(*) FROM dm WHERE b=? AND seen=0 AND a NOT IN "
+                            "(SELECT whom FROM dm_block WHERE who=?)", (uid, uid)).fetchone()[0]
+        return web.json_response({"unread": n})
+
+    async def api_dm_list(self, request):
+        me, _ = self._me(request)
+        if not me:
+            return self._err("нужно войти", 401, login=True)
+        rows = self.dm.execute("""
+            SELECT CASE WHEN a=? THEN b ELSE a END AS peer, MAX(id) FROM dm WHERE a=? OR b=? GROUP BY peer
+            ORDER BY MAX(id) DESC LIMIT 200""", (me, me, me)).fetchall()
+        blocked = {r[0] for r in self.dm.execute("SELECT whom FROM dm_block WHERE who=?", (me,))}
+        out = []
+        for peer, last_id in rows:
+            pr = self.profiles.get(peer)
+            if not pr:
+                continue
+            last = self.dm.execute("SELECT * FROM dm WHERE id=?", (last_id,)).fetchone()
+            unread = self.dm.execute("SELECT COUNT(*) FROM dm WHERE a=? AND b=? AND seen=0", (peer, me)).fetchone()[0]
+            out.append({"nick": pr.get("nick"), "name": pr.get("name"), "ava": pr.get("ava"), "on": self.online(peer, pr.get("nick")),
+                        "last": self._msg(last, me), "unread": 0 if peer in blocked else unread, "blocked": peer in blocked})
+        return web.json_response({"talks": out})
+
+    async def api_dm_get(self, request):
+        me, _ = self._me(request)
+        if not me:
+            return self._err("нужно войти", 401, login=True)
+        peer, pr = self._peer(request)
+        if not pr:
+            return self._err("такого криейтера в NETWORK нет", 404)
+        q = request.query
+        args = (me, peer, peer, me)
+        base = "SELECT * FROM dm WHERE ((a=? AND b=?) OR (a=? AND b=?))"
+        if q.get("after", "").isdigit():
+            rows = self.dm.execute(base + " AND id>? ORDER BY id LIMIT 200", (*args, int(q["after"]))).fetchall()
+        elif q.get("before", "").isdigit():
+            rows = self.dm.execute(base + " AND id<? ORDER BY id DESC LIMIT ?", (*args, int(q["before"]), DM_PAGE)).fetchall()[::-1]
+        else:
+            rows = self.dm.execute(base + " ORDER BY id DESC LIMIT ?", (*args, DM_PAGE)).fetchall()[::-1]
+        if any(r[1] == peer and not r[5] for r in rows):
+            self.dm.execute("UPDATE dm SET seen=1 WHERE a=? AND b=? AND seen=0", (peer, me))
+            self.dm.commit()
+        blocked = bool(self.dm.execute("SELECT 1 FROM dm_block WHERE who=? AND whom=?", (me, peer)).fetchone())
+        return web.json_response({"peer": {"nick": pr.get("nick"), "name": pr.get("name"), "ava": pr.get("ava"),
+                                           "on": self.online(peer, pr.get("nick")), "blocked": blocked},
+                                  "msgs": [self._msg(r, me) for r in rows], "more": len(rows) >= DM_PAGE})
+
+    async def api_dm_send(self, request):
+        me, nick = self._me(request)
+        if not me:
+            return self._err("нужно войти", 401, login=True)
+        if me not in self.profiles:
+            return self._err("сначала заполни профиль — писать могут только криейтеры NETWORK", 409)
+        peer, pr = self._peer(request)
+        if not pr:
+            return self._err("такого криейтера в NETWORK нет", 404)
+        if peer == me:
+            return self._err("себе писать не нужно — заведи заметки 🙂")
+        text = clean_md((await self._body(request)).get("text"), DM_MAX + 1)
+        if not text:
+            return self._err("пустое сообщение")
+        if len(text) > DM_MAX:
+            return self._err(f"сообщение — до {DM_MAX} символов")
+        if self.dm.execute("SELECT 1 FROM dm_block WHERE who=? AND whom=?", (peer, me)).fetchone():
+            return self._err("этот криейтер не принимает от тебя сообщения", 403)
+        day = int(time.time()) // DAY
+        n = self.rate.get((me, "dm-day"), (day, 0))
+        n = n if n[0] == day else (day, 0)
+        if n[1] >= DM_DAY:
+            return self._err("на сегодня сообщений хватит", 429)
+        if self._too_soon(me, "dm", DM_EVERY):
+            return self._err("не так быстро", 429)
+        self.rate[(me, "dm-day")] = (day, n[1] + 1)
+        cur = self.dm.execute("INSERT INTO dm(a, b, text, t) VALUES(?,?,?,?)", (me, peer, text, int(time.time())))
+        mid = cur.lastrowid
+        # в одном разговоре живут последние DM_KEEP сообщений
+        if mid % 50 == 0:
+            self.dm.execute("""DELETE FROM dm WHERE ((a=? AND b=?) OR (a=? AND b=?)) AND id <= (
+                SELECT id FROM dm WHERE (a=? AND b=?) OR (a=? AND b=?) ORDER BY id DESC LIMIT 1 OFFSET ?)""",
+                            (me, peer, peer, me, me, peer, peer, me, DM_KEEP))
+        self.dm.commit()
+        row = self.dm.execute("SELECT * FROM dm WHERE id=?", (mid,)).fetchone()
+        return web.json_response({"msg": self._msg(row, me)})
+
+    async def api_dm_block(self, request):
+        me, _ = self._me(request)
+        if not me:
+            return self._err("нужно войти", 401, login=True)
+        peer, pr = self._peer(request)
+        if not pr:
+            return self._err("такого криейтера в NETWORK нет", 404)
+        on = bool((await self._body(request)).get("on"))
+        if on:
+            self.dm.execute("INSERT OR IGNORE INTO dm_block(who, whom) VALUES(?,?)", (me, peer))
+        else:
+            self.dm.execute("DELETE FROM dm_block WHERE who=? AND whom=?", (me, peer))
+        self.dm.commit()
+        return web.json_response({"blocked": on})
 
     # ---------- стена граффити ----------
     def _can_bake(self, request):
@@ -681,6 +869,11 @@ class Network:
         r.add_get("/api/net/home", self.api_home)
         r.add_post("/api/net/tracks", self.api_upload)
         r.add_delete("/api/net/tracks", self.api_upload_del)
+        r.add_get("/api/net/ping", self.api_ping)
+        r.add_get("/api/net/dm", self.api_dm_list)
+        r.add_get("/api/net/dm/{nick}", self.api_dm_get)
+        r.add_post("/api/net/dm/{nick}", self.api_dm_send)
+        r.add_post("/api/net/dm/{nick}/block", self.api_dm_block)
         r.add_get("/api/net/wall", self.api_wall)
         r.add_post("/api/net/wall", self.api_wall_add)
         r.add_post("/api/net/wall/bake", self.api_wall_bake)

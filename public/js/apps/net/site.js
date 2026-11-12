@@ -2,7 +2,7 @@ import { el } from "../../core/util.js";
 import { notify } from "../../ui/notify.js";
 import { askAuth, whoami } from "../../ui/auth.js";
 import { Juice } from "../../core/juice.js";
-import { md, mdEditor } from "../mdkit.js";
+import { emojiHint, md, mdEditor } from "../mdkit.js";
 import { pickImage } from "../post.js";
 import { hydrateTracks, trackCard } from "../trackcard.js";
 import { ACTIVITIES, STATUSES, linkKind } from "./data.js";
@@ -18,6 +18,9 @@ import { blip, ding, pop, riser, scratch, shake as rattleCan, spray, thud, tick,
  *            net.work/match                «найди мне своих»
  *            net.work/wall                 общая стена граффити
  *            net.work/u/<ник>              профиль        net.work/me — свой профиль: редактор / первая анкета
+ *            net.work/dm[/<ник>]           личные сообщения (хранятся на сервере)
+ * «В сети» — зелёная точка у аватарки: сервер считает онлайн по пингу (pulse, раз в 25 с, пока открыта вкладка)
+ * и по открытому чату. Пинг же приносит число непрочитанных — бейдж у «Сообщений».
  *
  * Оформление: розовый / чёрный / мятный, панк. Лого — над левой панелью и вылезает за край окна (крепится к самому
  * окну, а не к странице: страница обрезается окном); при заходе на сайт низ окна «подтекает». enter/leave ставят и
@@ -57,12 +60,39 @@ function deny(b, msg) {
 }
 
 /* ---------- кусочки интерфейса ---------- */
+/* текст сообщения: только текстовые узлы + ссылки http(s) (чужой текст — никогда не innerHTML) */
+function linkify(text) {
+  const out = [], re = /https?:\/\/[^\s<>"]+/g;
+  let i = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > i) out.push(text.slice(i, m.index));
+    out.push(el("a", { href: m[0], target: "_blank", rel: "noopener nofollow", textContent: m[0] }));
+    i = m.index + m[0].length;
+  }
+  if (i < text.length) out.push(text.slice(i));
+  return out;
+}
+
 const link = (b, addr, text, cls = "") => el("a", { href: "#", className: cls, textContent: text, onclick: e => (e.preventDefault(), b.go(addr)) });
 
-function ava(src, size = "") {
-  return src ? el("img", { className: "nw-ava " + size, src, alt: "", loading: "lazy" })
+function ava(src, size = "", on = false) {
+  const img = src ? el("img", { className: "nw-ava " + size, src, alt: "", loading: "lazy" })
     : el("div", { className: "nw-ava nw-ava-none " + size, textContent: "☠" });
+  return el("span", { className: "nw-ava-w " + size }, img, on ? el("i", { className: "nw-on", title: "в сети" }) : "");
 }
+
+/* пинг «я в сети» + непрочитанные: пока страница открыта и видна */
+let pulseT = 0, unread = 0;
+async function pulse() {
+  if (document.hidden) return;
+  try {
+    const d = await api(`${API}/ping`);
+    const was = unread; unread = d.unread || 0;
+    for (const n of document.querySelectorAll(".nw-badge")) { n.textContent = unread || ""; n.hidden = !unread; }
+    if (unread > was && !location.pathname.includes("/net.work/dm/")) blip(true);
+  } catch {}
+}
+function startPulse() { if (!pulseT) { pulseT = setInterval(pulse, 25000); } pulse(); }
 
 function statusPill(st, { full = false } = {}) {
   const S = STATUSES[st?.k] || STATUSES.creating;
@@ -88,10 +118,11 @@ function chips(tags, b, hl = new Set()) {
 
 function personCard(b, p, { why = null, hl = new Set() } = {}) {
   const card = el("div", { className: "nw-card", onclick: e => { if (!e.target.closest("a")) b.go(`${HOST}/u/${p.nick}`); } },
-    el("div", { className: "nw-card-top" }, ava(p.ava), el("div", { className: "nw-card-id" },
+    el("div", { className: "nw-card-top" }, ava(p.ava, "", p.on), el("div", { className: "nw-card-id" },
       el("b", { textContent: p.name || p.nick }), el("small", { textContent: "@" + p.nick }), statusPill(p.status))),
     p.loc && locText(p.loc) ? el("div", { className: "nw-card-loc", textContent: "📍 " + locText(p.loc) }) : "",
-    chips((p.tags || []).slice(0, 8), b, hl));
+    chips((p.tags || []).slice(0, 8), b, hl),
+    p.games?.length ? el("div", { className: "nw-card-games", textContent: "🎮 " + p.games.slice(0, 3).join(", ") + (p.games.length > 3 ? "…" : "") }) : "");
   if (p.status?.roles?.length) card.append(el("div", { className: "nw-card-seek" },
     (p.status.k === "collab" ? "🤝 коллаб с: " : "🔎 ищет: ") + p.status.roles.join(", ")));
   if (why?.length) card.append(el("ul", { className: "nw-why" }, ...why.map(w => el("li", { textContent: w }))));
@@ -105,20 +136,27 @@ async function tagPool() {
   const used = await usedTags;
   return [...new Set([...ACTIVITIES, ...used])];
 }
-function tagInput({ value = [], max = 30, placeholder = "начни вводить…", onLimit, onChange } = {}) {
+async function gamePool() {
+  if (!usedGames) usedGames = api(`${API}/tags`).then(d => d.games || []).catch(() => []);
+  return usedGames;
+}
+let usedGames = null;
+/* games: true — названия игр: регистр сохраняем, длиннее, подсказки — игры, которые указали другие */
+function tagInput({ value = [], max = 30, placeholder = "начни вводить…", onLimit, onChange, games = false } = {}) {
   let tags = [...value], pool = [], sel = 0, shown = [];
-  tagPool().then(p => { pool = p; });
+  (games ? gamePool() : tagPool()).then(p => { pool = p; });
   const box = el("div", { className: "nw-tags" });
-  const inp = el("input", { className: "nw-tags-in", placeholder, maxLength: 32, spellcheck: false });
+  const inp = el("input", { className: "nw-tags-in", placeholder, maxLength: games ? 60 : 32, spellcheck: false });
   const list = el("div", { className: "nw-sug", hidden: true });
-  const norm = s => s.toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ").trim().slice(0, 32);
+  const norm = s => games ? s.replace(/\s+/g, " ").trim().slice(0, 60) : s.toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ").trim().slice(0, 32);
+  const has = t => tags.some(x => x.toLowerCase() === t.toLowerCase());
   const draw = () => {
     box.replaceChildren(...tags.map(t => el("span", { className: "nw-chip on" }, t,
       el("button", { type: "button", textContent: "×", title: "убрать", onclick: () => { tick(); tags = tags.filter(x => x !== t); draw(); onChange?.(tags); } }))), inp, list);
   };
   const add = t => {
     t = norm(t);
-    if (!t || tags.includes(t)) { inp.value = ""; return hide(); }
+    if (!t || has(t)) { inp.value = ""; return hide(); }
     if (tags.length >= max) return onLimit?.(`не больше ${max}`);
     tags.push(t); inp.value = ""; hide(); draw(); onChange?.(tags); inp.focus(); tick();
   };
@@ -126,15 +164,16 @@ function tagInput({ value = [], max = 30, placeholder = "начни вводит
   const suggest = () => {
     const q = norm(inp.value);
     if (!q) return hide();
-    const pre = pool.filter(t => t.startsWith(q) && !tags.includes(t)), mid = pool.filter(t => !t.startsWith(q) && t.includes(q) && !tags.includes(t));
+    const ql = q.toLowerCase(), L = t => t.toLowerCase();
+    const pre = pool.filter(t => L(t).startsWith(ql) && !has(t)), mid = pool.filter(t => !L(t).startsWith(ql) && L(t).includes(ql) && !has(t));
     shown = [...pre, ...mid].slice(0, 8);
-    const exact = pool.includes(q);
+    const exact = pool.some(t => L(t) === ql);
     sel = 0;
     list.replaceChildren(...shown.map((t, i) => {
-      const at = t.indexOf(q);
+      const at = t.toLowerCase().indexOf(ql);
       return el("button", { type: "button", className: "nw-sug-it" + (i === sel ? " on" : ""), onmousedown: e => (e.preventDefault(), add(t)) },
         t.slice(0, at), el("mark", { textContent: t.slice(at, at + q.length) }), t.slice(at + q.length));
-    }), exact ? "" : el("button", { type: "button", className: "nw-sug-it new", onmousedown: e => (e.preventDefault(), add(q)) }, "＋ свой тег: ", el("b", { textContent: q })));
+    }), exact ? "" : el("button", { type: "button", className: "nw-sug-it new", onmousedown: e => (e.preventDefault(), add(q)) }, games ? "＋ игра: " : "＋ свой тег: ", el("b", { textContent: q })));
     list.hidden = false;
   };
   inp.oninput = suggest;
@@ -209,15 +248,17 @@ export const NET = {
     const [a, x, y] = parts.map(decodeURIComponent);
     if (this._quiet) this._quiet = false; else this.navSound(a, x, y);
     const nav = [["", "🏠", "Главная"], ["forum", "💬", "Форум"], ["people", "👥", "Люди"], ["match", "🎯", "Найти своих"],
-      ["wall", "🎨", "Стена"], [me ? "me" : "join", "👤", me ? "Мой профиль" : "Вступить"]];
+      ["wall", "🎨", "Стена"], ...(me ? [["dm", "✉", "Сообщения"]] : []), [me ? "me" : "join", "👤", me ? "Мой профиль" : "Вступить"]];
     const side = el("aside", { className: "nw-side" }, el("div", { className: "nw-side-logo" }),
       el("nav", {}, ...nav.map(([r, ic, t]) => el("a", { href: "#", className: "nw-nav" + ((a || "") === r || (r === "me" && a === "u" && x === me) ? " on" : ""),
-        onclick: e => (e.preventDefault(), b.go(r ? `${HOST}/${r}` : HOST)) }, el("i", { textContent: ic }), el("span", { textContent: t })))),
+        onclick: e => (e.preventDefault(), b.go(r ? `${HOST}/${r}` : HOST)) }, el("i", { textContent: ic }), el("span", { textContent: t }),
+        r === "dm" ? el("em", { className: "nw-badge", textContent: unread || "", hidden: !unread }) : ""))),
       el("div", { className: "nw-side-sp" }),
       me ? el("div", { className: "nw-side-me" }, el("span", { textContent: "@" + me }),
         el("a", { href: "#", textContent: "выйти", onclick: async e => { e.preventDefault(); await fetch("/api/chat/logout", { method: "POST" }).catch(() => {}); blip(false); this.hush(); b.reload(); } }))
         : el("button", { className: "nw-btn small", textContent: "🔑 Войти", onclick: () => this.login(b) }));
     const main = el("main", { className: "nw-main" });
+    if (me) startPulse();
     b.paint(el("div", { className: "nw" }, side, main));
     b.scrollEnd = () => requestAnimationFrame(() => { main.scrollTop = main.scrollHeight; });   // у NETWORK своя прокрутка
     this.placeLogo(b);
@@ -231,6 +272,7 @@ export const NET = {
       if (a === "u" && x) return await this.profile(ctx, x);
       if (a === "me") return me ? await this.editor(ctx) : b.go(`${HOST}/join`, true);
       if (a === "join") return await this.join(ctx);
+      if (a === "dm") return me ? await (x ? this.dialog(ctx, x) : this.talks(ctx)) : b.go(`${HOST}/join`, true);
       throw new Error("Такой страницы нет");
     } catch (e) {
       main.replaceChildren(el("div", { className: "nw-box nw-err" }, el("h2", { textContent: "404 / облом" }), el("p", { textContent: e.message }),
@@ -250,6 +292,7 @@ export const NET = {
     if (a === "forum") return y ? pop() : whoosh();
     if (a === "wall") return rattleCan();
     if (a === "u" || a === "me" || a === "join") return blip(true);
+    if (a === "dm") return x ? pop() : whoosh();
     if (a === "match") return;                       // там свой звук — свист подбора
     whoosh();
   },
@@ -299,7 +342,8 @@ export const NET = {
   /* ---------- люди ---------- */
   async people({ b, main, q }) {
     const f = { q: q.get("q") || "", tags: (q.get("tags") || "").split(",").filter(Boolean), status: q.get("status") || "",
-      seeks: q.get("seeks") || "", loc: q.get("loc") || "", web: q.get("web") === "1", page: +(q.get("page") || 1) };
+      seeks: q.get("seeks") || "", loc: q.get("loc") || "", game: q.get("game") || "", web: q.get("web") === "1", on: q.get("on") === "1",
+      page: +(q.get("page") || 1) };
     const text = el("input", { className: "nw-in", placeholder: "🔍 ник, имя, о себе…", value: f.q });
     const tags = tagInput({ value: f.tags, max: 10, placeholder: "деятельность…", onChange: () => apply() });
     const status = el("select", { className: "nw-in" }, el("option", { value: "", textContent: "любой статус" }),
@@ -307,17 +351,20 @@ export const NET = {
     const seeks = el("input", { className: "nw-in", placeholder: "ищет роль (напр. animator)", value: f.seeks });
     const loc = el("input", { className: "nw-in", placeholder: "📍 город или страна", value: f.loc });
     const web = el("input", { type: "checkbox", checked: f.web });
+    const game = el("input", { className: "nw-in", placeholder: "🎮 играет в…", value: f.game });
+    const onl = el("input", { type: "checkbox", checked: f.on });
     const grid = el("div", { className: "nw-grid" }), info = el("div", { className: "nw-dim" }), pager = el("div", { className: "nw-pager" });
     let tm = 0;
     const apply = (page = 1) => {
       clearTimeout(tm);
       tm = setTimeout(async () => {
         f.q = text.value.trim(); f.tags = tags.value; f.status = status.value; f.seeks = seeks.value.trim().toLowerCase();
-        f.loc = loc.value.trim(); f.web = web.checked; f.page = page;
+        f.loc = loc.value.trim(); f.game = game.value.trim(); f.web = web.checked; f.on = onl.checked; f.page = page;
         const qs = new URLSearchParams();
-        for (const k of ["q", "status", "seeks", "loc"]) if (f[k]) qs.set(k, f[k]);
+        for (const k of ["q", "status", "seeks", "loc", "game"]) if (f[k]) qs.set(k, f[k]);
         if (f.tags.length) qs.set("tags", f.tags.join(","));
         if (f.web) qs.set("web", "1");
+        if (f.on) qs.set("on", "1");
         if (page > 1) qs.set("page", page);
         setAddr(b, `${HOST}/people` + (qs.toString() ? "?" + qs : ""));
         try {
@@ -330,19 +377,21 @@ export const NET = {
         } catch (e) { info.textContent = e.message; }
       }, 220);
     };
-    for (const i of [text, seeks, loc]) i.oninput = () => apply();
-    status.onchange = web.onchange = () => { tick(); apply(); };
+    for (const i of [text, seeks, loc, game]) i.oninput = () => apply();
+    status.onchange = web.onchange = onl.onchange = () => { tick(); apply(); };
     const quick = (t, set) => el("button", { className: "nw-btn ghost small", textContent: t, onclick: () => { tick(); set(); apply(); } });
     main.replaceChildren(
       el("h2", { className: "nw-h2", textContent: "Люди" }),
       el("div", { className: "nw-quick" },
         quick("🤝 кто хочет коллаб", () => { status.value = "collab"; }),
         quick("🔎 кто кого-то ищет", () => { status.value = "looking"; }),
+        quick("🟢 кто в сети", () => { onl.checked = true; }),
         quick("🌐 web only", () => { web.checked = true; }),
-        quick("✕ сбросить", () => { text.value = seeks.value = loc.value = status.value = ""; web.checked = false; tags.value = []; }),
+        quick("✕ сбросить", () => { text.value = seeks.value = loc.value = game.value = status.value = ""; web.checked = onl.checked = false; tags.value = []; }),
         el("button", { className: "nw-btn small", textContent: "🎯 найди мне своих", onclick: () => b.go(`${HOST}/match`) })),
-      el("div", { className: "nw-box nw-filters" }, text, tags.node, el("div", { className: "nw-row3" }, status, seeks, loc),
-        el("label", { className: "nw-check" }, web, " только web (без города)")),
+      el("div", { className: "nw-box nw-filters" }, text, tags.node, el("div", { className: "nw-row3" }, status, seeks, loc, game),
+        el("div", { className: "nw-row" }, el("label", { className: "nw-check" }, web, " только web (без города)"),
+          el("label", { className: "nw-check" }, onl, " только кто в сети"))),
       info, grid, pager);
     apply(f.page);
   },
@@ -410,15 +459,21 @@ export const NET = {
     if (!d.threads?.length) threads.append(el("p", { className: "nw-dim", textContent: "Веток пока нет." }));
     main.replaceChildren(
       el("section", { className: "nw-prof" },
-        el("div", { className: "nw-prof-ava" }, ava(d.ava, "big")),
+        el("div", { className: "nw-prof-ava" }, ava(d.ava, "big", d.on), d.on ? el("div", { className: "nw-on-txt", textContent: "● в сети" }) : ""),
         el("div", { className: "nw-prof-main" },
           el("h1", { className: "nw-prof-name", textContent: d.name || d.nick }),
           el("div", { className: "nw-dim" }, "@" + d.nick, " · с нами с " + fmtDay(d.joined), d.posts ? ` · ${d.posts} постов` : ""),
           statusPill(d.status, { full: true }),
           locText(d.loc) ? el("div", { className: "nw-prof-loc", textContent: "📍 " + locText(d.loc) }) : "",
-          mine ? el("button", { className: "nw-btn small", textContent: "✎ Редактировать", onclick: () => b.go(`${HOST}/me`) }) : "")),
+          mine ? el("button", { className: "nw-btn small", textContent: "✎ Редактировать", onclick: () => b.go(`${HOST}/me`) })
+            : el("button", { className: "nw-btn small", textContent: "✉ Написать", onclick: async () => {
+              if (me || await this.login(b, "Чтобы писать криейтерам, нужен аккаунт")) b.go(`${HOST}/dm/${d.nick}`);
+            } }))),
       d.links?.length ? links : "",
       el("h2", { className: "nw-h2", textContent: "Чем занимается" }), chips(d.tags, b),
+      d.games?.length ? el("h2", { className: "nw-h2", textContent: "Сейчас играет" }) : "",
+      d.games?.length ? el("div", { className: "nw-chips" }, ...d.games.map(g =>
+        link(b, `${HOST}/people?game=${encodeURIComponent(g)}`, "🎮 " + g, "nw-chip nw-game"))) : "",
       d.tracks?.length ? el("h2", { className: "nw-h2", textContent: "Треки" }) : "", d.tracks?.length ? tracks : "",
       el("h2", { className: "nw-h2", textContent: "О себе" }), el("div", { className: "nw-box" }, about),
       el("h2", { className: "nw-h2", textContent: "Ветки на форуме" }), threads);
@@ -494,6 +549,7 @@ export const NET = {
     };
     drawSt();
 
+    const games = tagInput({ value: P.games || [], max: L.games || 20, games: true, placeholder: "THAW, Celeste, Minecraft…", onLimit: lim });
     const city = el("input", { className: "nw-in", maxLength: 60, placeholder: "город", value: P.loc?.city || "" });
     const country = el("input", { className: "nw-in", maxLength: 60, placeholder: "страна", value: P.loc?.country || "" });
     const web = el("input", { type: "checkbox", checked: !!P.loc?.web });
@@ -554,7 +610,7 @@ export const NET = {
       const body = {
         name: name.value, links: [...linkRows.children].map(r => r._get()).filter(l => l.u), tags: tags.value,
         status: { k: stK, roles: roles.value, with: withIn.value }, loc: { city: city.value, country: country.value, web: web.checked },
-        about: about.value, tracks: attached,
+        about: about.value, tracks: attached, games: games.value,
       };
       if (!body.name.trim()) { name.focus(); return lim("укажи имя"); }
       save.disabled = true;
@@ -581,6 +637,7 @@ export const NET = {
         linkRows, addLink),
       sec(`Чем занимаешься (до ${L.tags})`, el("p", { className: "nw-dim", textContent: "Начни вводить — подсветим знакомые теги. Нет нужного — Enter добавит свой." }), tags.node),
       sec("Статус", el("div", { className: "nw-st-btns" }, ...stBtns), stExtra),
+      sec(`Сейчас играю (до ${L.games || 20})`, el("p", { className: "nw-dim", textContent: "Во что рубишься сейчас — найдёшь, с кем поиграть. Подсказываем игры, которые указали другие." }), games.node),
       sec("Где ты", el("div", { className: "nw-row3" }, city, country, el("label", { className: "nw-check" }, web, " 🌐 web only"))),
       sec("О себе", about.node),
       sec(`Треки в профиле (до ${L.tracks})`, attBox,
@@ -588,6 +645,136 @@ export const NET = {
         el("h4", { textContent: "Мои проекты DAWN" }), dawnBox,
         el("h4", { textContent: "Любой файл из ФС" }), el("div", { className: "nw-row" }, pathIn, pathAdd)),
       el("div", { className: "nw-save" }, save));
+  },
+
+  /* ================= личные сообщения ================= */
+  async talks({ b, main }) {
+    const d = await api(`${API}/dm`);
+    const list = el("div", { className: "nw-box nw-talks" });
+    if (!d.talks.length) list.append(el("p", { className: "nw-dim" }, "Пока тихо. ", link(b, `${HOST}/people`, "Найди людей"),
+      " и напиши первым — кнопка «✉ Написать» в профиле."));
+    for (const t of d.talks) {
+      const prev = (t.last.mine ? "ты: " : "") + t.last.text.replace(/\s+/g, " ");
+      list.append(el("a", { href: "#", className: "nw-talk" + (t.unread ? " new" : ""), onclick: e => (e.preventDefault(), b.go(`${HOST}/dm/${t.nick}`)) },
+        ava(t.ava, "", t.on),
+        el("div", { className: "nw-talk-mid" }, el("b", { textContent: t.name || t.nick }), el("small", { className: "nw-dim", textContent: "@" + t.nick + (t.blocked ? " · 🚫 заблокирован" : "") }),
+          el("span", { className: "nw-talk-prev", textContent: prev.slice(0, 120) })),
+        el("div", { className: "nw-talk-end" }, el("small", { className: "nw-dim", textContent: fmtDate(t.last.t) }),
+          t.unread ? el("em", { className: "nw-badge", textContent: t.unread }) : "")));
+    }
+    main.replaceChildren(el("h2", { className: "nw-h2", textContent: "Сообщения" }), list);
+  },
+
+  async dialog({ b, main, me }, nick) {
+    const d = await api(`${API}/dm/${encodeURIComponent(nick)}`);
+    const P = d.peer, LIM = 2000;
+    let first = d.msgs[0]?.id || 0, last = d.msgs.at(-1)?.id || 0, more = d.more, loading = false, blocked = P.blocked;
+    main.classList.add("nw-main-dm");
+    const feed = el("div", { className: "nw-dm-feed" });
+    const bubble = m => {
+      const n = el("div", { className: "nw-msg" + (m.mine ? " mine" : "") },
+        el("div", { className: "nw-msg-text" }, ...linkify(m.text)),
+        el("small", { textContent: fmtDate(m.t).split(", ")[1] + (m.mine ? (m.seen ? " ✓✓" : " ✓") : ""), title: fmtDate(m.t) }));
+      n.dataset.id = m.id;
+      return n;
+    };
+    const dayOf = t => new Date(t * 1000).toDateString();
+    const put = (msgs, atTop = false) => {
+      const nodes = [];
+      let prevDay = atTop ? null : feed.lastElementChild?.dataset.day;
+      for (const m of msgs) {
+        const day = dayOf(m.t);
+        if (day !== prevDay) { const dn = el("div", { className: "nw-day", textContent: fmtDay(m.t) }); dn.dataset.day = day; nodes.push(dn); }
+        prevDay = day;
+        const n = bubble(m); n.dataset.day = day; nodes.push(n);
+      }
+      if (atTop) {
+        feed.prepend(...nodes);
+        const nx = nodes.at(-1)?.nextElementSibling;   // тот же день уже подписан ниже — лишнюю подпись убираем
+        if (nx?.classList.contains("nw-day") && nx.dataset.day === nodes.at(-1).dataset.day) nx.remove();
+      } else feed.append(...nodes);
+      return nodes;
+    };
+    put(d.msgs);
+    if (!d.msgs.length) feed.append(el("p", { className: "nw-dim nw-dm-empty", textContent: `Это начало переписки с ${P.name || P.nick}. Напиши что-нибудь 👋` }));
+    const scrollDown = () => requestAnimationFrame(() => { feed.scrollTop = feed.scrollHeight; });
+    scrollDown();
+    feed.onscroll = async () => {
+      if (feed.scrollTop > 40 || !more || loading || !first) return;
+      loading = true;
+      try {
+        const o = await api(`${API}/dm/${encodeURIComponent(nick)}?before=${first}`);
+        const h = feed.scrollHeight;
+        put(o.msgs, true); more = o.more; first = o.msgs[0]?.id || first;
+        feed.scrollTop = feed.scrollHeight - h;
+      } catch {} finally { loading = false; }
+    };
+
+    const ta = el("textarea", { className: "nw-in nw-dm-in", rows: 2, maxLength: LIM, placeholder: "Сообщение… (Enter — отправить, Shift+Enter — перенос)" });
+    ta.addEventListener("beforeinput", e => {
+      if (!e.inputType.startsWith("insert")) return;
+      const add = e.data ?? e.dataTransfer?.getData("text") ?? "";
+      if (ta.value.length - (ta.selectionEnd - ta.selectionStart) + (add.length || 1) > LIM) deny(b, `Сообщение — до ${LIM} символов`);
+    });
+    const sendB = el("button", { className: "nw-btn", textContent: "➤" });
+    const sendMsg = async () => {
+      const text = ta.value.trim();
+      if (!text) return deny(b, "Пустое сообщение");
+      sendB.disabled = true;
+      try {
+        const r = await send(`${API}/dm/${encodeURIComponent(nick)}`, "POST", { text });
+        feed.querySelector(".nw-dm-empty")?.remove();
+        const [node] = put([r.msg]).slice(-1); last = Math.max(last, r.msg.id);
+        ta.value = ""; pop(); scrollDown(); Juice.spawn(node, { sound: false });
+      } catch (e) { deny(b, e.message); }
+      finally { sendB.disabled = false; ta.focus(); }
+    };
+    sendB.onclick = sendMsg;
+    ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
+
+    const dot = el("span", { className: "nw-dm-on" });
+    const setOn = on => { dot.textContent = on ? "● в сети" : "не в сети"; dot.classList.toggle("on", on); };
+    setOn(P.on);
+    const blockB = el("button", { className: "nw-btn ghost small" });
+    const drawBlock = () => { blockB.textContent = blocked ? "🔓 разблокировать" : "🚫 блок"; blockB.title = blocked ? "Снова принимать сообщения" : "Не принимать сообщения от этого человека"; };
+    drawBlock();
+    blockB.onclick = async () => {
+      if (!blocked && !confirm(`Не принимать сообщения от ${P.nick}?`)) return;
+      try { blocked = (await send(`${API}/dm/${encodeURIComponent(nick)}/block`, "POST", { on: !blocked })).blocked; drawBlock(); blocked ? thud() : tick(); }
+      catch (e) { deny(b, e.message); }
+    };
+
+    main.replaceChildren(el("div", { className: "nw-dm" },
+      el("div", { className: "nw-dm-head" }, link(b, `${HOST}/dm`, "←", "nw-dm-back"), ava(P.ava, "", false),
+        el("div", { className: "nw-dm-who" }, link(b, `${HOST}/u/${P.nick}`, P.name || P.nick, "nw-strong"), dot),
+        el("span", { className: "nw-sp" }), blockB),
+      feed,
+      el("div", { className: "nw-dm-compose" }, ta, sendB),
+      el("div", { className: "md-foot" }, emojiHint())));
+    ta.focus();
+
+    // новые сообщения и «в сети» — опросом, пока открыт этот диалог
+    const poll = setInterval(async () => {
+      if (!feed.isConnected) return clearInterval(poll);
+      if (document.hidden) return;
+      try {
+        // одним запросом: новые сообщения + последние свои (для галочек «прочитано»)
+        const o = await api(`${API}/dm/${encodeURIComponent(nick)}?after=${Math.max(0, last - 30)}`);
+        setOn(o.peer.on);
+        const fresh = o.msgs.filter(m => !feed.querySelector(`[data-id="${m.id}"]`));
+        if (fresh.length) {
+          const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 120;
+          feed.querySelector(".nw-dm-empty")?.remove();
+          put(fresh); last = Math.max(last, ...fresh.map(m => m.id));
+          if (fresh.some(m => !m.mine)) blip(true);
+          if (near) scrollDown();
+        }
+        for (const m of o.msgs) if (m.mine && m.seen) {
+          const sm = feed.querySelector(`.nw-msg.mine[data-id="${m.id}"] small`);
+          if (sm && !sm.textContent.endsWith("✓✓")) sm.textContent = sm.textContent.replace(/ ✓$/, " ✓✓");
+        }
+      } catch {}
+    }, 4000);
   },
 
   /* ================= форум ================= */
@@ -703,7 +890,7 @@ export const NET = {
     hydrateTracks(body);
     const tools = el("div", { className: "nw-post-tools" }, el("span", { className: "nw-dim", textContent: fmtDate(p.created) + (p.edited ? " · изм." : "") }));
     const box = el("article", { className: "nw-post" + (isFirst ? " first" : "") },
-      el("aside", { className: "nw-post-side" }, ava(p.ava), link(b, `${HOST}/u/${p.author}`, p.name || p.author, "nw-strong"),
+      el("aside", { className: "nw-post-side" }, ava(p.ava, "", p.on), link(b, `${HOST}/u/${p.author}`, p.name || p.author, "nw-strong"),
         p.name ? el("small", { className: "nw-dim", textContent: "@" + p.author }) : "", p.st ? statusPill({ k: p.st }) : ""),
       el("div", { className: "nw-post-body" }, tools, body));
     if (me && me === p.author) {

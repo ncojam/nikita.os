@@ -14,6 +14,7 @@ const cfg = () => ({ sound: true, volume: 0.35, ...store.get("juice", {}) });
 function audio() {
   const c = cfg();
   if (!c.sound || c.volume <= 0) return null;
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return null;   // до первого клика браузер звук всё равно не даст
   if (!ac) {
     const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!AC) return null;
