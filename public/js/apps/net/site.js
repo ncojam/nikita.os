@@ -211,16 +211,18 @@ export const NET = {
     const word = "NETWORK";
     const logo = el("a", { className: "nw-logo", href: "#", title: "NETWORK — на главную", onclick: e => (e.preventDefault(), b.go(HOST)) },
       ...[...word].map((ch, i) => el("span", { textContent: ch, style: `--i:${i}` })));
-    // подтёки по низу окна: размеры в пикселях (не тянутся вместе с окном), гуще к правому краю;
-    // каждый «дышит» (тянется и подбирается) и с кончика срывается капля
+    // подтёки по низу окна: тонкие струйки фиксированного размера (не тянутся с окном), справа — густой «куст»,
+    // слева — редкие и короткие. Струйка «дышит», с кончика срывается круглая капля
     const drips = el("div", { className: "nw-drips" });
-    const N = 22;
+    const N = 11;
     for (let i = 0; i < N; i++) {
-      const u = (i + 0.5) / N, x = Math.pow(u, 0.62) * 100;          // степень < 1 — плотнее справа
-      const w = 6 + ((i * 7) % 5) * 2.2, len = 14 + ((i * 37) % 11) * 7 + (x > 70 ? 18 : 0);
-      const black = i % 3 === 1, dur = 2.6 + ((i * 13) % 7) * 0.45, delay = ((i * 29) % 10) / 10;
+      const u = (i + 0.5) / N, x = Math.pow(u, 0.33) * 100;           // степень сильно < 1 — почти всё справа
+      const right = x > 78;
+      const w = right ? 2.5 + ((i * 7) % 3) * 0.8 : 2;
+      const len = right ? 26 + ((i * 37) % 7) * 11 : 8 + ((i * 5) % 3) * 4;
+      const black = i % 4 === 2, dur = 2.8 + ((i * 13) % 7) * 0.5, delay = ((i * 29) % 10) / 10;
       drips.append(el("i", { className: "nw-drip" + (black ? " k" : ""),
-        style: `left:${x.toFixed(2)}%;--w:${w}px;--l:${len}px;--t:${dur}s;--d:${delay}s` }, el("b")));
+        style: `left:${x.toFixed(2)}%;--w:${w}px;--l:${len}px;--t:${dur}s;--d:${delay}s` }, el("s"), el("b")));
     }
     n.append(logo, drips);
     this.placeLogo(b);

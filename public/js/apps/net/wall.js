@@ -25,7 +25,7 @@ const MAX_PTS = 250, MAX_DUR = 8500;
 const CELL = 6;               // клетка «мокроты» для подтёков
 const WALL_SEED = 1337;
 const BAKE_AT = 300;          // столько незапечённых штрихов — и браузер владельца запекает стену сам
-const BRICK_W = 58, BRICK_H = 20, MORTAR = 4;   // кирпич в пикселях стены (стена 1600×900 → ~43 ряда)
+const BRICK_W = 92, BRICK_H = 32, MORTAR = 2;   // кирпич в пикселях стены (стена 1600×900 → ~26 рядов), шов тонкий
 
 /* ---------- детерминированный случай ---------- */
 function rng(seed) {
@@ -61,7 +61,7 @@ function buildWall() {
   for (let i = 0; i < tones.length; i++) tones[i] = r();
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const { d } = brickOf(x, y);
-    const edge = d < 0 ? -0.75 : d < 2.5 ? (d - 2.5) * 0.12 : 0;
+    const edge = d < 0 ? -0.6 : d < 1.5 ? (d - 1.5) * 0.12 : 0;
     hgt[y * W + x] = n2(x, y) * 0.3 + n3(x, y) * 0.25 + n4(x, y) * 0.22 + r() * 0.15 + edge;
   }
   // ямки-раковины бетона
