@@ -78,6 +78,14 @@ def delay(ts=None):
     return MIN_DELAY, night
 
 
+def decode(raw, charset):
+    """Тело ответа в текст. Кодировку берём из заголовка; нет её (как у BLS) или она странная — UTF-8."""
+    try:
+        return raw.decode(charset or "utf-8", errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
+
+
 def page_title(text):
     m = TITLE_RE.search(text[:200_000])
     return re.sub(r"\s+", " ", m.group(1)).strip()[:200] if m else ""
@@ -125,17 +133,18 @@ class Visa:
     async def fetch(self, url):
         """Один запрос → словарь с status/title/…. Ошибки сети не бросаем: это тоже состояние."""
         try:
-            async with ClientSession(timeout=ClientTimeout(total=TIMEOUT), headers={
+            async with ClientSession(timeout=ClientTimeout(total=TIMEOUT, sock_connect=10), headers={
                     "User-Agent": UA, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
                     "Accept-Language": "ru,en;q=0.7"}) as s:
                 async with s.get(url, proxy=PROXY, allow_redirects=True) as r:
                     raw = await r.content.read(BODY_MAX + 1)
-                    body = raw[:BODY_MAX].decode(r.get_encoding() or "utf-8", errors="replace") if raw else ""
+                    body = decode(raw[:BODY_MAX], r.charset)
                     headers = {k.lower(): v[:300] for k, v in r.headers.items() if k.lower() in KEEP_HEADERS}
                     return {"status": str(r.status), "title": page_title(body), "url": str(r.url),
                             "headers": headers, "body": body, "truncated": len(raw) > BODY_MAX}
-        except asyncio.TimeoutError:
-            return {"status": "error", "title": "", "note": "таймаут ответа"}
+        except asyncio.TimeoutError as e:   # ConnectionTimeoutError — не дозвонились, ServerTimeoutError/общий — не дождались ответа
+            what = "не удалось подключиться за 10 с" if type(e).__name__ == "ConnectionTimeoutError" else "таймаут ответа"
+            return {"status": "error", "title": "", "note": f"{what} ({type(e).__name__})"}
         except Exception as e:  # noqa: BLE001 — любая сетевая беда = состояние «error»
             return {"status": "error", "title": "", "note": f"{type(e).__name__}: {str(e)[:160]}"}
 
