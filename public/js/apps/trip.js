@@ -1,9 +1,12 @@
 import { Juice } from "../core/juice.js";
-import { el } from "../core/util.js";
+import { el, store } from "../core/util.js";
 import "../i18n/trip.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
+import { todoStats } from "./trip-calc.js";
 import { labelExpression, poiLayers } from "./trip-labels.js";
+import { closeRouteForm, refreshCompare, routesTab } from "./trip-routes.js";
+import { closeTodoForm, todoTab } from "./trip-todo.js";
 
 /* ================= поездка: менеджер + карта =================
  * Два окна на одно состояние. Менеджер — карточки по дням и варианты ночлега, карта (MapLibre) — маршрут.
@@ -14,6 +17,10 @@ import { labelExpression, poiLayers } from "./trip-labels.js";
  * Читать могут все. Кнопки правки — только для удобства: право проверяет СЕРВЕР.
  * Закрыли одно окно — второе работает, а нужное окно откроется снова при следующем переходе.
  * Карта: OpenFreeMap, без ключа. Новая карточка появляется через шаблон Juice.spawn.
+ *
+ * Поездок несколько (проекты): сверху менеджера — выбор поездки, у каждой свои дни, точки, ночлег,
+ * варианты пути и чек-лист. Вкладки: «План» (здесь), «Путь» (trip-routes.js), «Чек-лист» (trip-todo.js).
+ * Последняя открытая поездка и вкладка помнятся в localStorage. Все запросы несут `trip` — id поездки.
  */
 const DAY_COLORS = ["#8ab4ff", "#ff9ecf", "#8fe8cf", "#ffc59e", "#c3a6ff", "#fff09e", "#9fd3ff"];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
@@ -22,7 +29,10 @@ const ZOOM_CARD = 15.5;
 const NARROW = "(max-width: 640px)";   // как в style.css: окна на весь экран, видно только верхнее
 const PICK_HINT = "Кликни по карте, чтобы поставить точку";
 
-let doc = { days: {}, places: [], cards: [], stays: [], owner: false };
+let all = { trips: [], owner: false }; // ответ сервера: все видимые поездки
+let doc = { id: null, name: "", icon: "🧳", cur: "₽", days: {}, places: [], cards: [], stays: [], routes: [], todos: [], chosen: null, owner: false };
+let tab = store.get("trip.tab", "plan"); // plan | routes | todo
+let headBox = null, tabsBox = null;
 let view = { all: true, date: null };  // что показывает карта
 let selected = null;                   // id выбранной карточки или варианта ночлега
 let editing = null;                    // {key, node} — открытая форма
@@ -45,7 +55,17 @@ const orderedCards = () => dates().flatMap(dayCards);
 const dayStays = d => doc.stays.filter(s => s.dates.includes(d));
 const shownStays = () => view.all ? doc.stays : dayStays(view.date);
 const lngLat = p => [p.lng, p.lat];
-const legKey = (a, b) => a.place + ">" + b.place;
+const legKey = (a, b) => doc.id + ":" + a.place + ">" + b.place;
+const itemIds = t => [...t.cards, ...t.stays, ...t.routes, ...t.todos].map(x => x.id);
+
+// принять ответ сервера: текущая поездка — сохранённая, иначе первая
+function setAll(res, want = doc.id) {
+  all = res;
+  const t = all.trips.find(x => x.id === want) || all.trips.find(x => x.id === store.get("trip.current")) || all.trips[0];
+  doc = t ? Object.assign(t, { owner: all.owner }) : { ...doc, owner: all.owner };
+  if (t) store.set("trip.current", t.id);
+}
+const ctx = { trip: () => doc, change: (path, body, before) => change(path, body, before), rerender: () => renderList() };
 
 async function api(path, body) {
   const r = await fetch(path, { cache: "no-store", ...(body && { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
@@ -53,13 +73,16 @@ async function api(path, body) {
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 }
-async function change(path, body) {
+// before(trip, новые id) — для вкладок «Путь» и «Чек-лист»: выставить своё состояние до перерисовки
+async function change(path, body, before) {
   try {
-    const ids = new Set([...doc.cards, ...doc.stays].map(x => x.id)), days = new Set(dates());
-    doc = await api(path, body);
+    const ids = new Set(itemIds(doc)), days = new Set(dates());
+    setAll(await api(path, { trip: doc.id, ...body }));
     editing = null;
+    const newIds = itemIds(doc).filter(id => !ids.has(id));
+    before?.(doc, newIds);
+    fresh = new Set(newIds);
     const made = [...doc.cards, ...doc.stays].filter(x => !ids.has(x.id));
-    fresh = new Set(made.map(x => x.id));
     freshDays = new Set(dates().filter(d => !days.has(d)));
     if (made[0]) {
       selected = made[0].id;
@@ -74,7 +97,7 @@ async function change(path, body) {
 
 /* ----- окна ----- */
 export async function openTrip() {
-  try { doc = await api("/api/trip"); } catch (e) { return notify("⚠ Не загрузилось: " + e.message); }
+  try { setAll(await api("/api/trip"), doc.id || store.get("trip.current")); } catch (e) { return notify("⚠ Не загрузилось: " + e.message); }
   if (!dates().includes(view.date)) view = { all: true, date: null };
   await ensureMap();
   ensureList();
@@ -86,11 +109,94 @@ function ensureList() {
   listWin = WM.open({ title: "Менеджер поездки", icon: "🧳", width: 430, height: 560, key: "trip:list", render(c, w) {
     addBtn = el("button", { className: "trp-btn", textContent: "+ Карточка", onclick: () => cardForm(null) });
     allBtn = el("button", { className: "trp-btn", textContent: "🧭 Весь маршрут", onclick: showAll });
+    headBox = el("div", { className: "trp-head" });
+    tabsBox = el("div", { className: "trp-tabs" });
     listBox = el("div", { className: "trp-list" });
-    c.append(el("div", { className: "trp" }, el("div", { className: "trp-head" }, el("div", { className: "trp-title", textContent: "Поездка" }), allBtn, addBtn), listBox));
-    w.onClose = () => { listWin = listBox = addBtn = allBtn = editing = null; stopPick(); };
+    c.append(el("div", { className: "trp" }, headBox, tabsBox, listBox));
+    w.onClose = () => { listWin = listBox = addBtn = allBtn = headBox = tabsBox = editing = null; closeRouteForm(); closeTodoForm(); stopPick(); };
   }});
   beside(listWin, "left");
+}
+
+/* ----- поездки-проекты ----- */
+function switchTrip(id, force) {
+  if (id === doc.id && !force) return;
+  setAll(all, id);
+  view = { all: true, date: null };
+  selected = editing = null;
+  openStays.clear();
+  closeRouteForm();
+  closeTodoForm();
+  stopPick();
+  fitted = false;
+  refresh();
+  fit();
+}
+
+function renderHead() {
+  if (!headBox) return;
+  const pick = el("select", { className: "trp-select trp-pick no-i18n", title: "Поездка", onchange: () => switchTrip(pick.value) },
+    ...all.trips.map(t => el("option", { value: t.id, textContent: `${t.icon} ${t.name}` + (t.private ? " 🔒" : "") })));
+  pick.value = doc.id;
+  const kids = [pick];
+  if (doc.owner) kids.push(
+    el("button", { className: "trp-btn", textContent: "✎", title: "Настройки поездки", onclick: () => tripForm(doc) }),
+    el("button", { className: "trp-btn", textContent: "+", title: "Новая поездка", onclick: () => tripForm(null) }));
+  headBox.replaceChildren(...kids);
+  const ts = todoStats(doc);
+  const tabs = [["plan", "🗓 План", dates().length ? String(dates().length) : ""], ["routes", "🧭 Путь", doc.routes.length ? String(doc.routes.length) : ""],
+    ["todo", "☑ Чек-лист", ts.total ? `${ts.done}/${ts.total}` : ""]];
+  tabsBox.replaceChildren(...tabs.map(([k, text, n]) => el("button", { className: "trp-tab" + (tab === k ? " on" : ""), onclick: () => setTab(k) },
+    text, ...(n ? [el("span", { className: "no-i18n", textContent: n })] : []))));
+}
+
+function setTab(k) {
+  if (tab === k) return;
+  tab = k;
+  store.set("trip.tab", k);
+  editing = null;
+  closeRouteForm();
+  stopPick();
+  listBox.scrollTop = 0;
+  renderList();
+}
+
+const ICONS = ["🧳", "🏯", "✈️", "🚆", "🏔️", "🏖️", "🌲", "🏙️", "❄️", "🎒"];
+
+function tripForm(t) {
+  const name = el("input", { type: "text", placeholder: "Название: «Нижневартовск, май»", value: t?.name || "", maxLength: 60, required: true });
+  const icon = el("select", { className: "trp-select", title: "Значок" }, ...ICONS.map(i => el("option", { value: i, textContent: i })));
+  if (t && !ICONS.includes(t.icon)) icon.append(el("option", { value: t.icon, textContent: t.icon }));
+  icon.value = t?.icon || "🧳";
+  const cur = el("input", { type: "text", placeholder: "Валюта", value: t?.cur || "₽", maxLength: 4, title: "Валюта цен: ₽, ¥, €…" });
+  const priv = el("input", { type: "checkbox", checked: !!t?.private });
+  const save = async () => {
+    try {
+      const before = new Set(all.trips.map(x => x.id));
+      const res = await api("/api/trip/project", { id: t?.id, name: name.value, icon: icon.value, cur: cur.value, private: priv.checked });
+      const made = res.trips.find(x => !before.has(x.id));
+      editing = null;
+      if (made) { setAll(res); switchTrip(made.id); setTab("plan"); }
+      else { setAll(res); refresh(); }
+    } catch (e) { notify("⚠ " + e.message, 3000); }
+  };
+  const del = async () => {
+    if (!confirm(`Удалить поездку «${t.name}» со всеми карточками, путями и чек-листом?`)) return;
+    try { const res = await api("/api/trip/project/delete", { trip: t.id }); editing = null; all = res; switchTrip(res.trips[0].id, true); }
+    catch (e) { notify("⚠ " + e.message, 3000); }
+  };
+  const node = el("form", { className: "trp-form trp-tripform", onsubmit: e => { e.preventDefault(); save(); } },
+    el("div", { className: "trp-hint", textContent: t ? "Настройки поездки" : "Новая поездка" }),
+    el("div", { className: "trp-row" }, icon, name), el("div", { className: "trp-row" }, cur,
+      el("label", { className: "trp-check" }, priv, "🔒 Только для меня")),
+    el("div", { className: "trp-row" },
+      el("button", { className: "trp-btn on", type: "submit", textContent: "Сохранить" }),
+      ...(t && all.trips.length > 1 ? [el("button", { className: "trp-btn", type: "button", textContent: "Удалить", onclick: del })] : []),
+      el("button", { className: "trp-btn", type: "button", textContent: "Отмена", onclick: () => { editing = null; renderList(); } })));
+  editing = { key: "trip", node };
+  renderList();
+  listBox.scrollTop = 0;
+  name.focus();
 }
 
 const loadScript = src => new Promise((res, rej) => {
@@ -169,6 +275,7 @@ function refresh() {
   renderList();
   drawMap();
   loadLegs();
+  refreshCompare();
   fresh = new Set();
   freshDays = new Set();
 }
@@ -199,6 +306,7 @@ async function zoomTo(item, date) {
 
 // переход с карты: показать карточку или вариант ночлега в менеджере
 function goTo(item, date) {
+  if (tab !== "plan") { tab = "plan"; store.set("trip.tab", tab); editing = null; closeRouteForm(); }
   selected = item.id;
   if (!view.all && view.date !== date) view = { all: false, date };
   if (item.dates) openStays.add(date);
@@ -233,7 +341,7 @@ async function loadLegs() {
     const key = legKey(a, b);
     if (legs.has(key)) continue;
     legs.set(key, "wait");
-    try { legs.set(key, await api(`/api/trip/leg/${a.place}/${b.place}`)); }
+    try { legs.set(key, await api(`/api/trip/leg/${doc.id}/${a.place}/${b.place}`)); }
     catch { legs.set(key, null); }
     clearTimeout(legTimer);
     legTimer = setTimeout(() => { renderList(); drawMap(); }, 150);
@@ -283,9 +391,23 @@ function dayTotal(d) {
 /* ----- менеджер ----- */
 function renderList() {
   if (!listBox) return;
+  renderHead();
+  const scroll = listBox.scrollTop;
+  const kids = editing?.key === "trip" ? [editing.node] : [];
+  if (tab === "routes") kids.push(...routesTab(ctx));
+  else if (tab === "todo") kids.push(...todoTab(ctx));
+  else kids.push(...planTab());
+  listBox.replaceChildren(...kids);
+  listBox.scrollTop = scroll;
+  const born = [...listBox.querySelectorAll("[data-item], [data-day]")].filter(n => fresh.has(n.dataset.item) || freshDays.has(n.dataset.day));
+  born.at(-1)?.scrollIntoView({ block: "nearest" });
+  Juice.spawn(born);
+}
+
+function planTab() {
   addBtn.hidden = !doc.owner;
   allBtn.classList.toggle("on", view.all);
-  const scroll = listBox.scrollTop, kids = [];
+  const kids = [el("div", { className: "trp-bar" }, allBtn, addBtn)];
   if (editing?.key === "new") kids.push(editing.node);
   for (const d of dates()) {
     const head = el("button", { className: "trp-day" + (view.date === d ? " on" : ""), title: "Показать маршрут дня", onclick: () => showDay(d) },
@@ -304,12 +426,8 @@ function renderList() {
       kids.push(editing?.key === c.id ? editing.node : cardNode(c, i + 1));
     });
   }
-  if (!kids.length) kids.push(el("div", { className: "trp-empty", textContent: "Пока нет карточек." }));
-  listBox.replaceChildren(...kids);
-  listBox.scrollTop = scroll;
-  const born = [...listBox.querySelectorAll("[data-item], [data-day]")].filter(n => fresh.has(n.dataset.item) || freshDays.has(n.dataset.day));
-  born.at(-1)?.scrollIntoView({ block: "nearest" });
-  Juice.spawn(born);
+  if (!dates().length && editing?.key !== "new") kids.push(el("div", { className: "trp-empty", textContent: "Пока нет карточек." }));
+  return kids;
 }
 
 function actions(items) {

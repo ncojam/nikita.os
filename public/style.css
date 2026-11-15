@@ -1417,6 +1417,104 @@ button.trp-leg:hover { background: rgba(255,255,255,0.07); color: var(--text); }
 .trp-menu { max-width: min(340px, calc(100vw - 16px)); }
 .trp-menu span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* поездки-проекты и вкладки */
+.trp-pick { flex: 1; min-width: 0; font-weight: 700; }
+.trp-tabs { display: flex; gap: 4px; padding: 6px 10px 0; border-bottom: 1px solid var(--glass-border); flex: none; }
+.trp-tab { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+.trp-tab:hover { color: var(--text); }
+.trp-tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.trp-tab span { padding: 0 6px; border-radius: 8px; background: rgba(255,255,255,0.08); font-size: 11px; line-height: 17px; font-variant-numeric: tabular-nums; }
+.trp-bar { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
+.trp-tripform { margin: 0 0 8px; }
+.trp-lbl { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.trp-lbl input { flex: 1; }
+.trp-chip { display: inline-block; padding: 2px 7px; border-radius: 8px; background: rgba(255,255,255,0.07); color: var(--text); font-size: 12px; white-space: nowrap; }
+.trp-chip.good { background: rgba(143,232,207,0.16); color: #8fe8cf; }
+.trp-chip.bad { background: rgba(255,120,120,0.16); color: #ff9a9a; }
+.trp-chip.warn { background: rgba(255,197,158,0.16); color: #ffc59e; }
+.trp-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+/* карточка варианта пути */
+.trp-route { margin-top: 8px; padding: 9px 10px; border: 1px solid transparent; border-radius: 10px; background: rgba(0,0,0,0.16); cursor: pointer; }
+.trp-route:hover { background: rgba(255,255,255,0.07); }
+.trp-route.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.trp-route.chosen { border-left: 3px solid #8fe8cf; }
+.trp-route .trp-comment { margin-top: 4px; }
+.trp-route-head { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.trp-route-head b { margin-right: auto; }
+.trp-step { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 2px 8px; margin-top: 6px; padding: 5px 8px; border-radius: 8px; background: rgba(255,255,255,0.04); }
+.trp-step .trp-comment { grid-column: 2 / -1; }
+.trp-step-icon { font-size: 16px; text-align: center; }
+.trp-step-route { font-weight: 600; font-size: 13px; }
+.trp-step-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.trp-tick { padding: 3px 7px; border: 1px dashed rgba(255,255,255,0.25); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.trp-tick.done { border: 1px solid #8fe8cf; color: #8fe8cf; }
+.trp-gap { margin: 3px 0 0 32px; color: var(--muted); font-size: 12px; }
+.trp-gap.tight { color: #ffc59e; }
+.trp-gap.bad { color: #ff9a9a; }
+.trp-actions.row { flex-wrap: wrap; margin-top: 8px; }
+.trp-steps { display: flex; flex-direction: column; gap: 6px; }
+.trp-stepform { display: flex; flex-direction: column; gap: 5px; padding: 8px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(255,255,255,0.03); }
+.trp-stepform .trp-row > .trp-btn { flex: none; }
+.trp-preview { min-height: 16px; font-size: 12px; color: #8fe8cf; }
+.trp-preview.bad { color: #ff9a9a; }
+
+/* чек-лист */
+.trp-progress { margin: 2px 0 6px; color: var(--muted); font-size: 12px; }
+.trp-progress-bar { height: 6px; margin-bottom: 4px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.trp-progress-bar i { display: block; height: 100%; background: #8fe8cf; transition: width .4s var(--ease); }
+.trp-group { margin: 10px 0 2px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.trp-todo { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 4px 8px; margin-top: 5px; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; background: rgba(0,0,0,0.16); cursor: pointer; }
+.trp-todo:hover { background: rgba(255,255,255,0.07); }
+.trp-todo.on { border-color: var(--accent); }
+.trp-todo input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: #8fe8cf; cursor: pointer; }
+.trp-todo.done .trp-todo-text { color: var(--muted); text-decoration: line-through; }
+.trp-todo-link { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.trp-todo .trp-actions { grid-column: 2; }
+
+/* сравнение путей: дорожки с призраком эталона */
+.cmp { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; background: var(--glass-bg-strong); }
+.cmp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--glass-border); }
+.cmp-title { font-weight: 700; margin-right: auto; }
+.cmp-seg { display: flex; border: 1px solid var(--glass-border); border-radius: 9px; overflow: hidden; }
+.cmp-seg button { padding: 5px 9px; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.cmp-seg button + button { border-left: 1px solid var(--glass-border); }
+.cmp-seg button.on { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--text); }
+.cmp-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 12px; color: var(--muted); font-size: 11px; }
+.cmp-legend span { display: flex; align-items: center; gap: 5px; }
+.cmp-legend i { width: 14px; height: 8px; border-radius: 3px; }
+.cmp-legend i.gap { background: repeating-linear-gradient(90deg, rgba(255,255,255,0.35) 0 2px, transparent 2px 5px); }
+.cmp-legend i.ghost { border: 1px dashed rgba(255,255,255,0.6); box-sizing: border-box; }
+.cmp-scroll { flex: 1; overflow: auto; padding: 0 12px 12px; }
+.cmp-row { display: grid; grid-template-columns: 230px 1fr; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); transition: opacity .2s; }
+.cmp-rows:hover .cmp-row:not(:hover) { opacity: .4; }
+.cmp-row.base .cmp-name::before { content: "★ "; color: #fff09e; }
+.cmp-axis { position: sticky; top: 0; z-index: 2; padding: 6px 0 4px; background: #121217; }
+.cmp-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; position: relative; padding-right: 48px; }
+.cmp-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-badges { display: flex; flex-wrap: wrap; gap: 3px; }
+.cmp-badges:empty { display: none; }
+.cmp-nums { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cmp-delta { display: flex; gap: 8px; font-size: 11px; font-weight: 700; }
+.cmp-delta .good { color: #8fe8cf; }
+.cmp-delta .bad { color: #ff9a9a; }
+.cmp-acts { position: absolute; top: 0; right: 0; display: flex; gap: 3px; }
+.cmp-acts .trp-btn { padding: 2px 6px; }
+.cmp-lane { position: relative; height: 40px; min-width: 360px; border-radius: 8px; background: rgba(255,255,255,0.025); }
+.cmp-axis .cmp-lane { height: 16px; background: none; }
+.cmp-tick { position: absolute; top: 0; transform: translateX(-50%); color: var(--muted); font-size: 10px; white-space: nowrap; }
+.cmp-line { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.06); }
+.cmp-bar { position: absolute; top: 9px; bottom: 9px; z-index: 1; display: flex; align-items: center; justify-content: center; min-width: 3px; box-sizing: border-box; border-radius: 6px; background: var(--c); color: #0c0c11; font-size: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+.cmp-bar.ghost { top: 3px; bottom: 3px; z-index: 0; border: 1px dashed color-mix(in srgb, var(--c) 80%, white); background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: none; }
+.cmp-wait { position: absolute; top: 17px; bottom: 17px; z-index: 1; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.35) 0 2px, transparent 2px 5px); }
+.cmp-wait.tight { background: repeating-linear-gradient(90deg, #ffc59e 0 2px, transparent 2px 5px); }
+.cmp-wait.bad { top: 12px; bottom: 12px; border-radius: 4px; background: repeating-linear-gradient(45deg, rgba(255,120,120,0.55) 0 3px, transparent 3px 6px); }
+.cmp-wait.ghost { z-index: 0; top: 19px; bottom: 19px; opacity: .45; }
+@media (max-width: 640px) {
+  .cmp-row { grid-template-columns: 1fr; }
+  .cmp-axis > div:first-child { display: none; }
+}
+
 /* ---------- THAW Lab (tl-) ---------- */
 .tl { display: flex; flex-direction: column; height: 100%; min-height: 0; user-select: text; }
 .tl-loading { padding: 24px; color: var(--muted); }
