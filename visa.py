@@ -1,7 +1,7 @@
 """
 Слежение за страницей записи в визовый центр (BLS Spain, Москва): только для владельца (ник cojam).
 
-Сервер сам, раз в несколько минут, открывает страницу и записывает в журнал ТОЛЬКО ИЗМЕНЕНИЯ:
+Сервер сам по расписанию (ночью и в начале часа чаще, см. SCHEDULE_*) открывает страницу и записывает в журнал ТОЛЬКО ИЗМЕНЕНИЯ:
 повторные «403, 403, 403…» в журнал не попадают — растёт лишь счётчик проверок. Как только страница
 отвечает чем-то кроме 403 (или меняется заголовок страницы), сохраняется снимок ответа — заголовки и тело,
 — и у записи в журнале появляется кнопка «Состояние».
@@ -47,7 +47,13 @@ TARGETS = [
 ]
 TARGETS = [t for t in TARGETS if t[2]]                                  # пустой адрес в окружении — не следить
 ENABLED = os.environ.get("NOS_VISA_ENABLED", "1") != "0"
-INTERVAL = max(30, int(os.environ.get("NOS_VISA_INTERVAL", "120")))     # секунд между проверками (≥ 30)
+# Расписание: слоты разбирают в первые минуты часа и ночью по Москве/Европе, поэтому стучимся чаще там и реже в остальное время.
+# Таблица: (до какой минуты часа, пауза в секундах). Ночь — часы [с, до) по местному времени (UTC_OFFSET, Москва = 3).
+UTC_OFFSET = float(os.environ.get("NOS_VISA_UTC_OFFSET", "3"))
+NIGHT = tuple(int(x) for x in os.environ.get("NOS_VISA_NIGHT", "2-8").split("-"))
+SCHEDULE_NIGHT = ((10, 30), (30, 60), (60, 180))                        # начало часа — каждые 30 с, конец — раз в 3 мин
+SCHEDULE_DAY = ((5, 60), (60, 600))                                     # днём — раз в минуту в начале часа, потом раз в 10 мин
+MIN_DELAY = 30                                                          # меньше нельзя ни при каких настройках
 PROXY = os.environ.get("NOS_VISA_PROXY", "") or None                    # http://host:port, пусто — напрямую
 GAP = 3                                                                 # секунд между адресами в одном обходе
 TIMEOUT = 25                                                            # секунд на один запрос
@@ -59,6 +65,17 @@ KEEP_HEADERS = ("content-type", "server", "location", "content-length", "cache-c
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0"
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 SNAP_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,24}$")
+
+
+def delay(ts=None):
+    """Пауза до следующей проверки (секунды) и признак «ночь» по расписанию."""
+    local = time.gmtime((ts if ts is not None else time.time()) + UTC_OFFSET * 3600)
+    a, b = NIGHT
+    night = (a <= local.tm_hour < b) if a < b else (local.tm_hour >= a or local.tm_hour < b)
+    for until, secs in (SCHEDULE_NIGHT if night else SCHEDULE_DAY):
+        if local.tm_min < until:
+            return max(MIN_DELAY, secs), night
+    return MIN_DELAY, night
 
 
 def page_title(text):
@@ -176,12 +193,13 @@ class Visa:
                 raise
             except Exception:  # noqa: BLE001 — цикл не должен умирать
                 log.exception("visa: проверка не удалась")
-            await asyncio.sleep(INTERVAL * random.uniform(0.9, 1.1))
+            await asyncio.sleep(delay()[0] * random.uniform(0.9, 1.1))
 
     # ---------- API ----------
     def view(self):
         st = self.state
-        return {"interval": INTERVAL, "enabled": ENABLED, "log": st["log"],
+        secs, night = delay()
+        return {"interval": secs, "night": night, "enabled": ENABLED, "log": st["log"],
                 "targets": [{"id": tid, "name": name, "url": url, "checks": st["checks"].get(tid, 0), "last": st["last"].get(tid)}
                             for tid, name, url in TARGETS]}
 

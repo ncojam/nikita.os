@@ -67,7 +67,7 @@ export async function openVisa() {
           el("div", { className: "visa-sub", textContent: t.last
             ? `в этом состоянии с ${fmt(t.last.since)} · проверка ${ago(t.last.t)} · всего: ${t.checks}` : "" })))
           : [el("div", { textContent: "Слежение выключено на сервере (NOS_VISA_ENABLED=0)" })]),
-        el("div", { className: "visa-sub", textContent: `раз в ~${Math.round(j.interval / 60 * 10) / 10} мин` }));
+        el("div", { className: "visa-sub", textContent: `сейчас раз в ~${j.interval < 90 ? j.interval + " с" : Math.round(j.interval / 60) + " мин"} · ${j.night ? "ночной режим" : "дневной режим"}` }));
       const rows = [...j.log].reverse().map(e => row(e, names));
       list.replaceChildren(...(rows.length ? rows : [el("div", { className: "visa-empty", textContent: "Журнал пуст" })]));
     }
