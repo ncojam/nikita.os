@@ -1515,6 +1515,34 @@ button.trp-leg:hover { background: rgba(255,255,255,0.07); color: var(--text); }
   .cmp-axis > div:first-child { display: none; }
 }
 
+/* конструктор поездки: ручки ⠿, черта «Варианты», сводка */
+.trp-grip { flex: none; padding: 0 4px; color: var(--muted); font-size: 16px; line-height: 1; cursor: grab; touch-action: none; user-select: none; text-align: center; }
+.trp-grip:hover { color: var(--text); }
+.trp-build.dragging, .trp-steplist.dragging { cursor: grabbing; user-select: none; }
+.trp-build.dragging .trp-gap.join, .trp-steplist.dragging .trp-gap { visibility: hidden; }
+.trp-route.drag, .trp-step.drag { position: relative; z-index: 3; outline: 2px solid var(--accent); box-shadow: 0 6px 22px rgba(0,0,0,0.55); opacity: .92; }
+.trp-divider { margin: 14px 0 2px; padding: 6px 2px 4px; border-top: 1px dashed rgba(255,255,255,0.22); color: var(--muted); font-size: 12px; font-weight: 700; }
+.trp-drop { margin-top: 8px; padding: 16px 10px; border: 1px dashed rgba(255,255,255,0.22); border-radius: 10px; color: var(--muted); font-size: 12px; text-align: center; }
+.trp-build.dragging .trp-drop { border-color: var(--accent); color: var(--text); }
+.trp-sum { margin-bottom: 2px; padding: 9px 10px; border: 1px solid rgba(143,232,207,0.35); border-radius: 10px; background: rgba(143,232,207,0.06); }
+.trp-sum-title { font-weight: 700; }
+.trp-sum-line { margin-top: 2px; font-size: 13px; }
+.trp-gap.join { margin: 6px 0 0 6px; color: #8fe8cf; }
+.trp-gap.join.tight { color: #ffc59e; }
+.trp-gap.join.bad { color: #ff9a9a; }
+label.trp-todo { cursor: pointer; }
+
+/* перегон поездки в плане дня */
+.trp-ride { display: grid; grid-template-columns: 22px 46px 1fr auto; align-items: center; gap: 8px; width: calc(100% - 8px); box-sizing: border-box; margin: 6px 0 0 8px; padding: 7px 10px; border: 1px dashed rgba(255,255,255,0.2); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.trp-ride:hover { background: rgba(255,255,255,0.08); }
+.trp-ride.bought { border-style: solid; border-color: rgba(143,232,207,0.4); }
+.trp-ride-icon { text-align: center; }
+.trp-ride-main { display: flex; flex-direction: column; min-width: 0; }
+.trp-ride-main b { font-size: 13px; }
+.trp-ride-main span { color: var(--muted); font-size: 12px; }
+.trp-ride-tick { color: var(--muted); font-size: 12px; }
+.trp-ride.bought .trp-ride-tick { color: #8fe8cf; }
+
 /* ---------- THAW Lab (tl-) ---------- */
 .tl { display: flex; flex-direction: column; height: 100%; min-height: 0; user-select: text; }
 .tl-loading { padding: 24px; color: var(--muted); }

@@ -1,7 +1,8 @@
 import { el, store } from "../core/util.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
-import { MODES, ZONES, compare, fmtAxis, fmtDelta, fmtDur, fmtLocal, fmtMoney, fmtZone, routeStats, utcMin } from "./trip-calc.js";
+import { MODES, ZONES, compare, fmtAxis, fmtDelta, fmtDur, fmtLocal, fmtMoney, fmtZone, joinGap, pathRoutes, pathStats, routeStats } from "./trip-calc.js";
+import { grip, sortable } from "./trip-drag.js";
 
 /* ================= поездки: варианты пути и сравнение =================
  * Вкладка «Путь» в менеджере: карточка = вариант пути (цепочка перегонов: поезд, самолёт, автобус…).
@@ -10,7 +11,10 @@ import { MODES, ZONES, compare, fmtAxis, fmtDelta, fmtDur, fmtLocal, fmtMoney, f
  * Отдельное окно «Сравнение путей» — призрачное сравнение: у каждого варианта своя дорожка из перегонов,
  * а эталон (★) просвечивает на дорожках остальных пунктиром — сразу видно, кто быстрее и на сколько.
  * Ось — «от старта» (длительности) или «по календарю» (какого числа приедешь). Наведи на строку — остальные тускнеют.
- * Право правки — только у владельца; проверяет сервер. Выбор варианта (✔) нужен чек-листу: билеты берутся по нему.
+ * Конструктор: вкладка — один список с чертой. Выше черты — собранная поездка (path, по порядку), ниже — варианты-детали.
+ * Тянешь карточку за ⠿ через черту — вариант входит в поездку или выходит из неё; внутри раскрытой карточки
+ * так же тянутся перегоны. У перегона в поездке своя галочка «билет куплен» — она же в чек-листе.
+ * Право правки — только у владельца; проверяет сервер.
  * ctx = { trip(), change(path, body, before?), rerender() } — даёт trip.js; before(trip, новые id) вызывается до перерисовки.
  */
 let sel = null;            // выбранный вариант в списке
@@ -21,36 +25,71 @@ const cmpState = { axis: "start", sort: "order" };
 const baseKey = t => "trip.base." + t.id;
 const baseId = t => store.get(baseKey(t), null);
 const stepLine = s => `${s.frm} → ${s.to}`;
-const todoOf = (t, s) => t.todos.find(x => x.link?.step === s.id);
+const inPath = (t, r) => (t.path || []).includes(r.id);
 
 function chip(text, cls = "") { return el("span", { className: "trp-chip no-i18n " + cls, textContent: text }); }
 function btn(text, run, cls = "") { return el("button", { className: "trp-btn " + cls, type: "button", textContent: text, onclick: e => { e.stopPropagation(); run(); } }); }
 
-function gapNode(g) {
-  const text = g.bad ? `⚠ не стыкуется: опоздание на ${fmtDur(g.mins)}` : g.tight ? `⚡ впритык: ${fmtDur(g.mins)} на пересадку` : `⏳ пересадка ${fmtDur(g.mins)}`;
-  return el("div", { className: "trp-gap no-i18n" + (g.bad ? " bad" : g.tight ? " tight" : ""), textContent: text });
+function gapNode(g, join) {
+  const text = join ? (g.bad ? `⚠ следующая часть уезжает раньше, чем ты приедешь (${fmtDur(g.mins)})` : `🔗 стык частей: ${fmtDur(g.mins)}` + (g.tight ? " · впритык" : ""))
+    : g.bad ? `⚠ не стыкуется: опоздание на ${fmtDur(g.mins)}` : g.tight ? `⚡ впритык: ${fmtDur(g.mins)} на пересадку` : `⏳ пересадка ${fmtDur(g.mins)}`;
+  return el("div", { className: "trp-gap no-i18n" + (join ? " join" : "") + (g.bad ? " bad" : g.tight ? " tight" : ""), textContent: text });
 }
 
-/* ----- вкладка «Путь» ----- */
+/* ----- вкладка «Путь»: конструктор поездки ----- */
+// новый порядок: что выше черты — поездка, ниже — варианты
+function sendOrder(ctx, parts) {
+  const cut = parts.findIndex(n => n.classList.contains("trp-divider"));
+  const ids = n => n.dataset.item;
+  ctx.change("/api/trip/route/order", { path: parts.slice(0, cut).map(ids), rest: parts.slice(cut + 1).map(ids) });
+}
+const setPath = (ctx, path) => ctx.change("/api/trip/route/order", { path, rest: ctx.trip().routes.map(r => r.id) });
+
+function summaryNode(t) {
+  const st = pathStats(t), list = pathRoutes(t);
+  const box = el("div", { className: "trp-sum" }, el("div", { className: "trp-sum-title", textContent: "🧳 Поездка" }));
+  if (!list.length) {
+    box.append(el("div", { className: "trp-hint", textContent: "Собери поездку из вариантов: перетащи карточку за ⠿ выше черты или нажми «➕ В поездку»." }));
+    return box;
+  }
+  const first = list[0].steps[0], last = list.at(-1).steps.at(-1);
+  box.append(el("div", { className: "trp-sum-line no-i18n", textContent: `${first.frm} → ${last.to}` }),
+    el("div", { className: "trp-chips" },
+      chip("⏱ " + fmtDur(st.mins)), chip("💰 " + (st.price ? fmtMoney(st.price, t.cur) + (st.allPriced ? "" : "+?") : "—")),
+      chip(`🎫 ${st.bought}/${st.count}`, st.bought === st.count ? "good" : ""), chip("🏁 " + fmtLocal(last.arr)),
+      ...(st.bad ? [chip("⚠ не стыкуется", "bad")] : st.tight ? [chip("⚡ впритык", "warn")] : [])));
+  return box;
+}
+
 export function routesTab(ctx) {
-  const t = ctx.trip(), kids = [];
+  const t = ctx.trip(), kids = [], path = pathRoutes(t), rest = t.routes.filter(r => !inPath(t, r));
   const bar = el("div", { className: "trp-bar" });
   if (t.owner) bar.append(btn("+ Вариант пути", () => routeForm(ctx, null), "on"));
   bar.append(btn("📊 Сравнить", () => openCompare(ctx)));
-  kids.push(bar);
+  kids.push(bar, summaryNode(t));
   if (editing?.key === "new") kids.push(editing.node);
-  if (!t.routes.length && !editing) kids.push(el("div", { className: "trp-empty", textContent: "Пока нет вариантов пути. Добавь первый: поезд, самолёт, автобус." }));
-  for (const r of t.routes) kids.push(editing?.key === r.id ? editing.node : routeNode(ctx, r));
+  const box = el("div", { className: "trp-build" });
+  path.forEach((r, i) => {
+    if (i) { const g = joinGap(path[i - 1], r); if (g) box.append(gapNode(g, true)); }
+    box.append(editing?.key === r.id ? editing.node : routeNode(ctx, r));
+  });
+  if (!path.length) box.append(el("div", { className: "trp-drop", textContent: "сюда — варианты, из которых собирается поездка" }));
+  box.append(el("div", { className: "trp-divider", textContent: rest.length ? "📦 Варианты · тяни ⠿ вверх, чтобы взять в поездку" : "📦 Варианты" }));
+  for (const r of rest) box.append(editing?.key === r.id ? editing.node : routeNode(ctx, r));
+  if (!t.routes.length && !editing) box.append(el("div", { className: "trp-empty", textContent: "Пока нет вариантов. Добавь первый: поезд, самолёт, автобус." }));
+  if (t.owner) sortable(box, ".trp-route", ".trp-grip.route", parts => sendOrder(ctx, parts));
+  kids.push(box);
   return kids;
 }
 
 function routeNode(ctx, r) {
-  const t = ctx.trip(), st = routeStats(r), on = sel === r.id, chosen = t.chosen === r.id;
+  const t = ctx.trip(), st = routeStats(r), on = sel === r.id, used = inPath(t, r);
   const { rows } = compare(t.routes, baseId(t)), me = rows.find(x => x.route === r);
-  const node = el("div", { className: "trp-route" + (on ? " on" : "") + (chosen ? " chosen" : ""), onclick: () => { sel = on ? null : r.id; ctx.rerender(); } });
+  const node = el("div", { className: "trp-route" + (on ? " on" : "") + (used ? " chosen" : ""), onclick: () => { sel = on ? null : r.id; ctx.rerender(); } });
   node.dataset.item = r.id;
-  const head = el("div", { className: "trp-route-head" }, el("b", { className: "no-i18n", textContent: r.name }));
-  if (chosen) head.append(chip("✔ выбран", "good"));
+  const head = el("div", { className: "trp-route-head" });
+  if (t.owner) head.append(grip("route", "Тяни: порядок в поездке, или через черту — в поездку / из неё"));
+  head.append(el("b", { className: "no-i18n", textContent: r.name }));
   if (baseId(t) === r.id) head.append(chip("★ эталон"));
   if (me?.fastest) head.append(chip("⚡ быстрее всех", "good"));
   if (me?.cheapest) head.append(chip("💰 дешевле всех", "good"));
@@ -62,13 +101,20 @@ function routeNode(ctx, r) {
       chip("🔁 " + (st.transfers ? st.transfers + " перес." : "прямой")), chip("🏁 " + fmtLocal(r.steps.at(-1).arr))));
   }
   if (r.comment) node.append(el("div", { className: "trp-comment no-i18n", textContent: r.comment }));
+  const steps = el("div", { className: "trp-steplist" });
   r.steps.forEach((s, i) => {
-    if (i && st.gaps[i - 1]) node.append(gapNode(st.gaps[i - 1]));
-    node.append(stepNode(ctx, r, s, on));
+    if (i && st.gaps[i - 1]) steps.append(gapNode(st.gaps[i - 1]));
+    steps.append(stepNode(ctx, r, s, on, used));
+  });
+  node.append(steps);
+  if (on && t.owner && r.steps.length > 1) sortable(steps, ".trp-step", ".trp-grip.step", parts => {
+    const order = parts.map(n => r.steps.find(x => x.id === n.dataset.step));
+    ctx.change("/api/trip/route", { id: r.id, name: r.name, comment: r.comment, steps: order });
   });
   if (on) {
     const acts = el("div", { className: "trp-actions row" });
-    if (t.owner) acts.append(btn(chosen ? "Снять выбор" : "✔ Выбрать", () => ctx.change("/api/trip/route/choose", { route: chosen ? null : r.id })));
+    if (t.owner) acts.append(btn(used ? "↩ Из поездки" : "➕ В поездку",
+      () => setPath(ctx, used ? t.path.filter(x => x !== r.id) : [...t.path, r.id])));
     acts.append(btn(baseId(t) === r.id ? "★ Эталон" : "☆ Эталон", () => { store.set(baseKey(t), baseId(t) === r.id ? null : r.id); ctx.rerender(); refreshCompare(); }));
     if (t.owner) acts.append(btn("Изменить", () => routeForm(ctx, r)), btn("Копия", () => copyRoute(ctx, r)),
       btn("Удалить", () => confirm("Удалить вариант пути?") && ctx.change("/api/trip/route/delete", { id: r.id })));
@@ -77,17 +123,23 @@ function routeNode(ctx, r) {
   return node;
 }
 
-function stepNode(ctx, r, s, open) {
-  const t = ctx.trip(), todo = todoOf(t, s), [icon, name] = MODES[s.mode] || MODES.other;
+export function boughtTick(ctx, r, s) {
+  const t = ctx.trip();
+  return el("button", { className: "trp-tick no-i18n" + (s.bought ? " done" : ""), title: t.owner ? "Отметить: билет куплен / нет" : "Билет",
+    textContent: s.bought ? "🎫 куплен ✓" : "🎫 не куплен", disabled: !t.owner,
+    onclick: e => { e.stopPropagation(); ctx.change("/api/trip/step/bought", { route: r.id, step: s.id, done: !s.bought }); } });
+}
+
+function stepNode(ctx, r, s, open, used) {
+  const t = ctx.trip(), [icon, name] = MODES[s.mode] || MODES.other;
   const zone = s.tza !== s.tzd ? ` (${fmtZone(s.tza)})` : "";
-  const line = el("div", { className: "trp-step", title: name },
-    el("span", { className: "trp-step-icon", textContent: icon }),
+  const line = el("div", { className: "trp-step" + (open && t.owner ? " grab" : ""), title: name });
+  line.dataset.step = s.id;
+  line.append(open && t.owner && r.steps.length > 1 ? grip("step", "Тяни, чтобы поменять порядок перегонов") : el("span", { className: "trp-step-icon", textContent: icon }),
     el("div", { className: "trp-step-main no-i18n" },
-      el("div", { className: "trp-step-route", textContent: stepLine(s) + (s.num ? " · " + s.num : "") }),
+      el("div", { className: "trp-step-route", textContent: (open && t.owner && r.steps.length > 1 ? icon + " " : "") + stepLine(s) + (s.num ? " · " + s.num : "") }),
       el("div", { className: "trp-step-time", textContent: `${fmtLocal(s.dep)} → ${fmtLocal(s.arr)}${zone}` + (s.price != null ? " · " + fmtMoney(s.price, t.cur) : "") })));
-  if (todo) line.append(el("button", { className: "trp-tick no-i18n" + (todo.done ? " done" : ""), title: "Куплено?", textContent: todo.done ? "🎫 куплен ✓" : "🎫 не куплен",
-    onclick: e => { e.stopPropagation(); if (t.owner) ctx.change("/api/trip/todo", { id: todo.id, done: !todo.done }); } }));
-  else if (open && t.owner) line.append(btn("☑ В чек-лист", () => ctx.change("/api/trip/todo", { text: `Билет: ${stepLine(s)}` + (s.num ? ` (${s.num})` : ""), kind: "ticket", link: { route: r.id, step: s.id } })));
+  if (used) line.append(boughtTick(ctx, r, s));
   if (s.comment) line.append(el("div", { className: "trp-comment no-i18n", textContent: s.comment }));
   return line;
 }
@@ -245,7 +297,7 @@ function renderCompare() {
     const r = x.route, st = x.st;
     const info = el("div", { className: "cmp-info" },
       el("div", { className: "cmp-name no-i18n", textContent: r.name }),
-      el("div", { className: "cmp-badges" }, ...[t.chosen === r.id && chip("✔ выбран", "good"), x.isBase && chip("★ эталон"), x.fastest && chip("⚡", "good"), x.cheapest && chip("💰", "good"),
+      el("div", { className: "cmp-badges" }, ...[inPath(t, r) && chip("🧳 в поездке", "good"), x.isBase && chip("★ эталон"), x.fastest && chip("⚡", "good"), x.cheapest && chip("💰", "good"),
         st.bad && chip("⚠ не стыкуется", "bad"), !st.bad && st.tight && chip("⚡ впритык", "warn")].filter(Boolean)),
       el("div", { className: "cmp-nums no-i18n", textContent: `⏱ ${st.steps.length ? fmtDur(st.mins) : "—"} · 💰 ${st.price ? fmtMoney(st.price, t.cur) + (st.allPriced ? "" : "+?") : "—"} · 🔁 ${st.transfers}` }),
       el("div", { className: "cmp-nums no-i18n", textContent: st.steps.length ? `🏁 ${fmtAxis(st.end, r.steps.at(-1).tza, true)} (${fmtZone(r.steps.at(-1).tza)})` : "" }));
@@ -257,7 +309,7 @@ function renderCompare() {
     }
     const acts = el("div", { className: "cmp-acts" }, btn(x.isBase ? "★" : "☆", () => { store.set(baseKey(t), r.id); ctx.rerender(); renderCompare(); }, x.isBase ? "on" : ""));
     acts.firstChild.title = "Сделать эталоном: он просвечивает призраком на остальных дорожках";
-    if (t.owner) { const c = btn(t.chosen === r.id ? "✔" : "✓", () => ctx.change("/api/trip/route/choose", { route: t.chosen === r.id ? null : r.id }), t.chosen === r.id ? "on" : ""); c.title = "Выбрать этот вариант"; acts.append(c); }
+    if (t.owner) { const used = inPath(t, r), c = btn(used ? "🧳" : "➕", () => setPath(ctx, used ? t.path.filter(x => x !== r.id) : [...t.path, r.id]), used ? "on" : ""); c.title = used ? "Убрать из поездки" : "Взять в поездку"; acts.append(c); }
     info.append(acts);
     const lane = el("div", { className: "cmp-lane" }, ...grid.map(([m]) => el("i", { className: "cmp-line", style: `left:${pct(m)}` })));
     if (!x.isBase && base?.st.steps.length) lane.append(...bars(base, true));

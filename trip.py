@@ -14,10 +14,10 @@
   POST /api/trip/stay/delete      {trip, id}
   POST /api/trip/route            {trip, id?, name, comment, steps: [{id?, mode, num, frm, to, dep, tzd, arr, tza, price, comment}]}
   POST /api/trip/route/delete     {trip, id}
-  POST /api/trip/route/choose     {trip, route: id | null}: выбранный вариант (по нему заполняется чек-лист)
+  POST /api/trip/route/order      {trip, path: [id], rest: [id]}: собранная поездка (path, по порядку) и остальные варианты
+  POST /api/trip/step/bought      {trip, route, step, done}: билет на перегон куплен / нет
   POST /api/trip/todo             {trip, id?, text, kind, done, link}: пункт чек-листа; у существующего меняются только присланные поля
   POST /api/trip/todo/delete      {trip, id}
-  POST /api/trip/todo/fill        {trip}: билеты на каждый перегон выбранного варианта, которых ещё нет в чек-листе
   GET  /api/trip/leg/{trip}/{a}/{b} -> {dist, mins, up, down, geo, prof}: пеший путь между местами
 
 Менять может только вошедший под ником владельца: проверка общая с файлообменником (Share.deny).
@@ -26,8 +26,11 @@
 Место без карточек удаляется само.
 
 Вариант пути — цепочка перегонов (поезд, самолёт…). Даты и время — местные, у каждого конца свой часовой пояс
-(UTC+N): иначе Москва → Сургут не сложить. Длительность и пересадки считаем в UTC. Пункт чек-листа может
-ссылаться на перегон (`link: {route, step}`) или на ночлег (`link: {stay}`): так видно, какой билет уже куплен.
+(UTC+N): иначе Москва → Сургут не сложить. Длительность и пересадки считаем в UTC. Порядок перегонов — как прислал
+клиент (его можно перетаскивать). Поездка собирается из вариантов как из деталей: `path` — id вариантов по порядку.
+У каждого перегона свой флаг `bought`: билеты в чек-листе — это перегоны собранной поездки, пункты сами не нужны.
+Пункт чек-листа может ссылаться на ночлег (`link: {stay}`).
+Старые данные: `chosen` → `path`, пункты-билеты, привязанные к перегону, → флаг `bought` у перегона.
 Поездка с `private` отдаётся только владельцу.
 
 Лежит в NOS_DATA/trip.json. Файл версии 2 (одна поездка) при первом запуске оборачивается в поездку «Кансай»,
@@ -185,7 +188,7 @@ def wrap_trip(old):
     """Одиночный план версии 2 → поездка «Кансай» внутри нового хранилища."""
     return {"id": "kansai", "name": "Кансай 2027 · BitSummit", "icon": "🏯", "cur": "¥", "private": False,
             "days": old["days"], "places": old["places"], "cards": old["cards"], "stays": old["stays"],
-            "routes": [], "todos": [], "chosen": None}
+            "routes": [], "todos": [], "path": []}
 
 
 def legacy_migrate(d):
@@ -239,11 +242,34 @@ class Trip:
         for t in self.data["trips"]:
             t.setdefault("routes", [])
             t.setdefault("todos", [])
-            t.setdefault("chosen", None)
+            self.upgrade(t)
             t.setdefault("private", False)
             t.setdefault("cur", "₽")
             t.setdefault("icon", "🧳")
         self.save()
+
+    @staticmethod
+    def upgrade(t):
+        """Выбранный вариант → собранная поездка; пункты-билеты на перегоны → флаг «куплен» у перегона."""
+        if "path" not in t:
+            t["path"] = [t["chosen"]] if t.get("chosen") else []
+        t.pop("chosen", None)
+        steps = {s["id"]: s for r in t["routes"] for s in r["steps"]}
+        for s in steps.values():
+            s.setdefault("bought", False)
+        keep = []
+        for x in t["todos"]:
+            sid = (x.get("link") or {}).get("step")
+            if sid:
+                if sid in steps and x.get("done"):
+                    steps[sid]["bought"] = True
+                if sid in steps:
+                    continue
+                x["link"] = None
+            keep.append(x)
+        t["todos"] = keep
+        ids = {r["id"] for r in t["routes"]}
+        t["path"] = [r for r in dict.fromkeys(t["path"]) if r in ids]
 
     def save(self):
         tmp = self.path.with_suffix(".tmp")
@@ -310,23 +336,20 @@ class Trip:
         t["days"] = {d: x for d, x in t["days"].items() if d in days}
 
     def clean_link(self, t, raw):
-        """Связь пункта чек-листа с перегоном или ночлегом; битая связь = нет связи."""
+        """Связь пункта чек-листа с ночлегом; битая связь = нет связи."""
         if not isinstance(raw, dict):
             return None
         if raw.get("stay") and any(s["id"] == raw["stay"] for s in t["stays"]):
             return {"stay": raw["stay"]}
-        route = next((r for r in t["routes"] if r["id"] == raw.get("route")), None)
-        if route and any(s["id"] == raw.get("step") for s in route["steps"]):
-            return {"route": route["id"], "step": raw["step"]}
         return None
 
     def relink(self, t):
-        """После удаления ночлега, варианта или перегона пункты остаются, но без связи."""
+        """После удаления ночлега пункты остаются без связи; удалённый вариант уходит из поездки."""
         for todo in t["todos"]:
             if todo.get("link"):
                 todo["link"] = self.clean_link(t, todo["link"])
-        if t["chosen"] and not any(r["id"] == t["chosen"] for r in t["routes"]):
-            t["chosen"] = None
+        ids = {r["id"] for r in t["routes"]}
+        t["path"] = [r for r in t["path"] if r in ids]
 
     # ---------- поездки ----------
     async def api_project(self, request):
@@ -346,7 +369,7 @@ class Trip:
                   "private": bool(b.get("private"))}
         if t is None:
             trips.append({"id": uuid.uuid4().hex[:10], **fields, "days": {}, "places": [], "cards": [], "stays": [],
-                          "routes": [], "todos": [], "chosen": None})
+                          "routes": [], "todos": [], "path": []})
         else:
             t.update(fields)
         self.save()
@@ -497,6 +520,9 @@ class Trip:
             steps = self.clean_steps(b.get("steps"))
         except Bad as e:
             return self.fail(str(e))
+        was = {s["id"]: s.get("bought", False) for s in route["steps"]} if route else {}
+        for s in steps:
+            s["bought"] = was.get(s["id"], False)
         fields = {"name": name, "comment": clean(b.get("comment"), COMMENT_MAX), "steps": steps}
         if route is None:
             routes.append({"id": uuid.uuid4().hex[:10], **fields})
@@ -518,14 +544,32 @@ class Trip:
         self.save()
         return self.answer(request)
 
-    async def api_route_choose(self, request):
+    async def api_route_order(self, request):
+        """Порядок: сначала собранная поездка, потом остальные варианты. Незнакомые id отбрасываем, забытые — в конец."""
         b, t, err = await self.ctx(request)
         if err:
             return err
-        rid = b.get("route")
-        if rid is not None and not any(r["id"] == rid for r in t["routes"]):
-            return self.fail("нет такого варианта", 404)
-        t["chosen"] = rid
+        path, rest = b.get("path"), b.get("rest", [])
+        if not isinstance(path, list) or not isinstance(rest, list):
+            return self.fail("порядок нечитаем")
+        by = {r["id"]: r for r in t["routes"]}
+        path = [x for x in dict.fromkeys(path) if x in by]
+        order = [x for x in dict.fromkeys(path + rest) if x in by]
+        order += [r["id"] for r in t["routes"] if r["id"] not in order]
+        t["path"] = path
+        t["routes"] = [by[x] for x in order]
+        self.save()
+        return self.answer(request)
+
+    async def api_step_bought(self, request):
+        b, t, err = await self.ctx(request)
+        if err:
+            return err
+        route = next((r for r in t["routes"] if r["id"] == b.get("route")), None)
+        step = route and next((s for s in route["steps"] if s["id"] == b.get("step")), None)
+        if not step:
+            return self.fail("нет такого перегона", 404)
+        step["bought"] = bool(b.get("done"))
         self.save()
         return self.answer(request)
 
@@ -562,26 +606,6 @@ class Trip:
         if len(left) == len(t["todos"]):
             return self.fail("нет такого пункта", 404)
         t["todos"] = left
-        self.save()
-        return self.answer(request)
-
-    async def api_todo_fill(self, request):
-        """Билет на каждый перегон выбранного варианта — тем, у кого ещё нет своего пункта."""
-        b, t, err = await self.ctx(request)
-        if err:
-            return err
-        route = next((r for r in t["routes"] if r["id"] == t["chosen"]), None)
-        if route is None:
-            return self.fail("сначала выбери вариант пути")
-        have = {x["link"]["step"] for x in t["todos"] if x.get("link") and x["link"].get("step")}
-        for s in route["steps"]:
-            if s["id"] in have:
-                continue
-            if len(t["todos"]) >= MAX_TODOS:
-                return self.fail("слишком много пунктов", 413)
-            text = f'Билет: {s["frm"]} → {s["to"]}' + (f' ({s["num"]})' if s["num"] else "")
-            t["todos"].append({"id": uuid.uuid4().hex[:10], "text": clean(text, TODO_MAX), "kind": "ticket", "done": False,
-                               "link": {"route": route["id"], "step": s["id"]}})
         self.save()
         return self.answer(request)
 
@@ -643,7 +667,8 @@ class Trip:
         for path, handler in (("project", self.api_project), ("project/delete", self.api_project_delete),
                               ("card", self.api_card), ("card/delete", self.api_card_delete), ("day", self.api_day),
                               ("stay", self.api_stay), ("stay/delete", self.api_stay_delete),
-                              ("route", self.api_route), ("route/delete", self.api_route_delete), ("route/choose", self.api_route_choose),
-                              ("todo", self.api_todo), ("todo/delete", self.api_todo_delete), ("todo/fill", self.api_todo_fill)):
+                              ("route", self.api_route), ("route/delete", self.api_route_delete), ("route/order", self.api_route_order),
+                              ("todo", self.api_todo), ("todo/delete", self.api_todo_delete),
+                              ("step/bought", self.api_step_bought)):
             r.add_post("/api/trip/" + path, handler)
         r.add_get("/api/trip/leg/{trip}/{a}/{b}", self.api_leg)

@@ -87,15 +87,33 @@ export function compare(routes, baseId) {
   return { rows, base };
 }
 
-/** Пункты чек-листа: билет, привязанный к перегону, — его цена; готово ли. */
+/** Варианты собранной поездки по порядку (path — id вариантов). */
+export const pathRoutes = t => (t.path || []).map(id => t.routes.find(r => r.id === id)).filter(Boolean);
+/** Все перегоны собранной поездки по порядку: [{route, step}]. */
+export const pathSteps = t => pathRoutes(t).flatMap(route => route.steps.map(step => ({ route, step })));
+/** Итоги всей поездки — как у одного большого варианта; стыки между вариантами — тоже пересадки. */
+export function pathStats(t) {
+  const list = pathSteps(t), st = routeStats({ steps: list.map(x => x.step) });
+  st.bought = list.filter(x => x.step.bought).length;
+  st.count = list.length;
+  return st;
+}
+/** Стык между соседними вариантами поездки: сколько ждать между концом a и началом b. */
+export function joinGap(a, b) {
+  const x = a.steps.at(-1), y = b.steps[0];
+  if (!x || !y || !validDt(x.arr) || !validDt(y.dep)) return null;
+  const mins = utcMin(y.dep, y.tzd) - utcMin(x.arr, x.tza);
+  return { mins, bad: mins < 0, tight: mins >= 0 && mins < TIGHT };
+}
+
+/** Чек-лист: свои пункты + билеты, то есть перегоны собранной поездки. */
 export function todoStats(trip) {
-  const stepPrice = new Map(trip.routes.flatMap(r => r.steps.map(s => [s.id, s.price])));
-  let doneN = 0, price = 0, bought = 0;
-  for (const t of trip.todos) {
-    if (t.done) doneN++;
-    const p = t.link?.step ? +stepPrice.get(t.link.step) || 0 : 0;
-    price += p;
-    if (t.done) bought += p;
-  }
-  return { total: trip.todos.length, done: doneN, price, bought };
+  const tickets = pathSteps(trip).map(x => x.step);
+  const priced = tickets.filter(s => s.price != null);
+  return {
+    total: trip.todos.length + tickets.length,
+    done: trip.todos.filter(x => x.done).length + tickets.filter(s => s.bought).length,
+    price: priced.reduce((n, s) => n + +s.price, 0),
+    bought: priced.filter(s => s.bought).reduce((n, s) => n + +s.price, 0),
+  };
 }

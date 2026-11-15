@@ -3,9 +3,9 @@ import { el, store } from "../core/util.js";
 import "../i18n/trip.js";
 import { notify } from "../ui/notify.js";
 import { WM } from "../wm.js";
-import { todoStats } from "./trip-calc.js";
+import { MODES, fmtLocal, fmtZone, pathSteps, todoStats } from "./trip-calc.js";
 import { labelExpression, poiLayers } from "./trip-labels.js";
-import { closeRouteForm, refreshCompare, routesTab } from "./trip-routes.js";
+import { closeRouteForm, refreshCompare, routesTab, selectRoute } from "./trip-routes.js";
 import { closeTodoForm, todoTab } from "./trip-todo.js";
 
 /* ================= поездка: менеджер + карта =================
@@ -30,7 +30,7 @@ const NARROW = "(max-width: 640px)";   // как в style.css: окна на в�
 const PICK_HINT = "Кликни по карте, чтобы поставить точку";
 
 let all = { trips: [], owner: false }; // ответ сервера: все видимые поездки
-let doc = { id: null, name: "", icon: "🧳", cur: "₽", days: {}, places: [], cards: [], stays: [], routes: [], todos: [], chosen: null, owner: false };
+let doc = { id: null, name: "", icon: "🧳", cur: "₽", days: {}, places: [], cards: [], stays: [], routes: [], todos: [], path: [], owner: false };
 let tab = store.get("trip.tab", "plan"); // plan | routes | todo
 let headBox = null, tabsBox = null;
 let view = { all: true, date: null };  // что показывает карта
@@ -52,6 +52,8 @@ const dayCards = d => doc.cards.filter(c => c.date === d).sort((a, b) => a.time.
 const colorOf = d => DAY_COLORS[Math.max(0, dates().indexOf(d)) % DAY_COLORS.length];
 const dayName = d => new Date(d + "T12:00:00").toLocaleDateString(globalThis.NOS_LOCALE, { weekday: "short", day: "numeric", month: "long" });
 const orderedCards = () => dates().flatMap(dayCards);
+// дни плана: с карточками и с перегонами собранной поездки (по дате отправления)
+const planDates = () => [...new Set([...dates(), ...pathSteps(doc).map(x => x.step.dep.slice(0, 10))])].sort();
 const dayStays = d => doc.stays.filter(s => s.dates.includes(d));
 const shownStays = () => view.all ? doc.stays : dayStays(view.date);
 const lngLat = p => [p.lng, p.lat];
@@ -271,7 +273,7 @@ function beside(w, side) {
 /* ----- состояние и переходы ----- */
 function refresh() {
   if (selected && ![...doc.cards, ...doc.stays].some(x => x.id === selected)) selected = null;
-  if (view.date && !dates().includes(view.date)) view = { all: true, date: null };
+  if (view.date && !planDates().includes(view.date)) view = { all: true, date: null };
   renderList();
   drawMap();
   loadLegs();
@@ -409,7 +411,7 @@ function planTab() {
   allBtn.classList.toggle("on", view.all);
   const kids = [el("div", { className: "trp-bar" }, allBtn, addBtn)];
   if (editing?.key === "new") kids.push(editing.node);
-  for (const d of dates()) {
+  for (const d of planDates()) {
     const head = el("button", { className: "trp-day" + (view.date === d ? " on" : ""), title: "Показать маршрут дня", onclick: () => showDay(d) },
       el("b", { textContent: dayName(d) }));
     head.dataset.day = d;
@@ -420,14 +422,34 @@ function planTab() {
     const total = dayTotal(d);
     if (total) kids.push(el("div", { className: "trp-total no-i18n", textContent: total }));
     kids.push(staysNode(d));
-    dayCards(d).forEach((c, i, list) => {
-      const leg = i && legNode(list[i - 1], c);
+    // карточки и перегоны дня вперемешку по времени; пешие отрезки — между соседними карточками
+    const rides = pathSteps(doc).filter(x => x.step.dep.startsWith(d));
+    const items = [...dayCards(d).map((c, i) => ({ time: c.time, card: c, n: i + 1 })), ...rides.map(x => ({ time: x.step.dep.slice(11), ride: x }))]
+      .sort((a, b) => a.time.localeCompare(b.time) || (a.ride ? 1 : 0) - (b.ride ? 1 : 0));
+    let prev = null;
+    for (const x of items) {
+      if (x.ride) { kids.push(rideNode(x.ride)); continue; }
+      const leg = prev && legNode(prev, x.card);
       if (leg) kids.push(leg);
-      kids.push(editing?.key === c.id ? editing.node : cardNode(c, i + 1));
-    });
+      kids.push(editing?.key === x.card.id ? editing.node : cardNode(x.card, x.n));
+      prev = x.card;
+    }
   }
-  if (!dates().length && editing?.key !== "new") kids.push(el("div", { className: "trp-empty", textContent: "Пока нет карточек." }));
+  if (!planDates().length && editing?.key !== "new") kids.push(el("div", { className: "trp-empty", textContent: "Пока нет карточек." }));
   return kids;
+}
+
+// перегон собранной поездки в плане дня: клик — к его варианту на вкладке «Путь»
+function rideNode({ route, step: s }) {
+  const [icon, name] = MODES[s.mode] || MODES.other;
+  const arr = s.arr.slice(0, 10) === s.dep.slice(0, 10) ? s.arr.slice(11) : fmtLocal(s.arr);
+  return el("button", { className: "trp-ride no-i18n" + (s.bought ? " bought" : ""), title: `${name} · ${route.name} — открыть в «Пути»`,
+    onclick: () => { selectRoute(route.id); setTab("routes"); } },
+    el("span", { className: "trp-ride-icon", textContent: icon }),
+    el("span", { className: "trp-time", textContent: s.dep.slice(11) }),
+    el("span", { className: "trp-ride-main" }, el("b", { textContent: `${s.frm} → ${s.to}` + (s.num ? " · " + s.num : "") }),
+      el("span", { textContent: `приб. ${arr}` + (s.tza !== s.tzd ? ` (${fmtZone(s.tza)})` : "") })),
+    el("span", { className: "trp-ride-tick", textContent: s.bought ? "🎫✓" : "🎫" }));
 }
 
 function actions(items) {
