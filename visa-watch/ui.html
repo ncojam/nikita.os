@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visa Watch</title>
+<style>
+  :root { --bg:#0e1015; --card:#171a22; --line:#262b37; --text:#e8eaf0; --muted:#8b93a7; --ok:#4ade80; --bad:#f87171; --warn:#fbbf24; --accent:#8ab4ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:20px 16px 60px; display:flex; flex-direction:column; gap:16px; }
+  header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:20px; flex:1; }
+  button { font:inherit; font-size:14px; border:0; border-radius:10px; padding:8px 14px; background:#262b37; color:var(--text); cursor:pointer; }
+  button:hover:not(:disabled) { background:#313847; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.on { background:#1f3d2c; color:var(--ok); }
+  .banner { padding:14px 16px; border-radius:14px; background:#13301f; border:1px solid #1f5b37; color:var(--ok); font-weight:600; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:flex; flex-direction:column; gap:4px; }
+  .card.open { border-color:#1f5b37; background:#12241a; }
+  .card .name { color:var(--muted); font-size:13px; }
+  .card .st { display:flex; align-items:center; gap:10px; font-size:18px; font-weight:700; }
+  .card a { color:var(--accent); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-decoration:none; }
+  .sub { color:var(--muted); font-size:12.5px; }
+  .badge { display:inline-block; min-width:44px; text-align:center; padding:1px 9px; border-radius:999px; font-size:13px; font-weight:700; background:#2c3242; }
+  .badge.open { background:#1f5b37; color:var(--ok); }
+  .badge.bad { background:#4a2323; color:var(--bad); }
+  .info { display:flex; flex-wrap:wrap; gap:6px 18px; }
+  .log { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:6px; }
+  .row { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:10px; }
+  .row:hover { background:#1d212b; }
+  .row.open { background:#12241a; }
+  .row .t { flex:none; width:128px; color:var(--muted); font-size:12.5px; }
+  .row .tg { flex:none; width:52px; color:var(--muted); font-size:12.5px; }
+  .row .nt { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .empty { padding:28px; text-align:center; color:var(--muted); }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.78); display:flex; align-items:center; justify-content:center; padding:20px; z-index:10; }
+  .modal .box { background:var(--card); border:1px solid var(--line); border-radius:14px; max-width:min(1100px,100%); max-height:100%; display:flex; flex-direction:column; overflow:hidden; }
+  .modal .bar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .modal .bar b { flex:1; }
+  .modal .body { overflow:auto; padding:12px; }
+  .modal img { max-width:100%; display:block; }
+  .modal pre { margin:0; white-space:pre-wrap; word-break:break-all; font:12px/1.5 ui-monospace,monospace; user-select:text; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🛂 Visa Watch <span class="sub" id="mode"></span></h1>
+    <button id="notify" title="Звук и уведомление в этой вкладке, когда страница откроется (вкладка должна быть открыта)">🔔 Уведомлять</button>
+    <button id="check">🔄 Проверить сейчас</button>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <div class="cards" id="cards"></div>
+  <div class="info sub" id="info"></div>
+  <div class="log" id="log"></div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
+const fmt = t => new Date(t * 1000).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const ago = t => { const s = Math.max(0, Math.floor(Date.now() / 1000 - t)); return s < 90 ? s + " с назад" : s < 5400 ? Math.round(s / 60) + " мин назад" : s < 172800 ? Math.round(s / 3600) + " ч назад" : Math.round(s / 86400) + " дн назад"; };
+const dur = s => s < 90 ? Math.round(s) + " с" : Math.round(s / 60) + " мин";
+const isOpen = s => s && s !== "403" && s !== "error";
+const BASE_TITLE = "Visa Watch";
+
+let data = null, seenLog = null, wantNotify = false;
+try { wantNotify = localStorage.getItem("vw.notify") === "1"; } catch {}
+
+async function load() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+    draw();
+  } catch (e) { $("#info").textContent = "⚠ нет связи с приложением: " + e.message; }
+}
+
+function draw() {
+  $("#mode").textContent = data.mode === "browser" ? "· браузер" : "· простой запрос";
+  const open = data.targets.filter(t => t.last && isOpen(t.last.status));
+  const banner = $("#banner");
+  banner.hidden = !open.length;
+  if (open.length) banner.textContent = "🟢 Не 403: " + open.map(t => `${t.name} (${t.last.status})`).join(", ") + " — смотри журнал ниже";
+  document.title = (open.length ? "🟢 " : "") + BASE_TITLE;
+
+  $("#cards").replaceChildren(...data.targets.map(t => {
+    const l = t.last, o = l && isOpen(l.status);
+    return el("div", { className: "card" + (o ? " open" : "") },
+      el("div", { className: "name", textContent: t.name }),
+      el("div", { className: "st" }, el("span", { className: "badge " + (o ? "open" : l && (l.status === "403" || l.status === "error") ? "bad" : ""), textContent: l ? l.status : "…" }),
+        el("span", { textContent: l ? (l.title || (l.status === "error" ? "нет ответа" : "без заголовка")) : "ждём первую проверку" })),
+      el("a", { href: t.url, target: "_blank", rel: "noopener noreferrer", textContent: t.url }),
+      el("div", { className: "sub", textContent: l ? `в этом состоянии с ${fmt(l.since)} · проверено ${ago(l.t)} · всего проверок: ${t.checks}` : "" }));
+  }));
+
+  const ip = data.ip;
+  const bits = [`Сейчас раз в ~${dur(data.interval)} · ${data.night ? "ночной режим" : "дневной режим"}`];
+  bits.push(data.checking ? "проверяю…" : "следующая через " + (data.next_at ? dur(Math.max(0, data.next_at - Date.now() / 1000)) : "—"));
+  if (ip.value) bits.push("ваш внешний IP: " + ip.value);
+  else if (ip.error) bits.push("внешний IP узнать не удалось (" + ip.error + ")");
+  $("#info").replaceChildren(...bits.map(b => el("span", { textContent: b })));
+
+  const rows = [...data.log].reverse().map(e => {
+    const o = isOpen(e.status), name = (data.targets.find(t => t.id === e.target) || {}).name || e.target;
+    const r = el("div", { className: "row" + (o ? " open" : "") },
+      el("span", { className: "t", textContent: fmt(e.t) }), el("span", { className: "tg", textContent: name }),
+      el("span", { className: "badge " + (o ? "open" : e.status === "403" || e.status === "error" ? "bad" : ""), textContent: e.status }),
+      el("span", { className: "nt", title: e.note, textContent: e.note + (e.title ? " · " + e.title : "") }));
+    if (e.snap) {
+      if (e.shot) r.append(el("button", { textContent: "📷 Скриншот", onclick: () => show("Скриншот · " + fmt(e.t), el("img", { src: `/api/snap/${e.snap}/shot` })) }));
+      r.append(el("button", { textContent: "📄 HTML", onclick: () => showText(e) }));
+    }
+    return r;
+  });
+  $("#log").replaceChildren(...(rows.length ? rows : [el("div", { className: "empty", textContent: "Журнал пуст — первая проверка вот-вот будет" })]));
+
+  // новая запись «не 403» → сигнал (один раз на запись)
+  if (seenLog !== null && data.log.length > seenLog) {
+    const fresh = data.log.slice(seenLog).filter(e => isOpen(e.status));
+    if (fresh.length && wantNotify) alertOpen(fresh[fresh.length - 1]);
+  }
+  seenLog = data.log.length;
+}
+
+function show(title, node) {
+  const close = () => m.remove();
+  const m = el("div", { className: "modal", onclick: e => { if (e.target === m) close(); } },
+    el("div", { className: "box" }, el("div", { className: "bar" }, el("b", { textContent: title }), el("button", { textContent: "✕", onclick: close })), el("div", { className: "body" }, node)));
+  document.body.append(m);
+}
+async function showText(e) {
+  const pre = el("pre", { textContent: "Загрузка…" });
+  show("HTML · " + fmt(e.t), pre);
+  try { const r = await fetch(`/api/snap/${e.snap}/html`); pre.textContent = r.ok ? await r.text() : "⚠ " + (await r.text()); }
+  catch (err) { pre.textContent = "⚠ " + err.message; }
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelector(".modal")?.remove(); });
+
+function beep() {
+  try {
+    const c = new AudioContext(), o = c.createOscillator(), g = c.createGain();
+    o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.15;
+    o.start(); o.stop(c.currentTime + 0.35);
+  } catch {}
+}
+function alertOpen(e) {
+  beep();
+  if ("Notification" in window && Notification.permission === "granted") new Notification("🛂 Страница BLS открылась", { body: e.note });
+}
+function paintNotify() { $("#notify").className = wantNotify ? "on" : ""; $("#notify").textContent = wantNotify ? "🔔 Уведомления включены" : "🔔 Уведомлять"; }
+$("#notify").onclick = async () => {
+  wantNotify = !wantNotify;
+  try { localStorage.setItem("vw.notify", wantNotify ? "1" : "0"); } catch {}
+  if (wantNotify && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+  if (wantNotify) beep();
+  paintNotify();
+};
+$("#check").onclick = async () => {
+  $("#check").disabled = true;
+  try {
+    const r = await fetch("/api/check", { method: "POST" });
+    if (!r.ok) alert((await r.json().catch(() => ({}))).error || r.status);
+  } finally { setTimeout(() => { $("#check").disabled = false; }, 3000); load(); }
+};
+
+paintNotify();
+load();
+setInterval(load, 3000);
+</script>
+</body>
+</html>
