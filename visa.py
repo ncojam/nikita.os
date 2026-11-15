@@ -6,15 +6,16 @@
 отвечает чем-то кроме 403 (или меняется заголовок страницы), сохраняется снимок ответа — заголовки и тело,
 — и у записи в журнале появляется кнопка «Состояние».
 
-  GET  /api/visa              -> {url, interval, enabled, last, log: [...]}  (новые записи — в конце)
+  GET  /api/visa              -> {interval, enabled, targets: [{id, name, url, checks, last}], log: [...]}  (новые записи — в конце)
   GET  /api/visa/snap/{id}    -> {id, t, status, url, headers, body, truncated}  — снимок ответа
   POST /api/visa/check        -> то же, что GET /api/visa, но после внеочередной проверки (не чаще раза в 10 с)
 
-Запись журнала: {t, status, title, note, snap?}
+Запись журнала: {t, target, status, title, note, snap?}
   status — код ответа («403», «200») или «error» (сеть, TLS, таймаут);
   title  — <title> страницы, если есть; note — что случилось по-русски.
 
-Признак изменения — пара (status, title). Тело ответа в признак не входит: у живой страницы в нём токены
+Следим за двумя страницами: записи (doorstepservice, NOS_VISA_URL) и входа в кабинет (account/login,
+NOS_VISA_LOGIN_URL; пусто — не следить). Признак изменения — пара (status, title) для каждой страницы отдельно. Тело ответа в признак не входит: у живой страницы в нём токены
 и счётчики, которые меняются при каждом запросе, и журнал бы зарос.
 
 Хранилище: NOS_DATA/visa.json (журнал и последнее состояние), NOS_DATA/visa/<id>.json (снимки).
@@ -39,10 +40,16 @@ from aiohttp import ClientSession, ClientTimeout, web
 
 log = logging.getLogger("nikita.os.visa")
 
-URL = os.environ.get("NOS_VISA_URL", "https://appointment.blsspainrussia.ru/Global/bls/doorstepservice")
+# за чем следим: (id, подпись, адрес). Журнал общий, у записи есть поле target
+TARGETS = [
+    ("doorstep", "Запись", os.environ.get("NOS_VISA_URL", "https://appointment.blsspainrussia.ru/Global/bls/doorstepservice")),
+    ("login", "Вход", os.environ.get("NOS_VISA_LOGIN_URL", "https://appointment.blsspainrussia.ru/Global/account/login")),
+]
+TARGETS = [t for t in TARGETS if t[2]]                                  # пустой адрес в окружении — не следить
 ENABLED = os.environ.get("NOS_VISA_ENABLED", "1") != "0"
 INTERVAL = max(30, int(os.environ.get("NOS_VISA_INTERVAL", "120")))     # секунд между проверками (≥ 30)
 PROXY = os.environ.get("NOS_VISA_PROXY", "") or None                    # http://host:port, пусто — напрямую
+GAP = 3                                                                 # секунд между адресами в одном обходе
 TIMEOUT = 25                                                            # секунд на один запрос
 LOG_MAX = 500                                                           # записей в журнале
 SNAP_MAX = 40                                                           # снимков на диске (старые стираются)
@@ -65,7 +72,7 @@ class Visa:
         self.snaps = Path(data_dir) / "visa"
         self.snaps.mkdir(parents=True, exist_ok=True)
         self.deny = deny
-        self.state = {"log": [], "last": None, "checks": 0, "since": None}
+        self.state = {"log": [], "last": {}, "checks": {}}
         self.task = None
         self.lock = asyncio.Lock()
         self.manual_at = 0.0
@@ -73,6 +80,12 @@ class Visa:
             d = json.loads(self.file.read_text("utf-8"))
             if isinstance(d, dict) and isinstance(d.get("log"), list):
                 self.state.update(d)
+                if not isinstance(self.state["last"], dict) or "status" in self.state["last"]:   # старый формат — один адрес
+                    self.state["last"] = {"doorstep": self.state["last"]} if self.state["last"] else {}
+                if not isinstance(self.state["checks"], dict):
+                    self.state["checks"] = {"doorstep": self.state["checks"]}
+                for e in self.state["log"]:
+                    e.setdefault("target", "doorstep")
         except (OSError, ValueError):
             pass
 
@@ -92,13 +105,13 @@ class Visa:
             f.unlink(missing_ok=True)
 
     # ---------- проверка ----------
-    async def fetch(self):
-        """Один запрос → (status, title, snap-данные). Ошибки сети не бросаем: это тоже состояние."""
+    async def fetch(self, url):
+        """Один запрос → словарь с status/title/…. Ошибки сети не бросаем: это тоже состояние."""
         try:
             async with ClientSession(timeout=ClientTimeout(total=TIMEOUT), headers={
                     "User-Agent": UA, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
                     "Accept-Language": "ru,en;q=0.7"}) as s:
-                async with s.get(URL, proxy=PROXY, allow_redirects=True) as r:
+                async with s.get(url, proxy=PROXY, allow_redirects=True) as r:
                     raw = await r.content.read(BODY_MAX + 1)
                     body = raw[:BODY_MAX].decode(r.get_encoding() or "utf-8", errors="replace") if raw else ""
                     headers = {k.lower(): v[:300] for k, v in r.headers.items() if k.lower() in KEEP_HEADERS}
@@ -120,28 +133,37 @@ class Visa:
             return f"{s} — страница открылась"
         return f"ответ {s}"
 
+    async def check_one(self, tid, url):
+        res = await self.fetch(url)
+        now = int(time.time())
+        st = self.state
+        st["checks"][tid] = st["checks"].get(tid, 0) + 1
+        key = (res["status"], res.get("title", ""))
+        last = st["last"].get(tid)
+        changed = not last or (last["status"], last.get("title", "")) != key
+        st["last"][tid] = {"t": now, "status": res["status"], "title": res.get("title", ""),
+                           "since": now if changed else last.get("since", now)}
+        if changed:
+            entry = {"t": now, "target": tid, "status": res["status"], "title": res.get("title", ""), "note": self.describe(res)}
+            # снимок — всё, что не 403 и не ошибка сети: это то, ради чего мы смотрим
+            if res["status"] not in ("403", "error"):
+                snap = {"id": secrets.token_urlsafe(9), "t": now, "target": tid, "status": res["status"], "url": res.get("url", url),
+                        "headers": res.get("headers", {}), "body": res.get("body", ""), "truncated": res.get("truncated", False)}
+                await asyncio.to_thread(self.write_snap, snap)
+                entry["snap"] = snap["id"]
+            st["log"].append(entry)
+            del st["log"][:-LOG_MAX]
+            log.info("visa[%s]: %s", tid, entry["note"])
+        return changed
+
     async def check(self):
+        """Обход всех адресов; True — что-то изменилось."""
         async with self.lock:
-            res = await self.fetch()
-            now = int(time.time())
-            st = self.state
-            st["checks"] = st.get("checks", 0) + 1
-            key = (res["status"], res.get("title", ""))
-            last = st.get("last")
-            changed = not last or (last["status"], last.get("title", "")) != key
-            st["last"] = {"t": now, "status": res["status"], "title": res.get("title", ""),
-                          "since": now if changed else (last or {}).get("since", now)}
-            if changed:
-                entry = {"t": now, "status": res["status"], "title": res.get("title", ""), "note": self.describe(res)}
-                # снимок — всё, что не 403 и не ошибка сети: это то, ради чего мы смотрим
-                if res["status"] not in ("403", "error"):
-                    snap = {"id": secrets.token_urlsafe(9), "t": now, "status": res["status"], "url": res.get("url", URL),
-                            "headers": res.get("headers", {}), "body": res.get("body", ""), "truncated": res.get("truncated", False)}
-                    await asyncio.to_thread(self.write_snap, snap)
-                    entry["snap"] = snap["id"]
-                st["log"].append(entry)
-                del st["log"][:-LOG_MAX]
-                log.info("visa: %s", entry["note"])
+            changed = False
+            for n, (tid, _name, url) in enumerate(TARGETS):
+                if n:
+                    await asyncio.sleep(GAP)
+                changed |= await self.check_one(tid, url)
             await asyncio.to_thread(self.save)
             return changed
 
@@ -159,8 +181,9 @@ class Visa:
     # ---------- API ----------
     def view(self):
         st = self.state
-        return {"url": URL, "interval": INTERVAL, "enabled": ENABLED, "checks": st.get("checks", 0),
-                "last": st.get("last"), "log": st["log"]}
+        return {"interval": INTERVAL, "enabled": ENABLED, "log": st["log"],
+                "targets": [{"id": tid, "name": name, "url": url, "checks": st["checks"].get(tid, 0), "last": st["last"].get(tid)}
+                            for tid, name, url in TARGETS]}
 
     async def api_get(self, request):
         if (d := self.deny(request)) is not None:

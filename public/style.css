@@ -2214,3 +2214,5 @@ a.nw-chip:hover { border-color: var(--mt); }
 .visa-btn:disabled { opacity: 0.5; cursor: default; }
 .visa-empty { padding: 30px 10px; text-align: center; color: var(--muted); }
 .visa-pre { flex: 1; margin: 0; overflow: auto; white-space: pre-wrap; word-break: break-all; font: 12px/1.45 ui-monospace, monospace; user-select: text; }
+.visa-tag { flex: none; font-size: 12px; color: var(--muted); }
+.visa-target { display: flex; flex-direction: column; gap: 1px; padding: 2px 0; }

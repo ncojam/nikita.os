@@ -57,22 +57,26 @@ export async function openVisa() {
     }
 
     function draw(j) {
-      const last = j.last;
+      const names = Object.fromEntries(j.targets.map(t => [t.id, t.name]));
+      const open = j.targets.some(t => t.last && t.last.status !== "403" && t.last.status !== "error");
+      status.className = "visa-status" + (open ? " open" : "");
       status.replaceChildren(
-        el("div", { textContent: j.enabled ? (last ? `Сейчас: ${last.status}${last.title ? " · " + last.title : ""}` : "Ждём первую проверку…") : "Слежение выключено на сервере (NOS_VISA_ENABLED=0)" }),
-        el("div", { className: "visa-sub", textContent: last
-          ? `в этом состоянии с ${fmt(last.since)} · последняя проверка ${ago(last.t)} · всего проверок: ${j.checks} · раз в ~${Math.round(j.interval / 60 * 10) / 10} мин`
-          : "" }),
-        el("a", { className: "visa-sub", href: j.url, target: "_blank", rel: "noopener noreferrer", textContent: j.url }));
-      status.className = "visa-status" + (last && last.status !== "403" && last.status !== "error" ? " open" : "");
-      const rows = [...j.log].reverse().map(row);
+        ...(j.enabled ? j.targets.map(t => el("div", { className: "visa-target" },
+          el("div", { textContent: `${t.name}: ` + (t.last ? `${t.last.status}${t.last.title ? " · " + t.last.title : ""}` : "ждём первую проверку…") }),
+          el("a", { className: "visa-sub", href: t.url, target: "_blank", rel: "noopener noreferrer", textContent: t.url }),
+          el("div", { className: "visa-sub", textContent: t.last
+            ? `в этом состоянии с ${fmt(t.last.since)} · проверка ${ago(t.last.t)} · всего: ${t.checks}` : "" })))
+          : [el("div", { textContent: "Слежение выключено на сервере (NOS_VISA_ENABLED=0)" })]),
+        el("div", { className: "visa-sub", textContent: `раз в ~${Math.round(j.interval / 60 * 10) / 10} мин` }));
+      const rows = [...j.log].reverse().map(e => row(e, names));
       list.replaceChildren(...(rows.length ? rows : [el("div", { className: "visa-empty", textContent: "Журнал пуст" })]));
     }
 
-    function row(e) {
+    function row(e, names) {
       const ok = e.status !== "403" && e.status !== "error";
       const r = el("div", { className: "visa-row" + (ok ? " open" : "") },
         el("span", { className: "visa-time", textContent: fmt(e.t) }),
+        el("span", { className: "visa-tag", textContent: names[e.target] || e.target }),
         el("span", { className: "visa-badge", textContent: e.status }),
         el("span", { className: "visa-note", textContent: e.note + (e.title ? " · " + e.title : ""), title: e.note }));
       if (e.snap) r.append(el("button", { className: "visa-btn", textContent: "👁 Состояние", onclick: () => openSnap(e) }));
