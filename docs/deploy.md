@@ -28,7 +28,6 @@
 | `NOS_UFS_MAX_*` | см. `userfs.py` | Лимиты папок |
 | `NOS_FORUM_*` | см. `forum.py` | Лимиты форума |
 | `NOS_AIR_MAX`, `NOS_AIR_GRACE` | см. `airhockey.py` | Игроков на арене; сколько держится платформа ушедшего |
-| `NOS_VISA_URL`, `NOS_VISA_LOGIN_URL`, `NOS_VISA_NIGHT`, `NOS_VISA_UTC_OFFSET`, `NOS_VISA_PROXY`, `NOS_VISA_ENABLED` | страницы BLS, 2-8, 3, —, 1 | Слежение за записью на визу (`visa.py`): адреса страниц записи и входа (пустой — не следить); ночь — часы «с-до» по местному времени (UTC+`NOS_VISA_UTC_OFFSET`, Москва = 3). Расписание (`SCHEDULE_NIGHT/DAY` в `visa.py`): ночью в первые 10 минут часа каждые 30 с, до 30-й минуты раз в минуту, потом раз в 3 мин; днём первые 5 минут раз в минуту, дальше раз в 10 мин; +-10 % случайно. HTTP-прокси `NOS_VISA_PROXY` (`http://host:port`), `0` в `NOS_VISA_ENABLED` — выключить |
 | `NOS_FINDS_TOKEN` | — | Ключ домашнего воркера «Находок» |
 | `NOS_VISITS_UNIQ_MAX` | `200000` | Потолок уникальных посетителей в счётчике |
 | `NOS_DAWN_MAX_PROJECTS`, `NOS_DAWN_MAX_BYTES` | `10`, 2 МБ | Общие проекты DAWN на аккаунт и размер одного |

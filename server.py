@@ -873,9 +873,6 @@ def make_app():
     # поездка: план по дням с картой; читают все, правит только владелец (проверка из файлообменника)
     from trip import Trip
     Trip(DATA_DIR / "trip.json", share.deny, share.owner).routes(app)
-    # слежение за записью на визу: сервер сам ходит на страницу BLS (исключение из «сервер наружу не ходит»); только cojam
-    from visa import Visa
-    Visa(DATA_DIR, share.deny).routes(app)
     app.router.add_post("/api/dawn/save", api_dawn_save)
     app.router.add_post("/api/dawn/delete", api_dawn_delete)
     app.router.add_get("/api/dawn/mine", api_dawn_mine)

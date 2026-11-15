@@ -20,9 +20,6 @@ services:
       TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}   # токен бота для Telegram Mini App «Джус» (ники из Телеги)
       TG_DUNGEON_BOT_TOKEN: ${TG_DUNGEON_BOT_TOKEN:-}   # токен бота Clown Dungeon (пусто — подойдёт TG_BOT_TOKEN)
       NOS_FINDS_TOKEN: ${NOS_FINDS_TOKEN:-}   # ключ домашнего воркера «Находок» (пусто — API воркера выключен)
-      NOS_VISA_PROXY: ${NOS_VISA_PROXY:-}     # прокси для слежения за записью на визу (пусто — напрямую), см. visa.py
-      NOS_VISA_NIGHT: ${NOS_VISA_NIGHT:-2-8}  # ночь для частых проверок BLS: часы «с-до» по местному времени (визиты — visa.py)
-      NOS_VISA_UTC_OFFSET: ${NOS_VISA_UTC_OFFSET:-3}   # смещение этого времени от UTC (Москва = 3)
     volumes:
       - ./fs:/app/fs:ro           # сайт не может ничего изменить в твоих файлах
       - plays:/data

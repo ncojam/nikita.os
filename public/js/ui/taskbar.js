@@ -1,7 +1,7 @@
 import { D, EASE } from "../core/anim.js";
 import { $ } from "../core/util.js";
 import { openAbout } from "../open.js";
-import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFinds, openSettings, openShare, openKana, openThawLab, openTrip, openVisa } from "../apps/lazy.js";
+import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFinds, openSettings, openShare, openKana, openThawLab, openTrip } from "../apps/lazy.js";
 import { WM } from "../wm.js";
 
 /* ================= пуск (с анимацией) ================= */
@@ -13,7 +13,7 @@ let startAnim = null;
 async function refreshShareItem() {
   let nick = null;
   try { const r = await fetch("/api/chat/me", { cache: "no-store" }); if (r.ok) nick = (await r.json()).nick; } catch {}
-  $("#sm-share").hidden = $("#sm-visa").hidden = String(nick || "").toLowerCase() !== "cojam";
+  $("#sm-share").hidden = String(nick || "").toLowerCase() !== "cojam";
 }
 
 function toggleStart(show) {
@@ -86,7 +86,6 @@ export function init_ui_taskbar() {
     if (b.dataset.app === "dungeon") openDungeon();
     if (b.dataset.app === "share") openShare();
     if (b.dataset.app === "trip") openTrip();
-    if (b.dataset.app === "visa") openVisa();
     if (b.dataset.app === "thawlab") openThawLab();
     if (b.dataset.app === "kana") openKana();
     toggleStart(false);
