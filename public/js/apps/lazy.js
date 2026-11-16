@@ -35,3 +35,4 @@ export const openFinds = lazy("./finds.js", "openFinds");
 export const openTrip = lazy("./trip.js", "openTrip");
 export const openThawLab = lazy("./thawlab.js", "openThawLab");
 export const openKana = lazy("./kana.js", "openKana");
+export const openPalette = lazy("./palette.js", "openPalette");
