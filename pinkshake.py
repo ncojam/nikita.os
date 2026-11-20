@@ -11,7 +11,7 @@
 первый байт 0x09 (заголовок LiteNetLib), дальше наш пакет:
     'H' ver:u8 id:str name:str scene:u8 players:u8 max:u8 localPort:u16 nLocal:u8 [ip:str]*   — хост в сети
     'U' id:str                                                                             — хост закрылся
-    'L' ver:u8                                                                             — дай список
+    'L' ver:u8 [нули до 1000+ байт]                                                        — дай список (ответ не больше запроса)
     'l' n:u8 [id:str name:str scene:u8 players:u8 max:u8]*                                  — список
     'J' id:str localPort:u16 nLocal:u8 [ip:str]*                                           — хочу к хосту id
     'P' ip:str port:u16 localPort:u16 nLocal:u8 [ip:str]*                                  — (хосту) к тебе идёт гость
@@ -33,6 +33,8 @@ HOST_TTL = 8.0          # сколько живёт запись без "я в �
 MAX_HOSTS = 200
 MAX_LIST = 30           # сколько хостов отдаём за раз (влезает в один UDP-пакет)
 RATE_PER_SEC = 20       # пакетов в секунду с одного адреса
+MIN_LIST_REQUEST = 1000 # запрос списка должен быть не меньше ответа — иначе сервер можно использовать
+                        # как "усилитель" UDP-атак (подделать чужой адрес и получить ответ больше запроса)
 PROTOCOL_VERSION = 1
 
 
@@ -145,14 +147,19 @@ class PinkshakeLobby:
             if h and h["addr"] == addr:
                 del self.hosts[[k for k, v in self.hosts.items() if v is h][0]]
         elif kind == "L":
-            if r.u8() != PROTOCOL_VERSION:
+            if len(data) < MIN_LIST_REQUEST or r.u8() != PROTOCOL_VERSION:
                 return
             self._expire()
-            items = list(self.hosts.items())[:MAX_LIST]
-            out = bytearray(b"l" + bytes([len(items)]))
-            for hid, h in items:
-                out += _s(hid) + _s(h["name"]) + bytes([h["scene"], h["players"], h["max"]])
-            self._send(bytes(out), addr)
+            limit = len(data) - 1   # ответ (с заголовком 0x09) не больше запроса
+            body = bytearray()
+            n = 0
+            for hid, h in list(self.hosts.items())[:MAX_LIST]:
+                item = _s(hid) + _s(h["name"]) + bytes([h["scene"], h["players"], h["max"]])
+                if 2 + len(body) + len(item) > limit:
+                    break
+                body += item
+                n += 1
+            self._send(b"l" + bytes([n]) + bytes(body), addr)
         elif kind == "J":
             hid, lport = r.s(), r.u16()
             local = [r.s() for _ in range(min(r.u8(), 4))]
