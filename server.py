@@ -733,7 +733,7 @@ async def add_headers(request, response):
         h["Cross-Origin-Embedder-Policy"] = "require-corp"
     h["Cross-Origin-Resource-Policy"] = "same-origin"
     # кликджекинг: встраивать сайт в iframe можно только себе и neocities (+ Telegram — для Mini App)
-    fa = FRAME_ANCESTORS + (" https://web.telegram.org" if p == "/tg.html" else "")
+    fa = FRAME_ANCESTORS + (" https://web.telegram.org" if mini_app else "")
     h["Content-Security-Policy"] = "frame-ancestors " + fa
     # полная политика пока в режиме «только отчёт»: смотри нарушения в консоли браузера и потом включи
     h["Content-Security-Policy-Report-Only"] = CSP_REPORT_ONLY
