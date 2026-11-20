@@ -25,6 +25,7 @@ services:
       - plays:/data
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:8000"   # только для локального прокси, не в интернет
+      - "${PINKSHAKE_UDP_PORT:-27015}:27015/udp"   # Pinkshake: лобби мультиплеера (UDP, открыт в интернет)
     read_only: true               # корневая ФС контейнера только для чтения
     tmpfs: ["/tmp:size=16m"]
     cap_drop: [ALL]               # никаких особых прав ядра
