@@ -9,10 +9,11 @@
 
 Протокол — UDP, формат совместим с "unconnected message" библиотеки LiteNetLib:
 первый байт 0x09 (заголовок LiteNetLib), дальше наш пакет:
-    'H' ver:u8 id:str name:str scene:u8 players:u8 max:u8 localPort:u16 nLocal:u8 [ip:str]*   — хост в сети
+    'H' ver:u8 id:str name:str scene:u8 players:u8 max:u8 flags:u8 localPort:u16 nLocal:u8 [ip:str]*   — хост в сети
+        flags: 1 — вход по паролю (сам пароль сервер не видит: его проверяет хост)
     'U' id:str                                                                             — хост закрылся
     'L' ver:u8 [нули до 1000+ байт]                                                        — дай список (ответ не больше запроса)
-    'l' n:u8 [id:str name:str scene:u8 players:u8 max:u8]*                                  — список
+    'l' n:u8 [id:str name:str scene:u8 players:u8 max:u8 flags:u8]*                         — список
     'J' id:str localPort:u16 nLocal:u8 [ip:str]*                                           — хочу к хосту id
     'P' ip:str port:u16 localPort:u16 nLocal:u8 [ip:str]*                                  — (хосту) к тебе идёт гость
     'p' ip:str port:u16 localPort:u16 nLocal:u8 [ip:str]*                                  — (гостю) адрес хоста
@@ -35,7 +36,7 @@ MAX_LIST = 30           # сколько хостов отдаём за раз (
 RATE_PER_SEC = 20       # пакетов в секунду с одного адреса
 MIN_LIST_REQUEST = 1000 # запрос списка должен быть не меньше ответа — иначе сервер можно использовать
                         # как "усилитель" UDP-атак (подделать чужой адрес и получить ответ больше запроса)
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 class _Reader:
@@ -100,7 +101,8 @@ class PinkshakeLobby:
     async def api_hosts(self, request):
         self._expire()
         return web.json_response([
-            {"name": h["name"], "scene": h["scene"], "players": h["players"], "max": h["max"]}
+            {"name": h["name"], "scene": h["scene"], "players": h["players"], "max": h["max"],
+             "password": bool(h["flags"] & 1)}
             for h in list(self.hosts.values())[:MAX_LIST]
         ])
 
@@ -134,13 +136,13 @@ class PinkshakeLobby:
         if kind == "H":
             if r.u8() != PROTOCOL_VERSION:
                 return
-            hid, name, scene, players, mx, lport = r.s(), r.s()[:24], r.u8(), r.u8(), r.u8(), r.u16()
+            hid, name, scene, players, mx, flags, lport = r.s(), r.s()[:24], r.u8(), r.u8(), r.u8(), r.u8(), r.u16()
             local = [r.s() for _ in range(min(r.u8(), 4))]
             if hid not in self.hosts and len(self.hosts) >= MAX_HOSTS:
                 self._expire()
                 if len(self.hosts) >= MAX_HOSTS:
                     return
-            self.hosts[hid] = {"name": name or "Pinkshake", "scene": scene, "players": players, "max": mx,
+            self.hosts[hid] = {"name": name or "Pinkshake", "scene": scene, "players": players, "max": mx, "flags": flags,
                                "addr": addr, "lport": lport, "local": local, "seen": time.monotonic()}
         elif kind == "U":
             h = self.hosts.get(r.s())
@@ -154,7 +156,7 @@ class PinkshakeLobby:
             body = bytearray()
             n = 0
             for hid, h in list(self.hosts.items())[:MAX_LIST]:
-                item = _s(hid) + _s(h["name"]) + bytes([h["scene"], h["players"], h["max"]])
+                item = _s(hid) + _s(h["name"]) + bytes([h["scene"], h["players"], h["max"], h["flags"]])
                 if 2 + len(body) + len(item) > limit:
                     break
                 body += item
