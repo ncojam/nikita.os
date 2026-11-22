@@ -33,8 +33,9 @@
 Старые данные: `chosen` → `path`, пункты-билеты, привязанные к перегону, → флаг `bought` у перегона.
 Поездка с `private` отдаётся только владельцу.
 
-Лежит в NOS_DATA/trip.json. Файл версии 2 (одна поездка) при первом запуске оборачивается в поездку «Кансай»,
-рядом остаётся копия trip.json.v2. Новая установка начинается с trip_seed.py.
+Лежит в NOS_DATA/trip.json. Новая установка начинается с одной пустой поездки.
+Старая поездка «Кансай» (id kansai) снесена: при запуске она удаляется вместе с копией trip.json.v2
+и своими пешими путями в кэше.
 
 Пеший путь сервер берёт сам: посетители не ходят во внешние сервисы, а готовый ответ лежит в
 NOS_DATA/trip_legs.json навсегда (одна пара точек — один запрос). Маршрут — OSRM FOSSGIS на данных OSM,
@@ -55,7 +56,6 @@ import aiohttp
 from aiohttp import web
 
 from posts import _CTRL
-from trip_seed import SEED, UPDATED, VERSION
 
 log = logging.getLogger("nikita.os.trip")
 
@@ -184,33 +184,12 @@ def money(v):
     return round(n, 2)
 
 
-def wrap_trip(old):
-    """Одиночный план версии 2 → поездка «Кансай» внутри нового хранилища."""
-    return {"id": "kansai", "name": "Кансай 2027 · BitSummit", "icon": "🏯", "cur": "¥", "private": False,
-            "days": old["days"], "places": old["places"], "cards": old["cards"], "stays": old["stays"],
-            "routes": [], "todos": [], "path": []}
+def blank_trip(name="Поездка"):
+    return {"id": uuid.uuid4().hex[:10], "name": name, "icon": "🧳", "cur": "₽", "private": False,
+            "days": {}, "places": [], "cards": [], "stays": [], "routes": [], "todos": [], "path": []}
 
 
-def legacy_migrate(d):
-    """Доносит новое из trip_seed.py в план версии 2, не трогая правки владельца (до оборачивания в проекты)."""
-    if d.get("v", 1) >= VERSION:
-        return
-    seed = json.loads(json.dumps(SEED))
-    d.setdefault("stays", seed["stays"])
-    have = {c["id"]: c for c in d["cards"]}
-    for c in d["cards"]:
-        c.setdefault("leg", "walk")
-    for c in seed["cards"]:
-        old = have.get(c["id"])
-        if old is None:
-            if c["date"] in {x["date"] for x in d["cards"]}:
-                d["cards"].append(c)
-        elif c["id"] in UPDATED and (old["time"], old["comment"]) == UPDATED[c["id"]]:
-            old.update(time=c["time"], comment=c["comment"], leg=c["leg"])
-    used = {c["place"] for c in d["cards"]}
-    known = {p["id"] for p in d["places"]}
-    d["places"] += [p for p in seed["places"] if p["id"] in used and p["id"] not in known]
-    d["v"] = VERSION
+GONE_TRIPS = {"kansai"}     # снесённые поездки: удаляются при запуске
 
 
 class Trip:
@@ -225,20 +204,14 @@ class Trip:
         except (OSError, ValueError):
             self.legs = {}
         self.leg_lock = asyncio.Lock()
+        self.drop_gone()
 
     def load(self):
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             raw = None
-        if raw is None:
-            self.data = {"v": DOC_VERSION, "trips": [wrap_trip(json.loads(json.dumps(SEED)))]}
-        elif "trips" in raw:
-            self.data = raw
-        else:   # версия 2: одна поездка. Копия — на случай отката
-            legacy_migrate(raw)
-            self.path.with_suffix(".json.v2").write_text(self.path.read_text(encoding="utf-8"), encoding="utf-8")
-            self.data = {"v": DOC_VERSION, "trips": [wrap_trip(raw)]}
+        self.data = raw if raw and "trips" in raw else {"v": DOC_VERSION, "trips": []}
         for t in self.data["trips"]:
             t.setdefault("routes", [])
             t.setdefault("todos", [])
@@ -246,6 +219,23 @@ class Trip:
             t.setdefault("private", False)
             t.setdefault("cur", "₽")
             t.setdefault("icon", "🧳")
+
+    def drop_gone(self):
+        """Сносит поездки из GONE_TRIPS: план, копию trip.json.v2 и пешие пути только по их местам."""
+        trips = self.data["trips"]
+        gone = [t for t in trips if t["id"] in GONE_TRIPS]
+        keep = [t for t in trips if t["id"] not in GONE_TRIPS]
+        pt = lambda p: f'{p["lat"]},{p["lng"]}'
+        used = {pt(p) for t in keep for p in t["places"]}
+        dead = {pt(p) for t in gone for p in t["places"]} - used
+        legs = {k: v for k, v in self.legs.items() if not any(x in dead for x in k.split(">"))}
+        if len(legs) != len(self.legs):
+            self.legs = legs
+            tmp = self.legs_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(legs, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.legs_path)
+        self.path.with_suffix(".json.v2").unlink(missing_ok=True)
+        self.data["trips"] = keep or [blank_trip()]
         self.save()
 
     @staticmethod
@@ -368,8 +358,7 @@ class Trip:
         fields = {"name": name, "icon": clean(b.get("icon"), 8) or "🧳", "cur": clean(b.get("cur"), 4) or "₽",
                   "private": bool(b.get("private"))}
         if t is None:
-            trips.append({"id": uuid.uuid4().hex[:10], **fields, "days": {}, "places": [], "cards": [], "stays": [],
-                          "routes": [], "todos": [], "path": []})
+            trips.append({**blank_trip(), **fields})
         else:
             t.update(fields)
         self.save()

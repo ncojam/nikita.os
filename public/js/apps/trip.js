@@ -221,7 +221,7 @@ async function ensureMap() {
   mapWin = WM.open({ title: "Карта поездки", icon: "🗺️", width: 760, height: 560, key: "trip:map", render(c, w) {
     const box = el("div", { className: "trp-map no-i18n" });
     c.append(box);
-    map = new maplibregl.Map({ container: box, style, center: [135.55, 34.85], zoom: 8, dragRotate: false, pitchWithRotate: false,
+    map = new maplibregl.Map({ container: box, style, center: [60, 58], zoom: 3, dragRotate: false, pitchWithRotate: false,
       attributionControl: { compact: true } });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
     map.on("load", () => {
