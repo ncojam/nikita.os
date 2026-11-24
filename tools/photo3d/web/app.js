@@ -4,7 +4,9 @@ import { buildGeometry, parseNVX, placeCamera } from "/site/js/apps/photo/nvx.js
 const $ = s => document.querySelector(s);
 const api = (u, o) => fetch(u, o).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); });
 const fileUrl = p => "/api/file?path=" + encodeURIComponent(p) + "&t=" + Date.now();
-let cur = null, items = [], sel = new Set(), tab = "img", watching = false;
+let cur = null, items = [], sel = new Set(), tab = "img", watching = false, anchor = -1;
+const paint = () => { document.querySelectorAll(".card").forEach((x, i) => x.classList.toggle("sel", sel.has(items[i]?.path))); showSel(); };
+const selectAll = () => { sel = new Set(items.map(i => i.path)); paint(); };
 
 async function state() {
   const s = await api("/api/state");
@@ -33,10 +35,12 @@ function card(it) {
   c.querySelector("img").src = fileUrl(it.path);
   c.querySelector(".nm").textContent = it.name;
   c.onclick = e => {
-    if (e.ctrlKey || e.metaKey) sel.has(it.path) ? sel.delete(it.path) : sel.add(it.path);
+    const i = items.indexOf(it);
+    if (e.shiftKey && anchor >= 0) { const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)]; for (let k = a; k <= b; k++) sel.add(items[k].path); }
+    else if (e.ctrlKey || e.metaKey) sel.has(it.path) ? sel.delete(it.path) : sel.add(it.path);
     else sel = new Set([it.path]);
-    document.querySelectorAll(".card").forEach((x, i) => x.classList.toggle("sel", sel.has(items[i].path)));
-    showSel();
+    if (!e.shiftKey) anchor = i;
+    paint();
   };
   return c;
 }
@@ -47,6 +51,8 @@ function showSel() {
   $("#hint").style.display = sel.size ? "none" : "";
   $("#doScene").disabled = sel.size !== 1;
   $("#doDepth").disabled = !sel.size;
+  $("#doDepth").title = sel.size ? "" : "Сначала выбери картинки слева";
+  $("#doScene").title = sel.size === 1 ? "" : "Сцена делается по одной картинке — выбери одну";
   setTab(tab);
 }
 
@@ -143,6 +149,11 @@ $("#doScene").onclick = () => {
   tab = "3d";
 };
 $("#site").onclick = () => job({ kind: "site" });
+$("#all").onclick = selectAll;
+$("#none").onclick = () => { sel.clear(); paint(); };
+addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.code === "KeyA" && !e.target.closest("input, select, textarea")) { e.preventDefault(); selectAll(); }
+});
 document.querySelectorAll("input[name=mode]").forEach(r => r.onchange = () => document.body.classList.toggle("mc", r.value === "minecraft" && r.checked));
 $("#go").onclick = () => open($("#dir").value);
 $("#dir").onkeydown = e => { if (e.key === "Enter") open($("#dir").value); };

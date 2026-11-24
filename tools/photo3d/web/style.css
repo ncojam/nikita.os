@@ -10,6 +10,9 @@ header { display: flex; gap: 8px; align-items: center; padding: 10px 14px; borde
 main { display: flex; height: calc(100% - 55px); }
 #left { flex: 1; overflow: auto; padding: 12px; border-right: 1px solid var(--line); }
 #right { flex: 0 0 520px; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+#pick { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+#pick span { color: var(--muted); font-size: 12px; }
+#imgs { user-select: none; }
 #dirs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 #dirs button { background: #1a1a24; }
 #imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }

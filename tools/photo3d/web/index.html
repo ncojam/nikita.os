@@ -17,6 +17,8 @@
 </header>
 <main>
   <section id="left">
+    <div id="pick"><button id="all" title="Ctrl+A">☑ Выбрать все</button><button id="none">Снять выбор</button>
+      <span>клик — одна · Ctrl — добавить · Shift — диапазон · Ctrl+A — все</span></div>
     <div id="dirs"></div>
     <div id="imgs"></div>
   </section>
@@ -27,7 +29,7 @@
       <h3>🌊 Глубина</h3>
       <label>Модель <select id="model"><option value="small">small — быстро</option><option value="base" selected>base — по умолчанию</option><option value="large">large — лучше, медленно</option></select></label>
       <label>Детали <select id="res"><option>518</option><option>770</option><option>1036</option></select></label>
-      <button id="doDepth">Посчитать для выбранных</button>
+      <button id="doDepth" title="Сначала выбери картинки слева">Посчитать для выбранных</button>
     </div>
     <div class="box">
       <h3>🧊 Сцена</h3>
