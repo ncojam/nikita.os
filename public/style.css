@@ -2266,3 +2266,15 @@ a.nw-chip:hover { border-color: var(--mt); }
 .dj-meter { height: 36px; }
 .dj-mid { display: flex; align-items: center; gap: 10px; justify-content: center; }
 .dj-xf { width: min(420px, 50%); }
+
+/* ---------- пуск: категории приложений ---------- */
+#start-menu button.sm-cat { font-weight: 600; }
+#start-menu .sm-cat-list { margin-left: 10px; }
+
+/* ---------- 🔌 провода: кнопка на панели задач и док источников ---------- */
+#wires-btn.on { background: rgba(184,245,158,.22); color: #b8f59e; }
+.dw-srcdock { position: fixed; right: 8px; top: 50%; transform: translateY(-50%); z-index: 2147482990; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.dw-srcdock:empty { display: none; }
+.dw-dockrow { display: flex; align-items: center; gap: 6px; justify-content: flex-end; pointer-events: auto; }
+.dw-dockname { background: rgba(10,10,14,.7); color: var(--text); border: 1px solid var(--glass-border); border-radius: 8px; padding: 3px 8px; font: inherit; font-size: 11.5px; cursor: pointer; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-srcdock .dw-jack { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--jc); background: radial-gradient(circle, #1a1130 35%, var(--jc) 36%, var(--jc) 55%, transparent 56%); cursor: grab; padding: 0; }

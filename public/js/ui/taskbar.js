@@ -1,5 +1,5 @@
 import { D, EASE } from "../core/anim.js";
-import { $ } from "../core/util.js";
+import { $, store } from "../core/util.js";
 import { openAbout } from "../open.js";
 import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openSettings, openShare, openKana, openPalette, openRig, openScripts, openSound, openDJ, openThawLab, openTrip } from "../apps/lazy.js";
 import { WM } from "../wm.js";
@@ -58,6 +58,21 @@ const syncFs = () => {
 
 /* запуск — вызывается из main.js */
 export function init_ui_taskbar() {
+  // категории «Приложений»: открытые в прошлый раз — открыты
+  const cats = new Set(store.get("sm.cats", ["sys", "music"]));
+  startMenu.querySelectorAll(".sm-cat").forEach(b => {
+    const on = cats.has(b.dataset.cat);
+    b.setAttribute("aria-expanded", on);
+    startMenu.querySelector(`.sm-cat-list[data-cat="${b.dataset.cat}"]`).hidden = !on;
+  });
+  // 🔌 провода поверх окон — для всех источников (системная стойка, DAWN), даже если их окна закрыты
+  const wb = $("#wires-btn");
+  const paintWires = on => { wb.classList.toggle("on", on); wb.setAttribute("aria-pressed", on); wb.title = on ? "Провода поверх окон: вкл" : "Провода поверх окон: выкл"; };
+  paintWires(store.get("wires.show", false));
+  addEventListener("nos-wires", e => paintWires(e.detail));
+  wb.onclick = async () => { const { Mod } = await import("../apps/dawn/mod.js"); Mod.setShowWires(!Mod.showWires); };
+  if (store.get("wires.show", false) && (store.get("rig", null)?.mods || []).some(m => m.wires?.length))
+    setTimeout(() => import("../apps/dawn/mod.js").then(({ Mod, Wires }) => { if (Mod.showWires) Wires.show(); }), 1500);
   startBtn.onclick = e => { e.stopPropagation(); toggleStart(!startBtn.classList.contains("on")); };
 
   document.addEventListener("pointerdown", e => {
@@ -66,6 +81,15 @@ export function init_ui_taskbar() {
 
   startMenu.addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
+    if (b.classList.contains("sm-cat")) {   // категория приложений: раскрыть/свернуть, запомнить
+      const open = b.getAttribute("aria-expanded") !== "true";
+      b.setAttribute("aria-expanded", open);
+      startMenu.querySelector(`.sm-cat-list[data-cat="${b.dataset.cat}"]`).hidden = !open;
+      const cats = new Set(store.get("sm.cats", ["sys", "music"]));
+      open ? cats.add(b.dataset.cat) : cats.delete(b.dataset.cat);
+      store.set("sm.cats", [...cats]);
+      return;
+    }
     if (b.id === "sm-apps") {   // раскрыть/свернуть «Приложения», меню остаётся
       const open = b.getAttribute("aria-expanded") !== "true";
       b.setAttribute("aria-expanded", open);

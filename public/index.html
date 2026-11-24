@@ -19,25 +19,37 @@
     <button data-open="/home/nikita/Projects">📁 Projects</button>
     <button id="sm-apps" aria-expanded="false" aria-controls="sm-apps-list">🧩 Приложения <span class="sm-arrow">▸</span></button>
     <div id="sm-apps-list" class="sm-sub" hidden>
-      <button data-open="/home/nikita">🗂️ Проводник</button>
-      <button data-app="browser">🌐 Браузер</button>
-      <button data-app="dawn">🌸 DAWN</button>
-      <button data-app="rig" data-arg="auto" class="sm-child">🔌 Автоматизация</button>
-      <button data-app="rig" data-arg="gen" class="sm-child">∿ Генераторы</button>
-      <button data-app="rig" data-arg="pedals" class="sm-child">🎛 Педали</button>
-      <button data-app="dj">🎧 Пульт</button>
-      <button data-app="sound">🔊 Звук</button>
-      <button data-app="scripts">📜 Скрипты</button>
-      <button data-app="trip">🧳 Поездка</button>
-      <button data-app="thawlab">🛹 THAW Lab</button>
-      <button data-app="kana">🎌 Кана</button>
-      <button data-app="palette">🎨 Палитра</button>
-      <button data-app="chat">💬 Чат</button>
-      <button data-app="airhockey">🍒 Джус</button>
-      <button data-app="dungeon">🤡 Clown Dungeon</button>
-      <button data-app="settings">⚙️ Настройки</button>
-      <button data-app="about">ℹ️ О системе</button>
-      <button id="sm-share" data-app="share" hidden>📤 Файлы</button>
+      <button class="sm-cat" data-cat="sys" aria-expanded="false">🗂️ Система <span class="sm-arrow">▸</span></button>
+      <div class="sm-sub sm-cat-list" data-cat="sys" hidden>
+        <button data-open="/home/nikita">🗂️ Проводник</button>
+        <button data-app="browser">🌐 Браузер</button>
+        <button data-app="sound">🔊 Звук</button>
+        <button data-app="scripts">📜 Скрипты</button>
+        <button data-app="settings">⚙️ Настройки</button>
+        <button data-app="about">ℹ️ О системе</button>
+        <button id="sm-share" data-app="share" hidden>📤 Файлы</button>
+      </div>
+      <button class="sm-cat" data-cat="music" aria-expanded="false">🎵 Музыка <span class="sm-arrow">▸</span></button>
+      <div class="sm-sub sm-cat-list" data-cat="music" hidden>
+        <button data-app="dawn">🌸 DAWN</button>
+        <button data-app="rig" data-arg="auto" class="sm-child">🔌 Автоматизация</button>
+        <button data-app="rig" data-arg="gen" class="sm-child">∿ Генераторы</button>
+        <button data-app="rig" data-arg="pedals" class="sm-child">🎛 Педали</button>
+        <button data-app="dj">🎧 Пульт</button>
+      </div>
+      <button class="sm-cat" data-cat="games" aria-expanded="false">🎮 Игры <span class="sm-arrow">▸</span></button>
+      <div class="sm-sub sm-cat-list" data-cat="games" hidden>
+        <button data-app="airhockey">🍒 Джус</button>
+        <button data-app="dungeon">🤡 Clown Dungeon</button>
+      </div>
+      <button class="sm-cat" data-cat="tools" aria-expanded="false">🧭 Полезное <span class="sm-arrow">▸</span></button>
+      <div class="sm-sub sm-cat-list" data-cat="tools" hidden>
+        <button data-app="trip">🧳 Поездка</button>
+        <button data-app="thawlab">🛹 THAW Lab</button>
+        <button data-app="kana">🎌 Кана</button>
+        <button data-app="palette">🎨 Палитра</button>
+        <button data-app="chat">💬 Чат</button>
+      </div>
     </div>
     <button data-app="browser">🌐 Браузер</button>
     <button data-app="dawn">🌸 DAWN</button>
@@ -54,6 +66,9 @@
       <svg class="stroke" viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/></svg>
     </button>
     <div id="task-list"></div>
+    <button id="wires-btn" class="tb-btn" title="Провода поверх окон" aria-label="Провода" aria-pressed="false">
+      <svg class="stroke" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v2a3 3 0 0 0 3 3h4"/></svg>
+    </button>
     <button id="fs-btn" class="tb-btn" title="Полный экран" aria-label="Полный экран">
       <svg id="fs-enter" class="stroke" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
       <svg id="fs-exit" class="stroke" viewBox="0 0 24 24" hidden><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>

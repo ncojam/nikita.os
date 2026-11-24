@@ -1,7 +1,7 @@
 import { Bus } from "../../core/bus.js";
 import { gridButton } from "../../ui/grid.js";
 import { UIParams } from "../../core/uiparams.js";
-import { el } from "../../core/util.js";
+import { el, store } from "../../core/util.js";
 import { notify } from "../../ui/notify.js";
 import { Engine, PASTEL } from "./engine.js";
 import { LFO_SHAPES, LFO_SYNC, dawnParam, dawnTargets, srcValue, withSrc } from "./modcore.js";
@@ -22,7 +22,14 @@ import { ModView, dwBtn, knob, pal, select, shell } from "./ui.js";
 const isDawn = a => a.startsWith("ch.") || a.startsWith("mix.") || a.startsWith("pedal.");
 
 export const Mod = {
-  showWires: false, focus: null, Dawn: null,
+  showWires: store.get("wires.show", false), focus: null, Dawn: null,
+  /* провода поверх всех окон — общий переключатель ОС (кнопка 🔌 на панели задач и в окнах модуляции) */
+  setShowWires(on) {
+    this.showWires = on;
+    store.set("wires.show", on);
+    on || this.focus ? Wires.show() : Wires.hide();
+    dispatchEvent(new CustomEvent("nos-wires", { detail: on }));
+  },
   start() {
     Bus.attach("dawn", {
       mods: () => Engine.project?.mods || [],
@@ -37,7 +44,7 @@ export const Mod = {
   stop() {
     Bus.detach("dawn");
     Engine.G?.applyOver(new Map());
-    if (!Bus.rig.mods.length) Wires.hide();
+    if (!Mod.showWires) Wires.hide();
   },
   /* значение источника прямо сейчас: системный — по часам шины, проектный — по песне/паттерну
    * (LFO проекта — свои часы звука: качает и на остановленном транспорте) */
@@ -88,7 +95,7 @@ const Wires = {
     return this.svg;
   },
   show() { this.ensure(); cancelAnimationFrame(this.raf); const f = () => { this.draw(); this.raf = requestAnimationFrame(f); }; f(); },
-  hide() { cancelAnimationFrame(this.raf); this.raf = 0; if (this.svg) this.svg.replaceChildren(); this.tags([]); },
+  hide() { cancelAnimationFrame(this.raf); this.raf = 0; if (this.svg) this.svg.replaceChildren(); this.tags([]); this.dock([]); },
   path(x1, y1, x2, y2, color, width = 2.5, dash = "") {
     const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
     const sag = Math.min(160, Math.hypot(x2 - x1, y2 - y1) * 0.35 + 30);   // провисает, как кабель
@@ -131,6 +138,28 @@ const Wires = {
     }
     list.forEach((t, i) => { const b = this.tagsBox.children[i]; b.style.left = t.x + "px"; b.style.top = t.y + "px"; });
   },
+  /* док источников: окно источника закрыто — его гнездо у правого края экрана, провода тянутся оттуда.
+   * Из гнезда в доке можно тянуть новый провод; клик по имени — открыть окно источника */
+  dockBox: null, dockKey: "",
+  dock(list) {
+    const key = list.map(s => s.id + s.color + s.name).join("|");
+    if (key === this.dockKey) return;
+    this.dockKey = key;
+    if (!this.dockBox) { this.dockBox = document.createElement("div"); this.dockBox.className = "dw-srcdock"; document.body.append(this.dockBox); }
+    this.dockBox.replaceChildren(...list.map(src => {
+      const jack = document.createElement("button");
+      jack.className = "dw-jack"; jack.dataset.src = src.id; jack.title = "Тяни провод на крутилку";
+      jack.style.setProperty("--jc", src.color);
+      jack.onpointerdown = e => this.start(e, src, jack);
+      const name = document.createElement("button");
+      name.className = "dw-dockname"; name.textContent = src.name; name.title = "Открыть окно источника";
+      name.onclick = () => Bus.isSys(src) ? import("../rig/index.js").then(m => m.openRig(["lfo", "wind"].includes(src.type) ? "gen" : "auto")) : Mod.Dawn?.open?.("mods");
+      const row = document.createElement("div");
+      row.className = "dw-dockrow"; row.append(name, jack);
+      return row;
+    }));
+  },
+
   /* ---------- физика: провод — верёвка из точек (Verlet), концы прибиты к гнезду и цели ---------- */
   ropes: new Map(), ends: [], last: 0,
   rope(key, x1, y1, x2, y2) {
@@ -178,8 +207,12 @@ const Wires = {
     const mods = [...(Engine.project?.mods || []), ...Bus.rig.mods];
     const wind = Math.min(2, mods.filter(m => m.type === "wind").reduce((s, m) => s + Mod.value(m), 0));
     const srcs = mods.filter(s => Mod.showWires || s.id === Mod.focus);
+    const docked = [];
+    const jackOf = src => [...document.querySelectorAll(`.dw-jack[data-src="${src.id}"]`)].find(j => !j.closest(".dw-srcdock") && this.visible(j));
+    for (const src of srcs) if (src.wires.length && !jackOf(src)) docked.push(src);
+    this.dock(Mod.showWires ? docked : []);
     for (const src of srcs) {
-      const jack = document.querySelector(`.dw-jack[data-src="${src.id}"]`);
+      const jack = jackOf(src) || this.dockBox?.querySelector(`.dw-jack[data-src="${src.id}"]`);
       if (!this.visible(jack)) continue;
       const [x1, y1] = this.center(jack);
       let k = 0;
@@ -315,7 +348,7 @@ export const MODS = {
         S.id === "sys" ? el("label", { className: "dw-dim dw-bpm", title: "Темп часов ОС: по нему идут LFO и огибающие системной стойки" }, "BPM ",
           el("input", { className: "dw-num", type: "number", min: 20, max: 300, value: Bus.rig.bpm, onchange: e => { Bus.rig.bpm = Math.max(20, Math.min(300, +e.target.value || 120)); Bus.changed({ param: true }); } })) : "",
         dwBtn(Mod.showWires ? "🔌 Провода: вкл" : "🔌 Провода: выкл", () => {
-          Mod.showWires = !Mod.showWires; Mod.showWires || Mod.focus ? Wires.show() : Wires.hide(); build();
+          Mod.setShowWires(!Mod.showWires); build();
         }, { className: "dw-btn" + (Mod.showWires ? " on" : ""), title: "Рисовать провода поверх всех окон" }),
         el("span", { className: "dw-dim", textContent: "Тяни ● на любую крутилку или ползунок ОС · клик по карточке — её провода" }));
       meters = [];
