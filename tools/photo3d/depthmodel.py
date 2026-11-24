@@ -145,9 +145,11 @@ def prepare_site(repo, say=print):
         with urllib.request.urlopen(req, timeout=120) as r:
             data = r.read()
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
-            for f in ORT_FILES + ("LICENSE",):
-                m = tf.getmember("package/dist/" + f if f != "LICENSE" else "package/LICENSE")
-                with tf.extractfile(m) as src, open(out / f, "wb") as dst:
+            for f in ORT_FILES:
+                with tf.extractfile(tf.getmember("package/dist/" + f)) as src, open(out / f, "wb") as dst:
                     shutil.copyfileobj(src, dst)
+        # в npm-пакете нет файла лицензии — пишем короткую справку сами
+        (out / "LICENSE.txt").write_text(f"onnxruntime-web {ORT_WEB} — MIT License, (c) Microsoft Corporation. https://github.com/microsoft/onnxruntime\n"
+                                         "Depth Anything V2 Small — Apache-2.0. https://huggingface.co/depth-anything/Depth-Anything-V2-Small\n", "utf-8")
     say(f"✓ Готово: {out} — скопируй папку fs/usr/share/depth на сервер (как остальные файлы fs/)")
     return out

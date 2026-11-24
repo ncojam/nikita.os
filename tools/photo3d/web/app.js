@@ -71,6 +71,7 @@ async function preview3d(path) {
   const S = parseNVX(await (await fetch(fileUrl(path))).arrayBuffer());
   const box = $("#v3");
   box.replaceChildren();
+  if (S.count > 1_500_000) { box.textContent = `Сцена слишком большая для превью (${S.count.toLocaleString()} вокселей) — уменьши разрешение или задай «Блоков до центра»`; return { stop() {} }; }
   const r = new T.WebGLRenderer({ antialias: true });
   box.append(r.domElement);
   const scene = new T.Scene(); scene.background = new T.Color(0x07070a);

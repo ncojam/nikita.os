@@ -278,7 +278,7 @@ def mc_try(D, fov, k_range):
     Wn = nf @ R.T
     w8 = 1.0 / zf                   # ближнее точнее — весит больше
     zm = float(np.median(z[sky]))
-    s, score, offs = grid_fit(Wp, Wn, w8, zm / 400, zm / 2)
+    s, score, offs = grid_fit(Wp, Wn, w8, zm / 150, zm / 2)   # от 2 до 150 блоков до середины кадра
     return {"R": R, "s": s, "score": score, "offs": offs, "P": P, "n": n, "z": z, "f": f}
 
 
@@ -315,6 +315,9 @@ def minecraft_scene(rgb, D, fov=70.0, k_range=None, blocks=None, fill=True, max_
         _, _, offs = grid_fit(P[sky] @ R.T, n[sky] @ R.T, 1 / z[sky], s * 0.999, s * 1.001, n=3)
     if not s:
         raise ValueError("Не получилось найти размер блока — задай «блоков до центра» руками")
+    zc = float(np.median(z[D > 0.02]))
+    if zc / s > 400:
+        raise ValueError(f"Блок вышел слишком мелким ({zc / s:.0f} блоков до середины кадра) — задай «Блоков до центра» руками")
     keep = D > 0.02
     W = P[keep] @ R.T
     Nw = n[keep] @ R.T
@@ -322,6 +325,8 @@ def minecraft_scene(rgb, D, fov=70.0, k_range=None, blocks=None, fill=True, max_
     vox, col, cnt = voxelize(W_in, rgb.reshape(h, w, 3)[keep], s, origin=offs, min_pts=min_pts)
     # в единицах блока: 1 блок = 1 (как метр в игре)
     filled = 0
+    if fill and len(vox) > MAX_FILL_FROM:
+        fill = False      # слишком много блоков — дозаполнение съест память; сцена без него
     if fill and len(vox):
         fv, fc = mc_fill(vox, col)
         if len(fv):
@@ -335,7 +340,11 @@ def minecraft_scene(rgb, D, fov=70.0, k_range=None, blocks=None, fill=True, max_
     return head, vox, col
 
 
-def mc_fill(vox, col, max_depth=48):
+MAX_FILL_FROM = 120_000     # больше блоков — не дозаполняем
+MAX_FILL = 400_000          # и дорисовываем не больше стольких
+
+
+def mc_fill(vox, col, max_depth=24):
     """Досыпать столбцы вниз: под каждой видимой верхушкой — до земли соседних столбцов (5×5)."""
     have = {tuple(v) for v in vox.tolist()}
     cols = {}
@@ -352,6 +361,8 @@ def mc_fill(vox, col, max_depth=48):
             if (x, yy, z) in have:
                 break
             have.add((x, yy, z)); out_v.append((x, yy, z)); out_c.append(c)
+        if len(out_v) >= MAX_FILL:
+            break
     if not out_v:
         return np.zeros((0, 3), np.int32), np.zeros((0, 3), np.uint8)
     return np.array(out_v, np.int32), np.array(out_c, np.uint8)

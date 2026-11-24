@@ -16,10 +16,10 @@
 import argparse
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
-import traceback
 import webbrowser
 from pathlib import Path
 
@@ -80,6 +80,25 @@ def run_scene(path, mode="photo", fov=None, k_range=None, res=256, blocks=None, 
 # ======================= задачи (по одной, в фоне) =======================
 
 class Jobs:
+    @staticmethod
+    def run_cli(args, say):
+        p = subprocess.Popen([sys.executable, "-u", str(Path(__file__).resolve()), *args],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        tail = []
+        for line in p.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            tail = (tail + [line])[-8:]
+            if not line.startswith(("Traceback", "  ", "⚠")):
+                say(line)
+        code = p.wait()
+        if code < 0:
+            raise RuntimeError(f"процесс упал (сигнал {-code}) — скорее всего, не хватило памяти. Попробуй задать «Блоков до центра» или выключить дозаполнение")
+        if code:
+            last = next((l for l in reversed(tail) if l.strip() and not l.startswith(" ")), f"код {code}")
+            raise RuntimeError(last.removeprefix("⚠ "))
+
     def __init__(self):
         self.q = queue.Queue()
         self.list = []
@@ -106,20 +125,31 @@ class Jobs:
                 del j["log"][:-40]
             try:
                 a = j["args"]
-                if j["kind"] == "depth":
-                    j["result"] = [run_depth(p, a.get("model", "base"), int(a.get("res", 518)), say) for p in a["paths"]]
-                elif j["kind"] == "scene":
-                    j["result"] = run_scene(a["path"], a.get("mode", "photo"), a.get("fov"), a.get("range"), int(a.get("res", 256)),
-                                            a.get("blocks"), bool(a.get("fill", True)), a.get("model", "base"), say)
-                elif j["kind"] == "site":
-                    j["result"] = str(depthmodel.prepare_site(REPO, say))
-                elif j["kind"] == "model":
+                if j["kind"] == "model":
                     j["result"] = str(depthmodel.ensure_model(a.get("model", "base"), say))
+                else:
+                    # тяжёлое — отдельным процессом: если он упадёт (память, драйвер), интерфейс останется жив
+                    self.run_cli(cli_args(j["kind"], a), say)
                 j["state"] = "готово"
             except Exception as e:
                 j["state"] = "ошибка"
                 say("⚠ " + str(e))
-                traceback.print_exc()
+
+
+def cli_args(kind, a):
+    if kind == "depth":
+        return ["depth", *a["paths"], "--model", a.get("model", "base"), "--res", str(int(a.get("res", 518)))]
+    if kind == "site":
+        return ["site"]
+    if kind == "scene":
+        r = ["scene", a["path"], "--mode", a.get("mode", "photo"), "--res", str(int(a.get("res") or 256)), "--model", a.get("model", "base")]
+        for k in ("fov", "range", "blocks"):
+            if a.get(k) is not None:
+                r += ["--" + k, str(float(a[k]))]
+        if not a.get("fill", True):
+            r.append("--no-fill")
+        return r
+    raise ValueError("kind?")
 
 
 # ======================= веб-интерфейс =======================
@@ -226,4 +256,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:      # понятная строка вместо трейсбека (её же покажет интерфейс)
+        print("⚠ " + str(e), flush=True)
+        sys.exit(1)
