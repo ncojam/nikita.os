@@ -47,7 +47,7 @@ export function createSky(box, { seed = "", visible = () => true } = {}) {
   function draw(cam, T, t) {
     const [W, H] = size(back); size(front);
     const v = new T.Vector3(), fwd = new T.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-    const far = 1000;
+    const far = (cam.near + cam.far) / 2;   // точка «на небе» — внутри видимой глубины камеры, иначе её отбросит дальняя плоскость
     const proj = d => {   // направление → пиксели (null — за спиной или за краем)
       if (d[0] * fwd.x + d[1] * fwd.y + d[2] * fwd.z <= 0.02) return null;
       v.set(cam.position.x + d[0] * far, cam.position.y + d[1] * far, cam.position.z + d[2] * far).project(cam);
