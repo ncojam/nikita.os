@@ -6,6 +6,7 @@ import { WM } from "../../wm.js";
 import { Ambient } from "./ambient.js";
 import { computeDepth } from "./depth.js";
 import { Parallax } from "./parallax.js";
+import { Panorama } from "./panorama.js";
 
 /* ================= Просмотрщик фото: 🖼 фото · 🌊 параллакс · 🧊 3D =================
  * Данные лежат рядом с картинкой (общее правило сайта для «производных» файлов):
@@ -70,26 +71,28 @@ export function openPhoto(path, opts = {}) {
 function mount(c, w, path, opts, nav) {
   const name = baseName(path);
   {
-    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, vol: 0.6, win: 0.5, pt: 1.2, collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
+    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, vol: 0.6, win: 0.5, yaw: 0, pitch: 0, fov: 80, spin: 0, planet: 0, pt: 1.2, collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
     const stage = el("div", { className: "ph-stage" });
     const img = el("img", { className: "ph-img", alt: name, src: fsUrl(path) });
     const canvas = el("canvas", { className: "ph-canvas", hidden: true });
+    const panoCv = el("canvas", { className: "ph-canvas ph-pano", hidden: true });
     const box3d = el("div", { className: "ph-3d", hidden: true });
     const info = el("div", { className: "ph-info" });
     const bPrev = el("button", { className: "ph-nav prev", textContent: "‹", title: "Предыдущая (←)", onclick: () => nav.step(-1) });
     const bNext = el("button", { className: "ph-nav next", textContent: "›", title: "Следующая (→)", onclick: () => nav.step(1) });
     const count = el("span", { className: "ph-count no-i18n" });
     nav.where().then(t => { count.textContent = t; bPrev.hidden = bNext.hidden = !t; });
-    stage.append(img, canvas, box3d, bPrev, bNext, info);
+    stage.append(img, canvas, panoCv, box3d, bPrev, bNext, info);
     const bFlat = el("button", { className: "ph-mode", textContent: "🖼 Фото" });
     const bPar = el("button", { className: "ph-mode", textContent: "🌊 Параллакс" });
     const b3d = el("button", { className: "ph-mode", textContent: "🧊 3D", disabled: true, title: "Сцену 3D делает тулчейн на компьютере (tools/photo3d) — файл <картинка>.scene.nvx" });
+    const bPano = el("button", { className: "ph-mode", textContent: "🌐 Панорама", title: "Сферическая панорама 360° (картинка 2:1): осмотреться вокруг, «маленькая планета»" });
     const tools = el("div", { className: "ph-tools" });
-    c.append(el("div", { className: "photo" }, stage, el("div", { className: "ph-bar" }, el("div", { className: "ph-modes" }, bFlat, bPar, b3d), tools, count)));
+    c.append(el("div", { className: "photo" }, stage, el("div", { className: "ph-bar" }, el("div", { className: "ph-modes" }, bFlat, bPar, b3d, bPano), tools, count)));
 
     let depthImg = null, depthFrom = "", par = null, s3d = null, raf = 0, dead = false;
     const say = (t, ms = 0) => { info.textContent = t; info.hidden = !t; if (ms) setTimeout(() => info.textContent === t && (info.hidden = true), ms); };
-    const save = () => store.set(SET, { vol: st.vol, win: st.win, strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, collide: st.collide });
+    const save = () => store.set(SET, { fov: st.fov, spin: st.spin, planet: st.planet, vol: st.vol, win: st.win, strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, collide: st.collide });
 
     /* ---------- ползунки (они же цели проводков) ---------- */
     const range = (label, key, min, max, step, onSet, title = "") => {
@@ -146,8 +149,8 @@ function mount(c, w, path, opts, nav) {
       if (m === "parallax" && !(await ensureDepth())) { if (st.mode !== "parallax") m = "flat"; else return; }
       if (dead) return;
       st.mode = m;
-      [bFlat, bPar, b3d].forEach((b, i) => b.classList.toggle("on", ["flat", "parallax", "3d"][i] === m));
-      img.hidden = m !== "flat"; canvas.hidden = m !== "parallax"; box3d.hidden = m !== "3d";
+      [bFlat, bPar, b3d, bPano].forEach((b, i) => b.classList.toggle("on", ["flat", "parallax", "3d", "pano"][i] === m));
+      img.hidden = m !== "flat"; canvas.hidden = m !== "parallax"; box3d.hidden = m !== "3d"; panoCv.hidden = m !== "pano";
       cancelAnimationFrame(raf);
       w.node.style.transform = "";
       if (m !== "3d" && s3d) { s3d.dispose(); s3d = null; }
@@ -155,6 +158,51 @@ function mount(c, w, path, opts, nav) {
       if (m === "flat") { tools.replaceChildren(el("span", { className: "ph-dim", textContent: "Двойной клик — во весь экран окна" })); say(""); return; }
       if (m === "parallax") return startParallax();
       if (m === "3d") return start3d();
+      if (m === "pano") return startPano();
+    }
+
+    /* ---------- 🌐 панорама: тянуть — осмотреться, колесо — ближе/дальше, ползунки — цели проводков ---------- */
+    let pano = null;
+    async function startPano() {
+      if (!pano) {
+        await img.decode().catch(() => {});
+        try { pano = new Panorama(panoCv, img); }
+        catch (e) { say("⚠ " + e.message); return; }
+      }
+      const W = img.naturalWidth, H = img.naturalHeight;
+      say(Math.abs(W / H - 2) > 0.15 ? "Похоже, это не панорама 360° (нужна картинка 2:1) — смотрится с искажениями" : "", 5000);
+      const sl = {};
+      const rng = (label, key, min, max, step, title) => { const r = range(label, key, min, max, step, null, title); sl[key] = r.querySelector("input"); return r; };
+      tools.replaceChildren(
+        rng("Поворот", "yaw", 0, 360, 0.1, "Куда смотреть по горизонту, ° — цель для проводков"),
+        rng("Наклон", "pitch", -89, 89, 0.1, "Вверх-вниз, °"),
+        rng("Обзор", "fov", 30, 120, 0.5, "Угол обзора, ° (колесо мыши)"),
+        rng("Авто", "spin", -30, 30, 0.5, "Сама поворачивается, °/с (0 — стоит)"),
+        rng("Планета", "planet", 0, 1, 0.01, "0 — обычный вид, 1 — «маленькая планета»"));
+      // тянуть мышью: как будто держишь панораму пальцем
+      let drag = null, vel = 0;
+      panoCv.onpointerdown = e => { drag = { x: e.clientX, y: e.clientY, t: performance.now() }; panoCv.setPointerCapture(e.pointerId); vel = 0; };
+      panoCv.onpointermove = e => {
+        if (!drag) return;
+        const k = st.fov / panoCv.clientHeight, dx = e.clientX - drag.x, dy = e.clientY - drag.y, now = performance.now();
+        st.yaw = ((st.yaw - dx * k) % 360 + 360) % 360;
+        st.pitch = Math.max(-89, Math.min(89, st.pitch + dy * k));
+        vel = -dx * k / Math.max(1, now - drag.t) * 1000;
+        drag = { x: e.clientX, y: e.clientY, t: now };
+      };
+      panoCv.onpointerup = () => { drag = null; };
+      panoCv.onwheel = e => { e.preventDefault(); st.fov = Math.max(30, Math.min(120, st.fov * Math.exp(e.deltaY * 0.001))); };
+      let last = performance.now(), lastSave = 0;
+      const tick = now => {
+        if (dead || st.mode !== "pano") return;
+        const dt = Math.min(0.1, (now - last) / 1000); last = now;
+        if (!drag) { st.yaw = ((st.yaw + (st.spin + vel) * dt) % 360 + 360) % 360; vel *= Math.pow(0.04, dt); }
+        for (const k of ["yaw", "pitch", "fov"]) if (document.activeElement !== sl[k] && Math.abs(+sl[k].value - st[k]) > 0.05) sl[k].value = st[k];
+        pano.set({ yaw: st.yaw, pitch: st.pitch, fov: st.fov, planet: st.planet });
+        if (now - lastSave > 1000) { lastSave = now; save(); }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
     }
 
     async function startParallax() {
@@ -217,16 +265,19 @@ function mount(c, w, path, opts, nav) {
     }
 
     bFlat.onclick = () => setMode("flat");
+    bPano.onclick = () => setMode("pano");
     bPar.onclick = () => setMode("parallax");
     b3d.onclick = () => setMode("3d");
     stage.ondblclick = () => WM.setMax(w, !w.maximized);
     fetch(fsUrl(path + ".scene.nvx"), { method: "HEAD", cache: "no-store" }).then(r => { if (r.ok) { b3d.disabled = false; b3d.title = "Воксельная сцена: облёт, ходьба, пол"; } }).catch(() => {});
 
-    w.cmd = () => `photo ${JSON.stringify(path)} ${st.mode} ${JSON.stringify({ strength: st.strength, focus: st.focus, x: st.x, y: st.y, win: st.win, cursor: st.cursor, eye: st.eye })}`;
-    const stop = () => { dead = true; cancelAnimationFrame(raf); w.node.style.transform = ""; par?.dispose(); s3d?.dispose(); };
+    w.cmd = () => `photo ${JSON.stringify(path)} ${st.mode} ${JSON.stringify({ strength: st.strength, focus: st.focus, x: st.x, y: st.y, win: st.win, cursor: st.cursor, eye: st.eye, yaw: +st.yaw.toFixed(1), pitch: +st.pitch.toFixed(1), fov: st.fov, spin: st.spin, planet: st.planet })}`;
+    const stop = () => { dead = true; cancelAnimationFrame(raf); w.node.style.transform = ""; par?.dispose(); s3d?.dispose(); pano?.dispose(); };
     const want = opts.mode || "flat";
     if (want !== "flat") setMode(want);
     else {
+      // картинка 2:1 — скорее всего панорама 360°: сразу открываем вокруг
+      img.decode().then(() => { if (!dead && st.mode === "flat" && Math.abs(img.naturalWidth / img.naturalHeight - 2) < 0.05) setMode("pano"); }).catch(() => {});
       setMode("flat");
       // глубина уже есть рядом — сразу оживляем (параллакс — главная фишка просмотрщика)
       fetch(fsUrl(path + ".depth.png"), { method: "HEAD", cache: "no-store" }).then(r => r.ok && !dead && st.mode === "flat" && setMode("parallax")).catch(() => {});

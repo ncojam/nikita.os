@@ -197,10 +197,10 @@ Cmd.add("rig.pedal", "rig.pedal <id> <тип> [off] [{параметры}]", "П
   Pedalboard.boot();
   Bus.changed({});
 });
-Cmd.add("photo", "photo <путь> [flat|parallax|3d] [{настройки}]", "Просмотрщик фото в режиме: фото, параллакс по глубине или 3D", async ([p, mode, set], ctx) => {
+Cmd.add("photo", "photo <путь> [flat|parallax|3d|pano] [{настройки}]", "Просмотрщик фото в режиме: фото, параллакс по глубине, 3D или панорама 360°", async ([p, mode, set], ctx) => {
   if (!p) throw new Error("нужен путь к картинке");
   const { openPhoto } = await import("../apps/photo/viewer.js");
-  ctx.win = openPhoto(p, { mode: ["flat", "parallax", "3d"].includes(mode) ? mode : "flat", set: set && typeof set === "object" ? set : undefined });
+  ctx.win = openPhoto(p, { mode: ["flat", "parallax", "3d", "pano"].includes(mode) ? mode : "flat", set: set && typeof set === "object" ? set : undefined });
 });
 const port = s => { const i = String(s || "").lastIndexOf("#"); return i < 0 ? [s, ""] : [s.slice(0, i), s.slice(i + 1)]; };
 Cmd.add("audio.route", "audio.route <откуда[#порт]> <куда[#порт]>", "Кабель звука ОС: player, dj.a, dj.b, pedal:<id>, mixer; порты — pedal:p1#2, pedal:p2#B", async ([from, to]) => {
