@@ -131,7 +131,7 @@ class Depth:
         d = d.reshape(d.shape[-2], d.shape[-1])
         d = (d - d.min()) / max(1e-6, float(d.max() - d.min()))
         k2 = min(1.0, 1024 / max(W0, H0))
-        img = Image.fromarray((d * 255).round().astype(np.uint8), "L").resize((round(W0 * k2), round(H0 * k2)), Image.BILINEAR)
+        img = Image.fromarray((d * 255).round().astype(np.uint8)).resize((round(W0 * k2), round(H0 * k2)), Image.BILINEAR)
         tmp = out.with_suffix(".tmp")
         img.save(tmp, "PNG")
         os.replace(tmp, out)

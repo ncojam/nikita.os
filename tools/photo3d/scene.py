@@ -57,7 +57,7 @@ def resize(a, w, h, nearest=False):
         return cv2.resize(a, (w, h), interpolation=cv2.INTER_NEAREST if nearest else cv2.INTER_AREA)
     from PIL import Image
     if a.dtype != np.uint8:
-        im = Image.fromarray(a.astype(np.float32), "F")
+        im = Image.fromarray(a.astype(np.float32))
         return np.asarray(im.resize((w, h), Image.NEAREST if nearest else Image.BILINEAR), dtype=np.float32)
     im = Image.fromarray(a)
     return np.asarray(im.resize((w, h), Image.NEAREST if nearest else Image.BILINEAR))

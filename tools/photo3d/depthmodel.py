@@ -105,10 +105,10 @@ def save_depth(d, size_wh, dst):
     """d 0..1 → 16-битный PNG размером с картинку (но ≤ 1024)."""
     W0, H0 = size_wh
     k = min(1.0, 1024 / max(W0, H0))
-    im = Image.fromarray(d.astype(np.float32), "F").resize((round(W0 * k), round(H0 * k)), Image.BILINEAR)
+    im = Image.fromarray(d.astype(np.float32)).resize((round(W0 * k), round(H0 * k)), Image.BILINEAR)
     a = np.clip(np.asarray(im) * 65535, 0, 65535).astype(np.uint16)
     tmp = str(dst) + ".tmp.png"
-    Image.fromarray(a, "I;16").save(tmp, "PNG")
+    Image.fromarray(a).save(tmp, "PNG")
     os.replace(tmp, dst)
 
 
