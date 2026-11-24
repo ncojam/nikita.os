@@ -20,12 +20,13 @@ import { init_wm } from "./wm.js";
 import { init_vfs } from "./core/vfs.js";
 import { init_params } from "./core/params.js";
 import "./core/uiparams.js";   // любые регуляторы и окна ОС — цели для проводков
+import { init_bus } from "./core/bus.js";   // шина сигналов: системная стойка (автоматизация и педали ОС)
 
 init_i18n();   // перевод интерфейса (DOM-наблюдатель) — до появления окон
 
 // пользовательский слой fs (Service Worker) — до первых запросов к /api/ls
 await init_vfs();
-init_params();   // параметры ОС для модуляции (etc/params.json) — в фоне
+init_params().then(init_bus);   // параметры ОС для модуляции (etc/params.json), затем шина — в фоне
 
 init_wm();
 init_remote_github();

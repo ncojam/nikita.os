@@ -208,7 +208,11 @@ const Player = {
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.82;
-      src.connect(this.analyser).connect(this.ctx.destination);
+      // гнездо для педалей ОС (apps/rig/pedalboard.js): звук → fxIn → [педали] → fxOut → анализатор → выход
+      this.fxIn = this.ctx.createGain(); this.fxOut = this.ctx.createGain();
+      src.connect(this.fxIn); this.fxIn.connect(this.fxOut); this.fxOut.connect(this.analyser).connect(this.ctx.destination);
+      globalThis.nosPlayerGraph = { ctx: this.ctx, fxIn: this.fxIn, fxOut: this.fxOut, analyser: this.analyser };
+      dispatchEvent(new CustomEvent("nos-player-graph", { detail: globalThis.nosPlayerGraph }));
     } catch (e) { console.warn("WebAudio:", e); }
   },
 

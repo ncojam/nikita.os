@@ -15,6 +15,7 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
     render(root, win) {
       let pendingSelect = opts.select || null;
       let cur = path, history = [], future = [];
+      win.cmd = () => "open " + JSON.stringify(cur);   // ⌘: эта же папка (core/cmd.js)
       const bBack = el("button", { textContent: "←", title: "Назад" });
       const bFwd = el("button", { textContent: "→", title: "Вперёд" });
       const bUp = el("button", { textContent: "↑", title: "Вверх" });

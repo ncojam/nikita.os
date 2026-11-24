@@ -1,9 +1,10 @@
-import { Params } from "../../core/params.js";
+import { Bus } from "../../core/bus.js";
+import { gridButton } from "../../ui/grid.js";
 import { UIParams } from "../../core/uiparams.js";
 import { el } from "../../core/util.js";
 import { notify } from "../../ui/notify.js";
 import { Engine, PASTEL } from "./engine.js";
-import { LFO_SHAPES, LFO_SYNC, computeOver, dawnParam, dawnTargets, srcValue, withSrc } from "./modcore.js";
+import { LFO_SHAPES, LFO_SYNC, dawnParam, dawnTargets, srcValue, withSrc } from "./modcore.js";
 import { ModView, dwBtn, knob, pal, select, shell } from "./ui.js";
 
 /* ================= DAWN — модуляция: ручки, огибающие, LFO и проводки =================
@@ -11,77 +12,70 @@ import { ModView, dwBtn, knob, pal, select, shell } from "./ui.js";
  * адрес data-path) или выбери цель списком — там же параметры самой ОС (os.*, из etc/params.json).
  * Один источник — сколько угодно проводов: одна ручка Macro может крутить фильтры трёх синтов и оттенок окон.
  *
- * Mod.tick (30 раз в секунду, пока открыт проект): считает значения целей (modcore.computeOver),
- * отдаёт DAWN-цели движку (G.applyOver — непрерывные сразу, остальные — на следующих нотах),
- * а чужие (os.*) применяет через Params. Сохранённые значения модуляция не трогает: снял провод — вернулось.
+ * Считает и применяет шина ОС (core/bus.js): DAWN — её клиент «dawn» (свои источники project.mods и свои цели
+ * ch./mix./pedal. → G.applyOver: непрерывные сразу, остальные — на следующих нотах). Чужие цели (os.*, ui.*, win.*,
+ * rig.*) шина применяет через Params. Сохранённые значения модуляция не трогает: снял провод — вернулось.
+ *
+ * Это же окно — «Автоматизация» и «Генераторы» самой ОС (без DAWN): render(c, win, { sys: true, kinds }) —
+ * тогда источники живут в системной стойке Bus.rig, а не в проекте. Код карточек один, разница — в «области» (scope).
  */
 const isDawn = a => a.startsWith("ch.") || a.startsWith("mix.") || a.startsWith("pedal.");
-const uid = () => "m" + Math.random().toString(36).slice(2, 7);
 
 export const Mod = {
-  timer: null, applied: new Set(), showWires: false, focus: null, Dawn: null,
+  showWires: false, focus: null, Dawn: null,
   start() {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), 33);
+    Bus.attach("dawn", {
+      mods: () => Engine.project?.mods || [],
+      value: src => this.value(src),
+      owns: isDawn,
+      param: a => Engine.project ? dawnParam(Engine.project, a) : null,
+      apply: m => Engine.G?.applyOver(m),
+      targets: () => Engine.project ? dawnTargets(Engine.project) : [],
+      label: a => (Engine.project && dawnParam(Engine.project, a)?.label) || a + " (нет)",
+    });
   },
   stop() {
-    clearInterval(this.timer); this.timer = null;
-    for (const a of this.applied) Params.resolve(a)?.restore();
-    this.applied.clear();
+    Bus.detach("dawn");
     Engine.G?.applyOver(new Map());
-    ModView.set(new Map());
-    Wires.hide();
+    if (!Bus.rig.mods.length) Wires.hide();
   },
-  /* позиция для огибающих: песня/паттерн; LFO — свои часы (качает и на остановленном транспорте) */
-  tick() {
-    const P = Engine.project;
-    if (!P || !Engine.G) return;
-    const beat = Engine.playing ? Math.max(0, Engine.position()) : (P.mode === "song" ? P.songStart || 0 : 0);
-    const lfoBeat = Engine.ctx ? Engine.ctx.currentTime / Engine.beatDur() : 0;
-    const over = computeOver(P, beat, a => Params.resolve(a), lfoBeat, Engine.rt());
-    const dawn = new Map(), seen = new Set();
-    for (const [a, v] of over) {
-      if (isDawn(a)) { dawn.set(a, v); continue; }
-      const r = Params.resolve(a);
-      if (!r || Math.abs(v - r.base()) < 1e-6) continue;   // на базе — не трогаем ОС (без лишних фильтров на окнах)
-      r.apply(v);
-      this.applied.add(a); seen.add(a);
-    }
-    for (const a of [...this.applied]) if (!seen.has(a)) { Params.resolve(a)?.restore(); this.applied.delete(a); }
-    Engine.G.applyOver(dawn);
-    ModView.set(over);
-  },
-  /* значение источника прямо сейчас (для метров и физики проводов) */
+  /* значение источника прямо сейчас: системный — по часам шины, проектный — по песне/паттерну
+   * (LFO проекта — свои часы звука: качает и на остановленном транспорте) */
   value(src) {
-    const P = Engine.project, lfoBeat = Engine.ctx ? Engine.ctx.currentTime / Engine.beatDur() : 0, pos = Engine.playing ? Math.max(0, Engine.position()) : 0;
+    if (Bus.isSys(src)) return Bus.value(src);
+    const P = Engine.project;
+    if (!P) return 0;
+    const lfoBeat = Engine.ctx ? Engine.ctx.currentTime / Engine.beatDur() : 0;
+    const pos = Engine.playing ? Math.max(0, Engine.position()) : (P.mode === "song" ? P.songStart || 0 : 0);
     return srcValue(src, src.type === "lfo" ? lfoBeat : pos, withSrc(P, pos, lfoBeat, Engine.rt()));
   },
-  targetLabel(addr) {
-    const P = Engine.project;
-    if (isDawn(addr)) return dawnParam(P, addr)?.label || addr + " (нет)";
-    const r = Params.resolve(addr), pre = addr.startsWith("ui.") || addr.startsWith("win.") ? "" : addr.startsWith("bg.") ? "Фон · " : "ОС · ";
-    return r?.label ? pre + r.label.replace(/^Фон · /, "") : addr;
-  },
-  allTargets() {
-    return [...dawnTargets(Engine.project), ...Params.list().map(x => ({ ...x, group: (x.provider || "ОС") + ": " + x.group }))];
-  },
-  /* показать, куда ведёт провод: окно инструмента, микшер, настройки, любое окно ОС */
+  targetLabel: addr => Bus.label(addr),
+  allTargets: () => Bus.targets(),
+  /* показать, куда ведёт провод: окно инструмента, микшер, настройки, педаль ОС, любое окно */
   async reveal(addr) {
     const D = this.Dawn, a = addr.split(".");
     if (a[0] === "ch" && D) return D.open("inst", a[1]);
     if (a[0] === "mix" && D) { D.mixSel = +a[1]; D.open("mixer"); Engine.emit("change", { mixsel: true, param: true }); return; }
     if (a[0] === "os" || a[0] === "bg") return (await import("../../apps/settings.js")).openSettings();
+    if (a[0] === "rig") return (await import("../rig/index.js")).openRig("pedals");
     if (!(await UIParams.reveal(addr))) notify("Окно этой цели закрыто — открой его, и провод оживёт");
   },
   connect(src, addr) {
     if (src.wires.some(w => w.to === addr)) return notify("Этот провод уже есть");
     if (src.type === "knob" && addr.startsWith("ui.") && UIParams.elOf(addr)?.closest(`.dw-modcard`)) return notify("Ручку на саму себя не подключить");
-    if (!isDawn(addr) && !Params.resolve(addr)) return notify("Нет такого параметра: " + addr);
+    if (!Bus.known(addr)) return notify("Нет такого параметра: " + addr);
     src.wires.push({ to: addr, amt: 0.5 });
-    Engine.touch({ mods: true });
+    touchSrc(src, { mods: true });
     notify(`🔌 ${src.name} → ${this.targetLabel(addr)}`);
   },
 };
+/* сохранить изменения источника там, где он живёт: в проекте DAWN или в системной стойке */
+function touchSrc(src, what) {
+  if (Bus.isSys(src)) Bus.changed(what.param ? { param: true } : {});
+  else Engine.touch(what);
+}
+/* дуги модуляции на крутилках — по каждому тику шины (и для DAWN, и для педалей ОС) */
+Bus.on(e => { if (e.tick) ModView.set(e.tick); });
 
 /* ---------- провода поверх экрана: от гнезда источника к крутилке-цели ---------- */
 const Wires = {
@@ -181,9 +175,9 @@ const Wires = {
     const svg = this.ensure(), parts = [], hidden = [];
     const now = performance.now(), dt = Math.min(1 / 30, Math.max(1 / 240, (now - (this.last || now - 16)) / 1000)); this.last = now;
     this.frameNo++; this.ends = [];
-    const mods = Engine.project?.mods || [];
+    const mods = [...(Engine.project?.mods || []), ...Bus.rig.mods];
     const wind = Math.min(2, mods.filter(m => m.type === "wind").reduce((s, m) => s + Mod.value(m), 0));
-    const srcs = !Engine.project ? [] : mods.filter(s => Mod.showWires || s.id === Mod.focus);
+    const srcs = mods.filter(s => Mod.showWires || s.id === Mod.focus);
     for (const src of srcs) {
       const jack = document.querySelector(`.dw-jack[data-src="${src.id}"]`);
       if (!this.visible(jack)) continue;
@@ -220,7 +214,7 @@ const Wires = {
     if (!hit) return;
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     hit.src.wires = hit.src.wires.filter(x => x !== hit.w);
-    Engine.touch({ param: true });
+    touchSrc(hit.src, { param: true });
     this.start(e, hit.src, hit.jack, true);
   },
   /* тянем провод из гнезда: отпустили над крутилкой — подключили */
@@ -244,7 +238,7 @@ const Wires = {
       const h = document.elementFromPoint(ev.clientX, ev.clientY), t = h?.closest("[data-path]");
       const addr = t ? t.dataset.path : UIParams.addrOf(h) || (h?.closest(".window .titlebar") && h.closest(".window").dataset.wkey ? `win.${h.closest(".window").dataset.wkey}.shake` : null);
       if (addr) Mod.connect(src, addr);
-      else if (lifted) { notify("🔌 Провод снят"); Engine.touch({ mods: true }); }
+      else if (lifted) { notify("🔌 Провод снят"); touchSrc(src, { mods: true }); }
       else notify("Отпусти провод над крутилкой или ползунком любого окна (на заголовке — тряска окна) — или выбери цель списком «＋ цель»");
     };
     addEventListener("pointermove", move); addEventListener("pointerup", up);
@@ -254,12 +248,48 @@ const Wires = {
 /* ======================= окно «Модуляция» ======================= */
 addEventListener("pointerdown", e => Wires.grab(e), true);   // раньше крутилки: схватить конец провода
 
+/* области: где живут источники и что в них можно добавить */
+const NAMES = { knob: "Ручка", env: "Огибающая", lfo: "LFO", meter: "Уровень", trig: "По ноте", wind: "Ветер", mouse: "Курсор", level: "Громкость плеера" };
+const GLYPHS = { knob: "🎚", env: "📈", lfo: "∿", meter: "📶", trig: "⚡", wind: "🌬", mouse: "🖱", level: "🎵" };
+const DAWN_SCOPE = {
+  id: "dawn", kinds: ["knob", "env", "lfo", "trig", "wind", "meter"],
+  mods: () => (Engine.project.mods ||= []),
+  remove: src => { Engine.project.mods = Engine.project.mods.filter(m => m !== src); },
+  touch: w => Engine.touch(w),
+  envLen: () => Math.max(4, Engine.songLength() || Engine.patLength()),
+  pos: () => Engine.playing ? Engine.position() : -1,
+  watch: fn => { const a = Engine.on("change", w => { if (!w?.param) fn(); }), b = Engine.on("theme", fn); return () => { a(); b(); }; },
+};
+export const ALL_SYS_KINDS = ["knob", "env", "lfo", "wind", "mouse", "level"];
+const sysScope = kinds => ({
+  id: "sys", kinds: kinds || ALL_SYS_KINDS,
+  mods: () => Bus.rig.mods,
+  remove: src => { Bus.rig.mods = Bus.rig.mods.filter(m => m !== src); },
+  touch: w => Bus.changed(w.param && !w.mods ? { param: true } : {}),
+  envLen: () => 16,
+  pos: () => Bus.beat(),
+  watch: fn => Bus.on(e => { if (e.rig) fn(); }),
+});
+/* новый источник: ид, имя и настройки всех типов (тип можно будет поменять без потери полей) */
+export function newSource(type, list, P = null, sys = false) {
+  const n = list.length, kick = P?.channels.find(c => c.id === "kick") || P?.channels[0];
+  const len = P ? Math.max(4, Engine.songLength() || Engine.patLength()) : 16;
+  return { id: (sys ? "s" : "m") + Math.random().toString(36).slice(2, 7), type, name: NAMES[type] + " " + (n + 1),
+    meter: { mix: kick?.mix || 1, gain: 1.5 }, trig: { ch: kick?.id || "", att: 5, hold: 40, rel: 250, vel: true },
+    color: PASTEL[(n + 5) % PASTEL.length], value: 0.5,
+    env: { len, loop: true, pts: [[0, 0], [len, 1]] },
+    lfo: { sync: 3, shape: "sine", phase: 0 }, wind: { input: "", strength: 0.5, gust: 0.4 },
+    mouse: { axis: "x" }, level: { gain: 1.5 }, wires: [] };
+}
+
 export const MODS = {
   title: () => "Модуляция",
   icon: "🔌", color: "#b8f59e",
   size: () => [560, 560, Math.max(12, innerWidth - 600), 260],
-  render(c, win, _a, Dawn) {
-    Mod.Dawn = Dawn;
+  /* arg: { sys: true, kinds } — системная стойка ОС (окна «Автоматизация» и «Генераторы» из Пуска) */
+  render(c, win, arg, Dawn) {
+    const S = arg?.sys ? sysScope(arg.kinds) : DAWN_SCOPE;
+    if (Dawn) Mod.Dawn = Dawn;
     const root = shell(c, "dw-mods-win", "#b8f59e");
     const list = el("div", { className: "dw-modlist" });
     const top = el("div", { className: "dw-pr-tools" });
@@ -267,35 +297,35 @@ export const MODS = {
     let meters = [];
 
     function add(type) {
-      const P = Engine.project, n = (P.mods ||= []).length;
-      const kick = P.channels.find(c => c.id === "kick") || P.channels[0];
-      P.mods.push({ id: uid(), type, name: { knob: "Ручка", env: "Огибающая", lfo: "LFO", meter: "Уровень", trig: "По ноте", wind: "Ветер" }[type] + " " + (n + 1),
-        meter: { mix: kick?.mix || 1, gain: 1.5 }, trig: { ch: kick?.id || "", att: 5, hold: 40, rel: 250, vel: true },
-        color: PASTEL[(n + 5) % PASTEL.length], value: 0.5,
-        env: { len: Math.max(4, Engine.songLength() || Engine.patLength()), loop: true, pts: [[0, 0], [Math.max(4, Engine.songLength() || Engine.patLength()), 1]] },
-        lfo: { sync: 3, shape: "sine", phase: 0 }, wind: { input: "", strength: 0.5, gust: 0.4 }, wires: [] });
-      Engine.touch({ mods: true });
+      const list = S.mods();
+      list.push(newSource(type, list, S.id === "dawn" ? Engine.project : null, S.id === "sys"));
+      S.touch({ mods: true });
     }
 
     function build() {
-      const P = Engine.project;
+      const mods = S.mods().filter(m => S.kinds.includes(m.type));
+      const TIPS = { knob: "Ручка, которой можно крутить много параметров сразу",
+        env: S.id === "dawn" ? "Кривая во времени — едет вместе с песней/паттерном" : "Кривая во времени — едет по часам ОС (темп стойки)",
+        lfo: "Качание в такт", trig: "Огибающая, которая стартует от каждой ноты канала. Провод с минусом на громкость — сайдчейн",
+        wind: "Генератор ветра/вибрации: качает провода на экране; вход — любой источник (бочка, LFO…), выходов — сколько угодно",
+        meter: "Громкость инсерта микшера как источник: бочка громче — окна трясутся",
+        mouse: "Положение курсора на экране (по горизонтали или вертикали)", level: "Громкость музыки в плеере ОС: громче — больше" };
       top.replaceChildren(
-        dwBtn("＋ Ручка", () => add("knob"), { title: "Ручка, которой можно крутить много параметров сразу" }),
-        dwBtn("＋ Огибающая", () => add("env"), { title: "Кривая во времени — едет вместе с песней/паттерном" }),
-        dwBtn("＋ LFO", () => add("lfo"), { title: "Качание в такт" }),
-        dwBtn("＋ По ноте", () => add("trig"), { title: "Огибающая, которая стартует от каждой ноты канала. Провод с минусом на громкость — сайдчейн" }),
-        dwBtn("＋ Ветер", () => add("wind"), { title: "Генератор ветра/вибрации: качает провода на экране; вход — любой источник (бочка, LFO…), выходов — сколько угодно" }),
-        dwBtn("＋ Уровень", () => add("meter"), { title: "Громкость инсерта микшера как источник: бочка громче — окна трясутся" }),
+        ...S.kinds.map(k => dwBtn("＋ " + NAMES[k], () => add(k), { title: TIPS[k] })),
+        S.id === "sys" ? el("label", { className: "dw-dim dw-bpm", title: "Темп часов ОС: по нему идут LFO и огибающие системной стойки" }, "BPM ",
+          el("input", { className: "dw-num", type: "number", min: 20, max: 300, value: Bus.rig.bpm, onchange: e => { Bus.rig.bpm = Math.max(20, Math.min(300, +e.target.value || 120)); Bus.changed({ param: true }); } })) : "",
         dwBtn(Mod.showWires ? "🔌 Провода: вкл" : "🔌 Провода: выкл", () => {
           Mod.showWires = !Mod.showWires; Mod.showWires || Mod.focus ? Wires.show() : Wires.hide(); build();
         }, { className: "dw-btn" + (Mod.showWires ? " on" : ""), title: "Рисовать провода поверх всех окон" }),
         el("span", { className: "dw-dim", textContent: "Тяни ● на любую крутилку или ползунок ОС · клик по карточке — её провода" }));
       meters = [];
-      if (!P.mods?.length) {
-        list.replaceChildren(el("div", { className: "dw-dim dw-empty", textContent: "Источников нет. Добавь ручку, огибающую или LFO — и тяни из ● провода к крутилкам синтов, микшера и даже к параметрам ОС." }));
+      if (!mods.length) {
+        list.replaceChildren(el("div", { className: "dw-dim dw-empty", textContent: S.id === "dawn"
+          ? "Источников нет. Добавь ручку, огибающую или LFO — и тяни из ● провода к крутилкам синтов, микшера и даже к параметрам ОС."
+          : "Источников нет. Добавь — и тяни из ● провод на любой ползунок, крутилку или заголовок окна ОС (тряска), на педали, на параметры ОС. Работает и без DAWN." }));
         return;
       }
-      list.replaceChildren(...P.mods.map(src => card(src)));
+      list.replaceChildren(...mods.map(src => card(src)));
     }
 
     function card(src) {
@@ -306,51 +336,58 @@ export const MODS = {
       const meter = el("div", { className: "dw-modmeter" }, el("i"));
       meters.push({ src, meter });
       const name = el("input", { className: "dw-name dw-modname", value: src.name, maxLength: 24,
-        onchange: () => { src.name = name.value.trim() || src.name; Engine.touch({ mods: true, param: true }); } });
-      const head = el("div", { className: "dw-modhead" }, el("span", { className: "dw-modtype", textContent: { knob: "🎚", env: "📈", lfo: "∿", meter: "📶", trig: "⚡", wind: "🌬" }[src.type] }),
+        onchange: () => { src.name = name.value.trim() || src.name; S.touch({ mods: true, param: true }); } });
+      const head = el("div", { className: "dw-modhead" }, el("span", { className: "dw-modtype", textContent: GLYPHS[src.type] }),
         name, meter, jack,
-        dwBtn("✕", () => { const P = Engine.project; P.mods = P.mods.filter(m => m !== src); Engine.touch({ mods: true }); }, { className: "dw-btn dw-x", title: "Удалить источник" }));
+        dwBtn("✕", () => { S.remove(src); S.touch({ mods: true }); }, { className: "dw-btn dw-x", title: "Удалить источник" }));
       let body;
       if (src.type === "knob") {
         body = el("div", { className: "dw-modbody" },
-          knob({ spec: { min: 0, max: 1, def: 0.5, label: "Value" }, size: 56, color: src.color, get: () => src.value, set: v => { src.value = v; }, done: () => Engine.touch({ param: true }) }).node,
+          knob({ spec: { min: 0, max: 1, def: 0.5, label: "Value" }, size: 56, color: src.color, get: () => src.value, set: v => { src.value = v; }, done: () => S.touch({ param: true }) }).node,
           el("span", { className: "dw-dim", textContent: "Одна ручка → все провода сразу" }));
       } else if (src.type === "lfo") {
         body = el("div", { className: "dw-modbody" },
-          select(LFO_SYNC.map((s, i) => [i, "⏱ " + s[0]]), src.lfo.sync, v => { src.lfo.sync = +v; Engine.touch({ param: true }); }, "Период"),
-          select(LFO_SHAPES.map(s => [s, s]), src.lfo.shape, v => { src.lfo.shape = v; Engine.touch({ param: true }); }, "Форма"),
-          knob({ spec: { min: 0, max: 1, def: 0, label: "Phase" }, color: src.color, get: () => src.lfo.phase, set: v => { src.lfo.phase = v; }, done: () => Engine.touch({ param: true }) }).node);
+          select(LFO_SYNC.map((s, i) => [i, "⏱ " + s[0]]), src.lfo.sync, v => { src.lfo.sync = +v; S.touch({ param: true }); }, "Период"),
+          select(LFO_SHAPES.map(s => [s, s]), src.lfo.shape, v => { src.lfo.shape = v; S.touch({ param: true }); }, "Форма"),
+          knob({ spec: { min: 0, max: 1, def: 0, label: "Phase" }, color: src.color, get: () => src.lfo.phase, set: v => { src.lfo.phase = v; }, done: () => S.touch({ param: true }) }).node);
       } else if (src.type === "meter") {
         const P = Engine.project;
         body = el("div", { className: "dw-modbody" },
-          select(P.mixer.map((m, i) => [i, (i ? `${i} · ${m.name}` : "Master")]), src.meter.mix, v => { src.meter.mix = +v; Engine.touch({ param: true }); }, "Какой инсерт слушать"),
-          knob({ spec: { min: 0, max: 8, def: 1.5, label: "Gain", curve: 2 }, color: src.color, get: () => src.meter.gain, set: v => { src.meter.gain = v; }, done: () => Engine.touch({ param: true }) }).node,
+          select(P.mixer.map((m, i) => [i, (i ? `${i} · ${m.name}` : "Master")]), src.meter.mix, v => { src.meter.mix = +v; S.touch({ param: true }); }, "Какой инсерт слушать"),
+          knob({ spec: { min: 0, max: 8, def: 1.5, label: "Gain", curve: 2 }, color: src.color, get: () => src.meter.gain, set: v => { src.meter.gain = v; }, done: () => S.touch({ param: true }) }).node,
           el("span", { className: "dw-dim", textContent: "Громкость инсерта → провода" }));
       } else if (src.type === "wind") {
-        const P = Engine.project, wd = (src.wind ||= { input: "", strength: 0.5, gust: 0.4 });
+        const wd = (src.wind ||= { input: "", strength: 0.5, gust: 0.4 });
         body = el("div", { className: "dw-modbody" },
-          select([["", "вход: постоянный"], ...P.mods.filter(m => m !== src && m.type !== "wind").map(m => [m.id, "вход: " + m.name])], wd.input, v => { wd.input = v; Engine.touch({ param: true }); }, "Что раздувает ветер"),
-          knob({ spec: { min: 0, max: 1, def: 0.5, label: "Сила" }, color: src.color, get: () => wd.strength, set: v => { wd.strength = v; }, done: () => Engine.touch({ param: true }) }).node,
-          knob({ spec: { min: 0, max: 1, def: 0.4, label: "Порывы" }, color: src.color, get: () => wd.gust, set: v => { wd.gust = v; }, done: () => Engine.touch({ param: true }) }).node,
+          select([["", "вход: постоянный"], ...S.mods().filter(m => m !== src && m.type !== "wind").map(m => [m.id, "вход: " + m.name])], wd.input, v => { wd.input = v; S.touch({ param: true }); }, "Что раздувает ветер"),
+          knob({ spec: { min: 0, max: 1, def: 0.5, label: "Сила" }, color: src.color, get: () => wd.strength, set: v => { wd.strength = v; }, done: () => S.touch({ param: true }) }).node,
+          knob({ spec: { min: 0, max: 1, def: 0.4, label: "Порывы" }, color: src.color, get: () => wd.gust, set: v => { wd.gust = v; }, done: () => S.touch({ param: true }) }).node,
           el("span", { className: "dw-dim", textContent: "Качает провода; его провода — как у любого источника" }));
       } else if (src.type === "trig") {
         const P = Engine.project, tr = src.trig;
-        const k = (key, label, min, max, def) => knob({ spec: { min, max, def, label, curve: 2 }, color: src.color, get: () => tr[key], set: v => { tr[key] = v; }, done: () => Engine.touch({ param: true }) }).node;
+        const k = (key, label, min, max, def) => knob({ spec: { min, max, def, label, curve: 2 }, color: src.color, get: () => tr[key], set: v => { tr[key] = v; }, done: () => S.touch({ param: true }) }).node;
         body = el("div", { className: "dw-modbody" },
-          select(P.channels.map(c => [c.id, c.name]), tr.ch, v => { tr.ch = v; Engine.touch({ param: true }); }, "От нот какого канала"),
+          select(P.channels.map(c => [c.id, c.name]), tr.ch, v => { tr.ch = v; S.touch({ param: true }); }, "От нот какого канала"),
           k("att", "Att мс", 0, 500, 5), k("hold", "Hold мс", 0, 1000, 40), k("rel", "Rel мс", 1, 3000, 250),
-          dwBtn(tr.vel ? "vel" : "vel ✕", e => { tr.vel = !tr.vel; e.target.textContent = tr.vel ? "vel" : "vel ✕"; Engine.touch({ param: true }); }, { title: "Учитывать силу ноты" }),
+          dwBtn(tr.vel ? "vel" : "vel ✕", e => { tr.vel = !tr.vel; e.target.textContent = tr.vel ? "vel" : "vel ✕"; S.touch({ param: true }); }, { title: "Учитывать силу ноты" }),
           el("span", { className: "dw-dim", textContent: "Провод с минусом на громкость = сайдчейн" }));
+      } else if (src.type === "mouse") {
+        const ms = (src.mouse ||= { axis: "x" });
+        body = el("div", { className: "dw-modbody" },
+          select([["x", "↔ по горизонтали"], ["y", "↕ по вертикали"]], ms.axis, v => { ms.axis = v; S.touch({ param: true }); }, "Какая координата курсора"),
+          el("span", { className: "dw-dim", textContent: "0 — левый/верхний край экрана, 1 — правый/нижний" }));
+      } else if (src.type === "level") {
+        const lv = (src.level ||= { gain: 1.5 });
+        body = el("div", { className: "dw-modbody" },
+          knob({ spec: { min: 0, max: 8, def: 1.5, label: "Gain", curve: 2 }, color: src.color, get: () => lv.gain, set: v => { lv.gain = v; }, done: () => S.touch({ param: true }) }).node,
+          el("span", { className: "dw-dim", textContent: "Громкость плеера ОС → провода (включи музыку в 🎵)" }));
       } else body = envEditor(src);
       const wires = el("div", { className: "dw-wirelist" }, ...src.wires.map(w => el("div", { className: "dw-wire" },
         el("span", { className: "dw-wire-to", textContent: "→ " + Mod.targetLabel(w.to), title: w.to }),
-        knob({ spec: { min: -1, max: 1, def: 0.5, label: "Amt", bipolar: true }, size: 26, color: src.color, get: () => w.amt, set: v => { w.amt = v; }, done: () => Engine.touch({ param: true }) }).node,
-        dwBtn("✕", () => { src.wires = src.wires.filter(x => x !== w); Engine.touch({ mods: true }); }, { className: "dw-btn dw-x", title: "Снять провод" }))));
-      const targets = Mod.allTargets();
-      const groups = [...new Set(targets.map(t => t.group))];
-      const pick = el("select", { className: "dw-sel", title: "Подключить к параметру", onchange: () => { if (pick.value) Mod.connect(src, pick.value); } },
-        el("option", { value: "", textContent: "＋ цель…" }),
-        ...groups.map(g => el("optgroup", { label: g }, ...targets.filter(t => t.group === g).map(t => el("option", { value: t.addr, textContent: t.label })))));
+        knob({ spec: { min: -1, max: 1, def: 0.5, label: "Amt", bipolar: true }, size: 26, color: src.color, get: () => w.amt, set: v => { w.amt = v; }, done: () => S.touch({ param: true }) }).node,
+        dwBtn("✕", () => { src.wires = src.wires.filter(x => x !== w); S.touch({ mods: true }); }, { className: "dw-btn dw-x", title: "Снять провод" }))));
+      const pick = gridButton({ label: "＋ цель…", title: "Подключить к параметру", className: "dw-btn dw-target-btn", onPick: it => Mod.connect(src, it.value),
+        columns: () => targetColumns(Mod.allTargets(), src) });
       const cardEl = el("div", { className: "dw-modcard" + (Mod.focus === src.id ? " focus" : ""), style: `--mc:${src.color}` }, head, body, wires, pick);
       // клик по карточке — показать все её провода (и таблички к скрытым целям); ещё клик — спрятать
       cardEl.addEventListener("pointerdown", e => {
@@ -367,9 +404,9 @@ export const MODS = {
       const e = src.env;
       const cv = el("canvas", { className: "dw-envcv" });
       const len = el("input", { className: "dw-num", type: "number", min: 0.25, step: 0.25, value: e.len, title: "Длина, долей",
-        onchange: () => { e.len = Math.max(0.25, +len.value || 16); Engine.touch({ param: true }); draw(); } });
-      const loop = dwBtn("🔁", () => { e.loop = !e.loop; loop.classList.toggle("on", e.loop); Engine.touch({ param: true }); }, { className: "dw-btn" + (e.loop ? " on" : ""), title: "Повторять" });
-      const fitSong = dwBtn("= песня", () => { e.len = Math.max(1, Engine.songLength() || Engine.patLength()); len.value = e.len; Engine.touch({ param: true }); draw(); }, { title: "Длина как у песни" });
+        onchange: () => { e.len = Math.max(0.25, +len.value || 16); S.touch({ param: true }); draw(); } });
+      const loop = dwBtn("🔁", () => { e.loop = !e.loop; loop.classList.toggle("on", e.loop); S.touch({ param: true }); }, { className: "dw-btn" + (e.loop ? " on" : ""), title: "Повторять" });
+      const fitSong = S.id === "dawn" ? dwBtn("= песня", () => { e.len = Math.max(1, Engine.songLength() || Engine.patLength()); len.value = e.len; S.touch({ param: true }); draw(); }, { title: "Длина как у песни" }) : "";
       const g = cv.getContext("2d");
       let W = 0, H = 0, drag = null;
       const X = x => x / e.len * W, Y = y => H - 6 - y * (H - 12), xb = px => Math.max(0, Math.min(e.len, px / W * e.len)), yv = py => Math.max(0, Math.min(1, (H - 6 - py) / (H - 12)));
@@ -388,7 +425,7 @@ export const MODS = {
         g.stroke();
         g.globalAlpha = 0.18; g.fillStyle = src.color; g.lineTo(X(pts.at(-1)?.[0] || 0), H); g.lineTo(X(pts[0]?.[0] || 0), H); g.fill(); g.globalAlpha = 1;
         for (const [x, y] of pts) { g.fillStyle = "#fff"; g.beginPath(); g.arc(X(x), Y(y), 4, 0, 7); g.fill(); g.strokeStyle = src.color; g.stroke(); }
-        const pos = Engine.playing ? Engine.position() : -1;
+        const pos = S.pos();
         if (pos >= 0) { const x = e.loop === false ? Math.min(pos, e.len) : pos % e.len; g.fillStyle = C.head; g.fillRect(X(x), 0, 2, H); }
       }
       const hitPt = (x, y) => e.pts.find(p => Math.hypot(X(p[0]) - x, Y(p[1]) - y) < 8);
@@ -396,7 +433,7 @@ export const MODS = {
         const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
         cv.setPointerCapture(ev.pointerId);
         let p = hitPt(x, y);
-        if (ev.button === 2) { if (p && e.pts.length > 1) e.pts = e.pts.filter(q => q !== p); Engine.touch({ param: true }); draw(); return; }
+        if (ev.button === 2) { if (p && e.pts.length > 1) e.pts = e.pts.filter(q => q !== p); S.touch({ param: true }); draw(); return; }
         if (!p) { p = [Math.round(xb(x) * 4) / 4, +yv(y).toFixed(3)]; e.pts.push(p); }
         drag = p; draw();
       };
@@ -406,7 +443,7 @@ export const MODS = {
         drag[0] = Math.round(xb(ev.clientX - r.left) * 4) / 4; drag[1] = +yv(ev.clientY - r.top).toFixed(3);
         draw();
       };
-      cv.onpointerup = () => { if (drag) Engine.touch({ param: true }); drag = null; };
+      cv.onpointerup = () => { if (drag) S.touch({ param: true }); drag = null; };
       const box = el("div", { className: "dw-modbody dw-envbox" }, el("div", { className: "dw-envtools" }, len, el("span", { className: "dw-dim", textContent: "долей" }), loop, fitSong), cv);
       box._draw = draw;
       requestAnimationFrame(draw);
@@ -416,16 +453,28 @@ export const MODS = {
     build();
     let raf = 0;
     const frame = () => {
-      const lfoBeat = Engine.ctx ? Engine.ctx.currentTime / Engine.beatDur() : 0, pos = Engine.playing ? Math.max(0, Engine.position()) : 0, rt = Engine.rt();
-      for (const m of meters) m.meter.firstChild.style.width = (srcValue(m.src, m.src.type === "lfo" ? lfoBeat : pos, rt) * 100).toFixed(1) + "%";
+      for (const m of meters) m.meter.firstChild.style.width = (Mod.value(m.src) * 100).toFixed(1) + "%";
       list.querySelectorAll(".dw-envbox").forEach(b => b._draw?.());
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    const offs = [Engine.on("change", w => { if (!w?.param) build(); }), Engine.on("theme", build)];
+    const offs = [S.watch(build)];
     if (Mod.focus) Wires.show();
     return () => { cancelAnimationFrame(raf); offs.forEach(f => f()); if (Mod.focus) { Mod.focus = null; if (!Mod.showWires) Wires.hide(); } };
   },
 };
+
+/* колонки грида целей: группа → колонка, параметр → квадратик (имя без повтора группы) */
+const GROUP_COLORS = [["Канал", "#c3a6ff"], ["Микшер", "#ffc89e"], ["Педали", "#d7b8ff"], ["ОС", "#9fd3ff"], ["Окна", "#b8f59e"], ["Педали ОС", "#ff9ecb"], ["Фон", "#ffe08a"]];
+function targetColumns(targets, src) {
+  const cols = new Map();
+  for (const t of targets) {
+    if (src.wires.some(w => w.to === t.addr)) continue;
+    if (!cols.has(t.group)) cols.set(t.group, { title: t.group.replace(/^Окна: Окно: /, "🪟 "), color: GROUP_COLORS.find(([k]) => t.group.includes(k))?.[1], items: [] });
+    const parts = String(t.label).split(" · ");
+    cols.get(t.group).items.push({ value: t.addr, label: parts.length > 1 ? parts.slice(1).join(" · ") : t.label, sub: parts.length > 1 ? parts[0] : "", title: t.label + "\n" + t.addr });
+  }
+  return [...cols.values()];
+}
 
 export { Wires };

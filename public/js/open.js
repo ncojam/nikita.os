@@ -1,5 +1,5 @@
 import { Player } from "./apps/player.js";
-import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFakeDL, openPost, openRamDL, openSettings, openShare, openKana, openPalette, openThawLab, openTrip } from "./apps/lazy.js";
+import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFakeDL, openPost, openRamDL, openSettings, openShare, openKana, openPalette, openRig, openScripts, openPhoto, openThawLab, openTrip } from "./apps/lazy.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";
@@ -16,6 +16,7 @@ function openFile(path, link = null) {
   if (kind === "link") return Links.open(path);
   if (kind === "post") return openPost(path);
   if (kind === "dawn") return openDawn(path);
+  if (kind === "script") return openScripts(path);
   if (kind === "audio") return Player.open(path);
   if (kind === "video") return WM.open({ ...opts, width: 800, height: 500, render(c, w) {
     const v = el("video", { src: url, controls: true, autoplay: true });
@@ -103,6 +104,8 @@ const APPS = {
   palette: () => openPalette(),
   browser: l => openBrowser(l.path),
   dawn: l => openDawn(l.path),
+  rig: l => openRig(l.path || "auto"),          // path: auto | gen | pedals
+  scripts: l => openScripts(l.path),
 };
 
 const Links = {

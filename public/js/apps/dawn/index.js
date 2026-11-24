@@ -16,6 +16,8 @@ import { Mod } from "./mod.js";
  * Dawn.open(имя, арг) открывает (или поднимает) окно модуля. Раскладка окон сохраняется в проекте.
  */
 const AUTOSAVE = "dawn.autosave";
+/* для команд ОС (core/cmd.js): открыт ли проект и где его файл — без загрузки модулей DAWN */
+globalThis.nosDawn = { get open() { return !!Engine.project; }, get path() { return Engine.path || null; } };
 
 export const Dawn = {
   wins: new Map(),          // ключ модуля -> окно WM

@@ -2,7 +2,8 @@
  * Эффект = { input, output, set(p), tempo(bpm), dispose() } поверх любого (Offline)AudioContext.
  * Параметры описаны как у крутилок (min/max/def/label/curve/step/names) — UI строится сам.
  */
-export const SYNC = [["1/16", 0.25], ["1/8", 0.5], ["1/8.", 0.75], ["1/4", 1], ["1/4.", 1.5], ["1/2", 2], ["1 такт", 4]];
+import { SYNC } from "../../core/signals.js";
+export { SYNC };
 
 export const FX = {
   delay: {

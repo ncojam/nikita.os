@@ -2114,3 +2114,65 @@ a.nw-chip:hover { border-color: var(--mt); }
   .pl { flex-direction: column; }
   .pl-side { width: auto; max-height: 55%; border-right: 0; border-bottom: 1px solid var(--glass-border); }
 }
+
+/* ---------- Грид — шаблон выбора (ui/grid.js): колонки-категории, вниз — квадратики ---------- */
+.ngrid { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.ngrid-q { background: rgba(0,0,0,.35); color: var(--text); border: 1px solid var(--glass-border); border-radius: 10px; padding: 6px 10px; font: inherit; }
+.ngrid-cols { display: flex; gap: 10px; overflow: auto; min-height: 0; padding-bottom: 4px; align-items: flex-start; }
+.ngrid-col { flex: 0 0 160px; display: flex; flex-direction: column; gap: 6px; }
+.ngrid-head { position: sticky; top: 0; z-index: 1; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--gc, var(--muted)); padding: 4px 6px; border-radius: 8px; background: rgba(10,10,14,.85);
+  border-bottom: 2px solid var(--gc, var(--glass-border)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ngrid-cell { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; min-height: 52px;
+  padding: 6px 8px; border-radius: 10px; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+  background: color-mix(in srgb, var(--gc, #8ab4ff) 12%, rgba(255,255,255,.04)); border: 1px solid color-mix(in srgb, var(--gc, #8ab4ff) 30%, transparent);
+  transition: transform .12s var(--ease), background .12s; }
+.ngrid-cell:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--gc, #8ab4ff) 26%, rgba(255,255,255,.04)); }
+.ngrid-cell.on { outline: 2px solid var(--gc, var(--accent)); outline-offset: 1px; }
+.ngrid-ic { font-size: 15px; line-height: 1; }
+.ngrid-label { font-size: 12px; font-weight: 600; line-height: 1.2; word-break: break-word; }
+.ngrid-sub { font-size: 10.5px; color: var(--muted); line-height: 1.2; }
+.ngrid-empty { color: var(--muted); padding: 18px; }
+.ngrid-pop { position: fixed; z-index: 2147483100; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.55); overflow: hidden; }
+.ngrid-pop .ngrid { flex: 1; min-height: 0; }
+.ngrid-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ngrid-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; }
+
+/* ---------- ⌘ команда окна (core/cmd.js) ---------- */
+.titlebar .controls button.cmd { opacity: .35; }
+.window:hover .titlebar .controls button.cmd, .titlebar .controls button.cmd:focus-visible { opacity: .8; }
+.cmd-pop { position: fixed; z-index: 2147483100; width: 380px; padding: 10px 12px; border-radius: 14px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+.cmd-head { display: flex; justify-content: space-between; align-items: center; }
+.cmd-hint { font-size: 12px; color: var(--muted); }
+.cmd-text { width: 100%; resize: vertical; background: rgba(0,0,0,.4); color: #d6ffe0; border: 1px solid var(--glass-border); border-radius: 10px;
+  font: 12px/1.45 ui-monospace, "JetBrains Mono", monospace; padding: 8px; user-select: text; }
+.cmd-btns { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* ---------- пуск: приложения под DAWN ---------- */
+#start-menu .sm-sub button.sm-child { padding-left: 26px; font-size: 13px; opacity: .85; }
+
+/* ---------- системная стойка (apps/rig) ---------- */
+.dw-bpm { display: inline-flex; align-items: center; gap: 4px; }
+.dw-bpm .dw-num { width: 56px; }
+.rig-one { padding: 8px; }
+.dw-target-btn { align-self: flex-start; }
+
+/* ---------- Скрипты (apps/scripts.js) ---------- */
+.scripts { display: flex; flex-direction: column; height: 100%; gap: 8px; padding: 10px; }
+.scr-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.scr-name { flex: 0 1 220px; background: rgba(0,0,0,.35); color: var(--text); border: 1px solid var(--glass-border); border-radius: 9px; padding: 5px 9px; font: inherit; }
+.scr-main { flex: 1; min-height: 0; display: flex; gap: 10px; }
+.scr-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.scr-ed { flex: 1; min-height: 120px; resize: none; background: rgba(0,0,0,.45); color: #e6f7ff; border: 1px solid var(--glass-border); border-radius: 10px;
+  padding: 10px; font: 13px/1.5 ui-monospace, "JetBrains Mono", monospace; user-select: text; tab-size: 2; }
+.scr-log { max-height: 30%; overflow: auto; font: 12px/1.4 ui-monospace, monospace; }
+.scr-log .ok { color: #9be8a8; } .scr-log .bad { color: #ff9b9b; }
+.scr-side { flex: 0 0 280px; overflow: auto; display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
+.scr-files { display: flex; flex-direction: column; gap: 3px; }
+.scr-file { text-align: left; background: rgba(255,255,255,.05); border: 1px solid var(--glass-border); color: var(--text); border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+.scr-help { display: flex; flex-direction: column; gap: 6px; }
+.scr-cmd { display: flex; flex-direction: column; gap: 1px; }
+.scr-cmd code { color: #b8f59e; font-size: 11.5px; user-select: text; }
+.scr-cmd span { color: var(--muted); }

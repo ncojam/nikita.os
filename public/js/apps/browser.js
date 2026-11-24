@@ -385,7 +385,7 @@ class Browser {
 function openBrowser(addr) {
   let br;
   WM.open({ title: "Браузер", icon: "🌐", width: 900, height: 640, key: "browser:" + Date.now(),
-    render(c, w) { br = new Browser(c, w, addr); } });
+    render(c, w) { br = new Browser(c, w, addr); w.cmd = () => "app browser " + JSON.stringify(br.addr); } });
   return br;
 }
 

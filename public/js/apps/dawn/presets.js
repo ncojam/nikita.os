@@ -137,6 +137,25 @@ export function presetsFor(type) {
   if (type === "chip") return [...own, ...Object.keys(CHIP_PRESETS)];
   return own;
 }
+/* пресеты по категориям — колонки грида выбора (ui/grid.js). Категория — по словам в имени, порядок проверки важен */
+const CATS = [
+  ["⭐ Мои", "#ffd36e", n => n.startsWith(USER)],
+  ["🔩 Металл", "#b8c7d9", n => /metal|iron|creak|scream|howl|shred|grind|screech|tearout/i.test(n)],
+  ["🔥 Риддим", "#ff8fb1", n => /riddim|crush|wub|yoi|wobble|fold|skew|hollow|laser/i.test(n)],
+  ["🔊 Басы", "#c3a6ff", n => /bass|sub|reese|growl|hoover/i.test(n)],
+  ["☁ Пэды", "#9fd3ff", n => /pad|organ|ambient|sour|glass/i.test(n)],
+  ["🎹 Лиды и клавиши", "#b8f59e", n => /lead|pluck|keys|piano|bell|chip|lemon|draw/i.test(n)],
+  ["🌀 Эффекты", "#ffc89e", n => /riser|noise|sweep|rise/i.test(n)],
+  ["… Прочее", "#d0d0d8", () => true],
+];
+export function presetColumns(type) {
+  const cols = CATS.map(([title, color]) => ({ title, color, items: [] }));
+  for (const n of presetsFor(type)) {
+    const i = CATS.findIndex(([, , f]) => f(n));
+    cols[i].items.push({ value: n, label: n.startsWith(USER) ? n.slice(USER.length) : n });
+  }
+  return cols;
+}
 /* применить пресет к каналу: параметры + эффекты на его инсерт (если инсерт только его) */
 export function applyPreset(Engine, ch, name) {
   let fxChain = null, mods = null;

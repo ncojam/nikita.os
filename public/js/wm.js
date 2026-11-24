@@ -243,9 +243,11 @@ const WM = {
     const bMin = btn("min", '<path d="M5 12h14"/>', "Свернуть");
     const bMax = btn("max", '<rect x="5" y="5" width="14" height="14" rx="3"/>', "Развернуть");
     const bClose = btn("close", '<path d="M6 6l12 12M18 6L6 18"/>', "Закрыть");
+    // ⌘ — команда, которая откроет такое же окно (core/cmd.js; для скриптов .nos)
+    const bCmd = btn("cmd", '<path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z"/>', "Команда этого окна (для скриптов)");
     const iconEl = el("span", { textContent: icon });
     const titlebar = el("div", { className: "titlebar" },
-      iconEl, titleEl, el("div", { className: "controls" }, bMin, bMax, bClose));
+      iconEl, titleEl, el("div", { className: "controls" }, bCmd, bMin, bMax, bClose));
     const content = el("div", { className: "content" });
     // размер тянется за любой край и угол
     const grips = ["n", "s", "e", "w", "ne", "nw", "se", "sw"].map(d => el("div", { className: "resize rz-" + d }));
@@ -257,8 +259,9 @@ const WM = {
 
     const w = {
       id, key, node, content, task, minimized: false, maximized: false,
-      // хуки для приложений: onClose (может вернуть Promise), onFocus, onMinimize, onRestore, onKey
-      onClose: null, onFocus: null, onMinimize: null, onRestore: null, onKey: null,
+      // хуки для приложений: onClose (может вернуть Promise), onFocus, onMinimize, onRestore, onKey;
+      // cmd() → текст команды, которая откроет такое же окно (кнопка ⌘, core/cmd.js)
+      cmd: null, onClose: null, onFocus: null, onMinimize: null, onRestore: null, onKey: null,
       setTitle(t) { titleEl.textContent = t; task.title = t; task.lastChild.textContent = t; },
     };
     this.wins.set(id, w);
@@ -268,6 +271,7 @@ const WM = {
 
     node.addEventListener("pointerdown", () => this.focus(w));
     bClose.onclick = e => { e.stopPropagation(); this.close(w); };
+    bCmd.onclick = e => { e.stopPropagation(); import("./core/cmd.js").then(m => m.showWindowCommand(w, bCmd)); };
     bMin.onclick = e => { e.stopPropagation(); this.minimize(w); };
     bMax.onclick = e => { e.stopPropagation(); this.setMax(w, !w.maximized); };
     titlebar.ondblclick = e => { if (!e.target.closest("button")) this.setMax(w, !w.maximized); };

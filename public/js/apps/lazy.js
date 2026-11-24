@@ -35,3 +35,6 @@ export const openTrip = lazy("./trip.js", "openTrip");
 export const openThawLab = lazy("./thawlab.js", "openThawLab");
 export const openKana = lazy("./kana.js", "openKana");
 export const openPalette = lazy("./palette.js", "openPalette");
+export const openRig = lazy("./rig/index.js", "openRig");
+export const openScripts = lazy("./scripts.js", "openScripts");
+export const openPhoto = lazy("./photo/viewer.js", "openPhoto");

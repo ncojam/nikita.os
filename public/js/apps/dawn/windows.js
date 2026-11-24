@@ -10,7 +10,8 @@ import { MAGIC } from "./magic.js";
 import { CHIP_KIT, DRUMS, GENRES, KITS, LIB_MIME, MELODIC, ensureChipDrum, instantiate } from "./library.js";
 import { chipBadge, chipPanel } from "./chipui.js";
 const libClosed = new Set(["odd"]);   // свёрнутые жанры библиотеки
-import { USER, applyPreset, presetsFor } from "./presets.js";
+import { USER, applyPreset, presetColumns, presetsFor } from "./presets.js";
+import { gridButton } from "../../ui/grid.js";
 import { UserLib, captureSound, capturePattern } from "./userlib.js";
 import { roleOf } from "./magic.js";
 import { ENHANCE, enhance } from "./wubs.js";
@@ -680,10 +681,10 @@ const inst = {
         el("span", { className: "dw-inst-type", textContent: TYPES[ch.type].name }), name, route,
         paramKnob(ch, "vol", ch, { label: "Vol", onSet: () => Engine.refreshStrips() }), paramKnob(ch, "pan", ch, { label: "Pan", onSet: () => Engine.refreshStrips() }),
         knob({ spec: "poly", color: ch.color, get: () => ch.poly || 16, set: v => { ch.poly = v; }, done: () => Engine.touch({ param: true }) }).node,
-        presetsFor(ch.type).length ? select([["", "✨ Пресет…"], ...presetsFor(ch.type).map(n => [n, n])], "", v => {
-          if (!v) return;
-          applyPreset(Engine, ch, v); Engine.preview(ch, null, 0.85, 0.6); build();
-        }, "Готовый звук (вместе с эффектами на инсерте)") : "",
+        presetsFor(ch.type).length ? gridButton({ label: "✨ " + (ch.preset ? ch.preset.replace(USER, "") : "Пресет…"), title: "Готовый звук (вместе с эффектами на инсерте)",
+          columns: () => presetColumns(ch.type), value: ch.preset, onPick: it => {
+            applyPreset(Engine, ch, it.value); Engine.preview(ch, null, 0.85, 0.6); build();
+          } }) : "",
         ch.type !== "sampler" && ch.type !== "chip" ? dwBtn("⇔", e => { ch.params.fit = !ch.params.fit; e.target.classList.toggle("on", ch.params.fit); Engine.touch({ param: true }); },
           { className: "dw-btn" + (ch.params.fit ? " on" : ""), title: "Огибающая под длину ноты: атака, спад и релиз ужимаются на коротких нотах — частые вубы слышны" }) : "",
         ch.type === "osc3" || ch.type === "grapefruit" ? select([["", "🪄 Улучшить…"], ...Object.entries(ENHANCE).filter(([k]) => k !== "fit").map(([k, l]) => [k, l])], "", v => {
