@@ -41,16 +41,19 @@ const FACES = [
   [[0, 0, 1], [[1, 0, 1], [1, 1, 1], [0, 1, 1], [0, 0, 1]], 0.65],
   [[0, 0, -1], [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]], 0.65],
 ];
-export function buildGeometry(T, scene, occ = occupancy(scene)) {
-  const { xyz, rgb, count, head } = scene, s = head.size || 1, [ox, oy, oz] = head.origin || [0, 0, 0];
+export function buildGeometry(T, scene, occ = occupancy(scene), list = null) {
+  const { xyz, rgb, head } = scene, s = head.size || 1, [ox, oy, oz] = head.origin || [0, 0, 0];
+  const n = list ? list.length : scene.count, at = list ? j => list[j] : j => j;
   let faces = 0;
-  for (let i = 0; i < count; i++) {
+  for (let j = 0; j < n; j++) {
+    const i = at(j);
     const x = xyz[i * 3], y = xyz[i * 3 + 1], z = xyz[i * 3 + 2];
     for (const [n] of FACES) if (!occ.has(vkey(x + n[0], y + n[1], z + n[2]))) faces++;
   }
   const pos = new Float32Array(faces * 12), col = new Float32Array(faces * 12), idx = new Uint32Array(faces * 6);
   let f = 0;
-  for (let i = 0; i < count; i++) {
+  for (let j = 0; j < n; j++) {
+    const i = at(j);
     const x = xyz[i * 3], y = xyz[i * 3 + 1], z = xyz[i * 3 + 2];
     const r = rgb[i * 3] / 255, g = rgb[i * 3 + 1] / 255, b = rgb[i * 3 + 2] / 255;
     for (const [n, corners, shade] of FACES) {
@@ -71,6 +74,39 @@ export function buildGeometry(T, scene, occ = occupancy(scene)) {
   geo.setIndex(new T.BufferAttribute(idx, 1));
   geo.computeBoundingSphere();
   return geo;
+}
+
+/* точки: по одной в центре каждого вокселя, исходный цвет */
+export function buildPoints(T, scene, list = null) {
+  const { xyz, rgb, head } = scene, s = head.size || 1, [ox, oy, oz] = head.origin || [0, 0, 0];
+  const n = list ? list.length : scene.count;
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  for (let j = 0; j < n; j++) {
+    const i = list ? list[j] : j;
+    for (let a = 0; a < 3; a++) {
+      pos[j * 3 + a] = [ox, oy, oz][a] + (xyz[i * 3 + a] + 0.5) * s;
+      col[j * 3 + a] = rgb[i * 3 + a] / 255;
+    }
+  }
+  const geo = new T.BufferGeometry();
+  geo.setAttribute("position", new T.BufferAttribute(pos, 3));
+  geo.setAttribute("color", new T.BufferAttribute(col, 3));
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+/* чанки по CH вокселей на сторону: каждый — свой объект, и three.js отбрасывает те, что вне поля зрения
+ * (за камерой, сбоку) — на большой сцене рисуется только видимое */
+export const CH = 32;
+export function chunks(scene) {
+  const m = new Map(), { xyz, count } = scene;
+  for (let i = 0; i < count; i++) {
+    const k = vkey(Math.floor(xyz[i * 3] / CH), Math.floor(xyz[i * 3 + 1] / CH), Math.floor(xyz[i * 3 + 2] / CH));
+    let a = m.get(k);
+    if (!a) m.set(k, a = []);
+    a.push(i);
+  }
+  return [...m.values()];
 }
 
 /* камера из заголовка: на месте фотоаппарата, с его углом обзора */

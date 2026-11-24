@@ -1,5 +1,5 @@
 import { store } from "../../core/util.js";
-import { buildGeometry, occupancy, parseNVX, placeCamera, vkey } from "./nvx.js";
+import { buildGeometry, buildPoints, chunks, occupancy, parseNVX, placeCamera, vkey } from "./nvx.js";
 
 /* ================= 3D-режим просмотрщика: воксельная сцена, облёт, ходьба, пол =================
  * Сцена (.nvx) строится одной сеткой из видимых граней. Старт — ровно с точки, откуда снято фото
@@ -11,6 +11,11 @@ import { buildGeometry, occupancy, parseNVX, placeCamera, vkey } from "./nvx.js"
  *   📐 Пол по 3 точкам: три клика по сцене — плоскость становится полом, сцена поворачивается под неё.
  *     У сцен Minecraft пол уже найден тулчейном. Свой пол хранится у посетителя (store "photo.floor.<путь>").
  *   «Рост» — масштаб: высота глаз над полом (с ней — скорость шага).
+ *   Вид: кубы или точки (по точке в центре вокселя, размер — ползунком).
+ *   Столкновения с вокселями по умолчанию выключены: ходишь сквозь, только по полу. Пола нет — летаешь (E — вверх, Q — вниз).
+ *
+ * Сцена разбита на чанки 32³ вокселей — каждый отдельный объект, и three.js не рисует чанки вне поля зрения
+ * (за спиной, сбоку). Внутри видимых чанков есть только наружные грани — внутренние не строятся вовсе.
  */
 export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = {}) {
   const T = await import("/vendor/three/three-gltf.min.js");
@@ -22,9 +27,25 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
   const scene = new T.Scene();
   const root = new T.Group();   // поворот «под пол» — у корня, сама сетка не меняется
   scene.add(root);
-  const mesh = new T.Mesh(buildGeometry(T, S, occ), new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide }));
-  root.add(mesh);
-  const R = mesh.geometry.boundingSphere.radius || 10, C = mesh.geometry.boundingSphere.center.clone();
+  const parts = chunks(S);
+  const world = new T.Group();
+  root.add(world);
+  const cubeMat = new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide });
+  const pointMat = new T.PointsMaterial({ vertexColors: true, size: size * 1.2, sizeAttenuation: true });
+  let style = "cubes";
+  const built = {};
+  function build(st) {
+    style = st;
+    world.clear();
+    world.add(...(built[st] ||= parts.map(list => st === "points" ? new T.Points(buildPoints(T, S, list), pointMat) : new T.Mesh(buildGeometry(T, S, occ, list), cubeMat))));
+  }
+  build("cubes");
+  // общий шар сцены — по крайним вокселям
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < S.count; i++) for (let a = 0; a < 3; a++) { const v = S.xyz[i * 3 + a]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
+  const [bx, by, bz] = head.origin || [0, 0, 0];
+  const C = new T.Vector3((lo[0] + hi[0] + 1) / 2 * size + bx, (lo[1] + hi[1] + 1) / 2 * size + by, (lo[2] + hi[2] + 1) / 2 * size + bz);
+  const R = Math.max(size * 4, Math.hypot(hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1) * size / 2);
   const cam = new T.PerspectiveCamera(60, 1, Math.max(size * 0.05, R / 2000), R * 20);
   placeCamera(T, cam, head);
   scene.fog = new T.Fog(0x0b0b10, R * 2, R * 8);
@@ -65,8 +86,11 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
     return occ.has(vkey(Math.floor((tmp.x - ox) / size), Math.floor((tmp.y - oy) / size), Math.floor((tmp.z - oz) / size)));
   };
   const probe = new T.Vector3();
-  const bodyHits = (p, from, to) => { for (let h = from; h <= to; h += size * 0.9) { probe.set(p.x, p.y - eye() + h, p.z); if (solid(probe)) return true; } return false; };
+  let collide = false;
+  const bodyHits = (p, from, to) => {
+    if (!collide) return false; for (let h = from; h <= to; h += size * 0.9) { probe.set(p.x, p.y - eye() + h, p.z); if (solid(probe)) return true; } return false; };
   function groundBelow(p) {   // верх ближайшего вокселя под ногами или пол
+    if (!collide) return floorY ?? -Infinity;   // сквозь воксели: только пол (нет пола — полёт)
     let g = floorY ?? -Infinity;
     for (let i = 0; i < 96; i++) {
       probe.set(p.x, p.y - eye() - i * size * 0.5, p.z);
@@ -123,7 +147,7 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
   const onKey = (e, down) => {
     if (!down) keys.delete(e.code);
     if (mode !== "walk" || document.pointerLockElement !== el) return;
-    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "Space", "ShiftLeft", "ShiftRight", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
       e.preventDefault(); e.stopPropagation();
       down ? keys.add(e.code) : keys.delete(e.code);
     }
@@ -139,7 +163,8 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
     const r = el.getBoundingClientRect();
     ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
     ray.setFromCamera(ndc, cam);
-    const hit = ray.intersectObject(mesh, false)[0];
+    ray.params.Points.threshold = size;
+    const hit = ray.intersectObjects(world.children, false)[0];
     if (!hit) return;
     pts.push(hit.point.clone());
     const m = new T.Mesh(new T.SphereGeometry(R / 120, 8, 6), new T.MeshBasicMaterial({ color: 0xff9ecb }));
@@ -176,14 +201,16 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
       if (keys.has("KeyA") || keys.has("ArrowLeft")) w.sub(side);
       if (w.lengthSq()) w.normalize().multiplyScalar(sp);
       vel.x = w.x; vel.z = w.z;
-      vel.y -= 9.8 * eye() / 1.62 * 2 * dt;
-      if (keys.has("Space") && onGround) { vel.y = eye() * 3.4; onGround = false; }
+      const fly = !collide && floorY == null;
+      if (fly) vel.y = ((keys.has("KeyE") || keys.has("Space")) - keys.has("KeyQ")) * sp;
+      else vel.y -= 9.8 * eye() / 1.62 * 2 * dt;
+      if (!fly && keys.has("Space") && onGround) { vel.y = eye() * 3.4; onGround = false; }
       const next = cam.position.clone(); next.x += vel.x * dt; next.z += vel.z * dt;
       const step = eye() / 4;
       if (bodyHits(next, step, eye() * 1.05)) { next.x = cam.position.x; next.z = cam.position.z; }   // стена
       else if (bodyHits(next, 0, step)) next.y += step;                                                // ступенька
       next.y += vel.y * dt;
-      const g = groundBelow(cam.position);
+      const g = fly ? -Infinity : groundBelow(cam.position);
       if (next.y - eye() <= g) { next.y = g + eye(); vel.y = 0; onGround = true; } else onGround = false;
       cam.position.copy(next);
     }
@@ -205,10 +232,9 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
     setMode(m) {
       mode = m;
       if (m === "walk") {
-        if (floorY == null && !mc) onInfo("Сначала задай пол (📐), иначе ходить не по чему — пока ходишь по вокселям");
-        cam.position.y = Math.max(cam.position.y, groundBelow(cam.position) + eye());
+        if (collide || floorY != null) cam.position.y = Math.max(cam.position.y, groundBelow(cam.position) + eye());
         syncAngles();
-        onInfo("🚶 Клик по сцене — захват мыши · WASD · пробел — прыжок · Shift — бегом · Esc — отпустить");
+        onInfo("🚶 Клик по сцене — захват мыши · WASD · " + (!collide && floorY == null ? "E/Q — вверх/вниз" : "пробел — прыжок") + " · Shift — бегом · Esc — отпустить");
       } else { document.exitPointerLock?.(); keys.clear(); target.copy(cam.position).add(new T.Vector3(0, 0, -R * 0.5).applyQuaternion(cam.quaternion)); }
     },
     pickFloor() { resetPick(); picking = true; onInfo("📐 Кликни три точки на полу"); },
@@ -222,11 +248,17 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
     home() { placeCamera(T, cam, head); cam.position.applyQuaternion(root.quaternion); cam.quaternion.premultiply(root.quaternion); syncAngles(); target.copy(C).applyQuaternion(root.quaternion); },
     setEye(m) { eyeMul = m; },
     toggleGrid() { showGrid = !showGrid; },
+    get style() { return style; },
+    setStyle(st) { build(st); },
+    setPointSize(m) { pointMat.size = size * m; },
+    get collide() { return collide; },
+    setCollide(on) { collide = on; },
     dispose() {
       dead = true; cancelAnimationFrame(raf);
       removeEventListener("keydown", kd, true); removeEventListener("keyup", ku, true);
       document.exitPointerLock?.();
-      mesh.geometry.dispose(); mesh.material.dispose(); renderer.dispose(); renderer.domElement.remove();
+      for (const list of Object.values(built)) list.forEach(o => o.geometry.dispose());
+      cubeMat.dispose(); pointMat.dispose(); renderer.dispose(); renderer.domElement.remove();
     },
   };
 }
