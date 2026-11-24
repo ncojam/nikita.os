@@ -2213,4 +2213,3 @@ a.nw-chip:hover { border-color: var(--mt); }
 .ph-nav.prev { left: 8px; } .ph-nav.next { right: 8px; }
 .ph-nav[hidden] { display: none; }
 .ph-count { font-size: 12px; color: var(--muted); }
-.ph-sel { background: rgba(0,0,0,.35); color: var(--text); border: 1px solid var(--glass-border); border-radius: 8px; padding: 3px 6px; font: inherit; font-size: 12px; }

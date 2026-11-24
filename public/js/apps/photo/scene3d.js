@@ -1,8 +1,8 @@
 import { store } from "../../core/util.js";
-import { buildGeometry, buildPoints, chunks, occupancy, parseNVX, placeCamera, vkey } from "./nvx.js";
+import { buildPoints, chunks, occupancy, parseNVX, placeCamera, vkey } from "./nvx.js";
 
 /* ================= 3D-режим просмотрщика: воксельная сцена, облёт, ходьба, пол =================
- * Сцена (.nvx) строится одной сеткой из видимых граней. Старт — ровно с точки, откуда снято фото
+ * Сцена (.nvx) рисуется точками. Старт — ровно с точки, откуда снято фото
  * (поэтому сначала видно «ту же картинку», а потом она оживает).
  *
  *   Облёт: тянуть — вращать вокруг центра, правой/Shift — сдвиг, колесо — ближе/дальше.
@@ -11,11 +11,11 @@ import { buildGeometry, buildPoints, chunks, occupancy, parseNVX, placeCamera, v
  *   📐 Пол по 3 точкам: три клика по сцене — плоскость становится полом, сцена поворачивается под неё.
  *     У сцен Minecraft пол уже найден тулчейном. Свой пол хранится у посетителя (store "photo.floor.<путь>").
  *   «Рост» — масштаб: высота глаз над полом (с ней — скорость шага).
- *   Вид: кубы или точки (по точке в центре вокселя, размер — ползунком).
+ *   Вид — точки: по точке в центре вокселя, размер — ползунком «Точки».
  *   Столкновения с вокселями по умолчанию выключены: ходишь сквозь, только по полу. Пола нет — летаешь (E — вверх, Q — вниз).
  *
  * Сцена разбита на чанки 32³ вокселей — каждый отдельный объект, и three.js не рисует чанки вне поля зрения
- * (за спиной, сбоку). Внутри видимых чанков есть только наружные грани — внутренние не строятся вовсе.
+ * (за спиной, сбоку). 
  */
 export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = {}) {
   const T = await import("/vendor/three/three-gltf.min.js");
@@ -30,16 +30,8 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
   const parts = chunks(S);
   const world = new T.Group();
   root.add(world);
-  const cubeMat = new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide });
   const pointMat = new T.PointsMaterial({ vertexColors: true, size: size * 1.2, sizeAttenuation: true });
-  let style = "cubes";
-  const built = {};
-  function build(st) {
-    style = st;
-    world.clear();
-    world.add(...(built[st] ||= parts.map(list => st === "points" ? new T.Points(buildPoints(T, S, list), pointMat) : new T.Mesh(buildGeometry(T, S, occ, list), cubeMat))));
-  }
-  build("cubes");
+  world.add(...parts.map(list => new T.Points(buildPoints(T, S, list), pointMat)));
   // общий шар сцены — по крайним вокселям
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < S.count; i++) for (let a = 0; a < 3; a++) { const v = S.xyz[i * 3 + a]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
@@ -248,8 +240,6 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
     home() { placeCamera(T, cam, head); cam.position.applyQuaternion(root.quaternion); cam.quaternion.premultiply(root.quaternion); syncAngles(); target.copy(C).applyQuaternion(root.quaternion); },
     setEye(m) { eyeMul = m; },
     toggleGrid() { showGrid = !showGrid; },
-    get style() { return style; },
-    setStyle(st) { build(st); },
     setPointSize(m) { pointMat.size = size * m; },
     get collide() { return collide; },
     setCollide(on) { collide = on; },
@@ -257,8 +247,8 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
       dead = true; cancelAnimationFrame(raf);
       removeEventListener("keydown", kd, true); removeEventListener("keyup", ku, true);
       document.exitPointerLock?.();
-      for (const list of Object.values(built)) list.forEach(o => o.geometry.dispose());
-      cubeMat.dispose(); pointMat.dispose(); renderer.dispose(); renderer.domElement.remove();
+      world.children.forEach(o => o.geometry.dispose());
+      pointMat.dispose(); renderer.dispose(); renderer.domElement.remove();
     },
   };
 }

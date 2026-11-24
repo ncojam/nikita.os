@@ -68,7 +68,7 @@ export function openPhoto(path, opts = {}) {
 function mount(c, w, path, opts, nav) {
   const name = baseName(path);
   {
-    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, win: 0.5, pt: 1.2, style: "cubes", collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
+    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, win: 0.5, pt: 1.2, collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
     const stage = el("div", { className: "ph-stage" });
     const img = el("img", { className: "ph-img", alt: name, src: fsUrl(path) });
     const canvas = el("canvas", { className: "ph-canvas", hidden: true });
@@ -87,7 +87,7 @@ function mount(c, w, path, opts, nav) {
 
     let depthImg = null, depthFrom = "", par = null, s3d = null, raf = 0, dead = false;
     const say = (t, ms = 0) => { info.textContent = t; info.hidden = !t; if (ms) setTimeout(() => info.textContent === t && (info.hidden = true), ms); };
-    const save = () => store.set(SET, { win: st.win, strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, style: st.style, collide: st.collide });
+    const save = () => store.set(SET, { win: st.win, strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, collide: st.collide });
 
     /* ---------- ползунки (они же цели проводков) ---------- */
     const range = (label, key, min, max, step, onSet, title = "") => {
@@ -195,12 +195,10 @@ function mount(c, w, path, opts, nav) {
           const { createScene3D } = await import("./scene3d.js");
           s3d = await createScene3D(box3d, await r.arrayBuffer(), { key: path, onInfo: t => say(t, 5000) });
           s3d.setEye(st.eye); s3d.setPointSize(st.pt); s3d.setCollide(!!st.collide);
-          if (st.style === "points") s3d.setStyle("points");
         } catch (e) { say("⚠ " + e.message + " — показываю фото", 4000); return setMode("flat"); }
         say((s3d.head.kind === "minecraft" ? "⛏ Сцена Minecraft" : "🧊 Сцена из фото") + ` · ${s3d.head.count.toLocaleString(globalThis.NOS_LOCALE)} вокселей`, 4000);
       }
       const pts = range("Точки", "pt", 0.3, 4, 0.05, () => s3d?.setPointSize(st.pt), "Размер точек");
-      pts.hidden = s3d.style !== "points";
       const walk = el("button", { className: "btn small", textContent: "🚶 Ходить", onclick: () => { const on = s3d.mode !== "walk"; s3d.setMode(on ? "walk" : "orbit"); walk.classList.toggle("on", on); } });
       tools.replaceChildren(walk,
         el("button", { className: "btn small", textContent: "📐 Пол по 3 точкам", title: "Кликни три точки на полу — сцена встанет на него", onclick: () => { if (s3d.mode === "walk") { s3d.setMode("orbit"); walk.classList.remove("on"); } s3d.pickFloor(); } }),
@@ -209,8 +207,6 @@ function mount(c, w, path, opts, nav) {
         el("button", { className: "btn small", textContent: "📷", title: "Вернуться в точку съёмки", onclick: () => s3d.home() }),
         (() => { const b = el("button", { className: "btn small" + (s3d.collide ? " on" : ""), textContent: "🧱", title: "Столкновения с вокселями (выкл — ходишь сквозь, только по полу)",
           onclick: () => { s3d.setCollide(!s3d.collide); b.classList.toggle("on", s3d.collide); st.collide = s3d.collide; save(); } }); return b; })(),
-        el("select", { className: "ph-sel", title: "Как рисовать воксели", onchange: e => { s3d.setStyle(e.target.value); st.style = e.target.value; save(); pts.hidden = e.target.value !== "points"; } },
-          el("option", { value: "cubes", textContent: "■ Кубы", selected: s3d.style === "cubes" }), el("option", { value: "points", textContent: "• Точки", selected: s3d.style === "points" })),
         pts,
         range("Рост", "eye", 0.25, 4, 0.05, () => s3d?.setEye(st.eye), "Масштаб: высота глаз над полом (и скорость шага)"));
     }

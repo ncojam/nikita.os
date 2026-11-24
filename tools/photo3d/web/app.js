@@ -1,5 +1,5 @@
 /* Тулчейн фото → глубина и 3D: интерфейс. Сервер — toolchain.py; читалка .nvx и three.js — те же, что у сайта (/site/…). */
-import { buildGeometry, parseNVX, placeCamera } from "/site/js/apps/photo/nvx.js";
+import { buildPoints, parseNVX, placeCamera } from "/site/js/apps/photo/nvx.js";
 
 const $ = s => document.querySelector(s);
 const api = (u, o) => fetch(u, o).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); });
@@ -81,7 +81,7 @@ async function preview3d(path) {
   const r = new T.WebGLRenderer({ antialias: true });
   box.append(r.domElement);
   const scene = new T.Scene(); scene.background = new T.Color(0x07070a);
-  const mesh = new T.Mesh(buildGeometry(T, S), new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide }));
+  const mesh = new T.Points(buildPoints(T, S), new T.PointsMaterial({ vertexColors: true, size: (S.head.size || 1) * 1.2, sizeAttenuation: true }));
   scene.add(mesh);
   const c = mesh.geometry.boundingSphere.center, R = mesh.geometry.boundingSphere.radius;
   const cam = new T.PerspectiveCamera(60, 1, R / 1000, R * 20);
