@@ -1,5 +1,6 @@
 import { store } from "../../core/util.js";
 import { buildPoints, chunks, occupancy, parseNVX, placeCamera, vkey } from "./nvx.js";
+import { createSky } from "./sky.js";
 
 /* ================= 3D-режим просмотрщика: воксельная сцена, облёт, ходьба, пол =================
  * Сцена (.nvx) рисуется точками. Старт — ровно с точки, откуда снято фото
@@ -17,7 +18,7 @@ import { buildPoints, chunks, occupancy, parseNVX, placeCamera, vkey } from "./n
  * Сцена разбита на чанки 32³ вокселей — каждый отдельный объект, и three.js не рисует чанки вне поля зрения
  * (за спиной, сбоку). 
  */
-export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = {}) {
+export async function createScene3D(box, buf, { key = "", onInfo = () => {}, onStep = () => {} } = {}) {
   const T = await import("/vendor/three/three-gltf.min.js");
   const S = parseNVX(buf), head = S.head, size = head.size || 1, mc = head.kind === "minecraft";
   const occ = occupancy(S);
@@ -40,7 +41,7 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
   const R = Math.max(size * 4, Math.hypot(hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1) * size / 2);
   const cam = new T.PerspectiveCamera(60, 1, Math.max(size * 0.05, R / 2000), R * 20);
   placeCamera(T, cam, head);
-  scene.fog = new T.Fog(0x0b0b10, R * 2, R * 8);
+  scene.fog = new T.Fog(0x080a14, R * 2, R * 8);
 
   /* ---------- пол ---------- */
   const FKEY = "photo.floor." + key;
@@ -178,6 +179,21 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
   }
   function resetPick() { picking = false; pts = []; marks.clear(); }
 
+  /* ---------- небо: звёзды, планеты, яркая звезда (закрыта ли сценой — луч по вокселям), волны ---------- */
+  const sunRay = new T.Vector3();
+  const sky = createSky(box, { seed: key, visible: d => {
+    for (let r = size * 2; r < R * 2.5; r += size * 1.5) {
+      sunRay.set(cam.position.x + d[0] * r, cam.position.y + d[1] * r, cam.position.z + d[2] * r);
+      if (solidAny(sunRay)) return false;
+    }
+    return true;
+  } });
+  function solidAny(p) { tmp.copy(p).applyMatrix4(inv); return occ.has(vkey(Math.floor((tmp.x - ox) / size), Math.floor((tmp.y - oy) / size), Math.floor((tmp.z - oz) / size))); }
+
+  /* ---------- покачивание при ходьбе и шаги ---------- */
+  let bobPh = 0, bobAmt = 0, lastStep = 0, wasGround = true;
+  const bobOff = new T.Vector3(), rightV = new T.Vector3(), upV = new T.Vector3();
+
   /* ---------- кадр ---------- */
   const fwd = new T.Vector3(), side = new T.Vector3();
   function frame(now) {
@@ -205,14 +221,34 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
       const g = fly ? -Infinity : groundBelow(cam.position);
       if (next.y - eye() <= g) { next.y = g + eye(); vel.y = 0; onGround = true; } else onGround = false;
       cam.position.copy(next);
-    }
+      // шаги и покачивание: только когда идёшь по земле
+      const moving = onGround && !fly && Math.hypot(vel.x, vel.z) > eye() * 0.3;
+      bobAmt += ((moving ? 1 : 0) - bobAmt) * Math.min(1, dt * 6);
+      if (moving) {
+        const run = keys.has("ShiftLeft") || keys.has("ShiftRight");
+        bobPh += dt * Math.PI * 2 * (run ? 2.6 : 1.8);
+        const stepNo = Math.floor(bobPh / Math.PI);
+        if (stepNo !== lastStep) { lastStep = stepNo; onStep(run ? 1.3 : 1, mc); }
+      }
+      if (onGround && !wasGround && !fly) onStep(1.5, mc);   // приземлился
+      wasGround = onGround;
+    } else bobAmt = 0;
+    // покачивание — только на время отрисовки: физика его не видит
+    const roll = Math.sin(bobPh) * 0.012 * bobAmt;
+    if (mode === "walk") cam.quaternion.setFromEuler(euler.set(pitch, yaw, roll, "YXZ"));
+    rightV.set(1, 0, 0).applyQuaternion(cam.quaternion); upV.set(0, 1, 0).applyQuaternion(cam.quaternion);
+    bobOff.copy(upV).multiplyScalar(Math.abs(Math.sin(bobPh)) * eye() * 0.03 * bobAmt).addScaledVector(rightV, Math.sin(bobPh) * eye() * 0.012 * bobAmt);
     placeGrid();
     const W = box.clientWidth, H = box.clientHeight;
     if (W && H) {
       if (renderer.domElement.width !== Math.round(W * renderer.getPixelRatio())) { renderer.setSize(W, H, false); }
       cam.aspect = W / H; cam.updateProjectionMatrix();
       renderer.domElement.style.width = W + "px"; renderer.domElement.style.height = H + "px";
+      cam.position.add(bobOff);
+      cam.updateMatrixWorld();
+      sky.draw(cam, T, now / 1000);
       renderer.render(scene, cam);
+      cam.position.sub(bobOff);
     }
     raf = requestAnimationFrame(frame);
   }
@@ -248,7 +284,7 @@ export async function createScene3D(box, buf, { key = "", onInfo = () => {} } = 
       removeEventListener("keydown", kd, true); removeEventListener("keyup", ku, true);
       document.exitPointerLock?.();
       world.children.forEach(o => o.geometry.dispose());
-      pointMat.dispose(); renderer.dispose(); renderer.domElement.remove();
+      pointMat.dispose(); renderer.dispose(); renderer.domElement.remove(); sky.dispose();
     },
   };
 }

@@ -3,6 +3,7 @@ import { isSidecar, kindOf } from "../../core/types.js";
 import { VFS } from "../../core/vfs.js";
 import { notify } from "../../ui/notify.js";
 import { WM } from "../../wm.js";
+import { Ambient } from "./ambient.js";
 import { computeDepth } from "./depth.js";
 import { Parallax } from "./parallax.js";
 
@@ -28,6 +29,7 @@ export function openPhoto(path, opts = {}) {
   return WM.open({ title: baseName(path), icon: "🖼️", key: "file:" + path, width: 820, height: 600, render(c, w) {
     /* листать: соседние картинки той же папки (‹ ›, ←/→, PageUp/PageDown, Home/End); режим сохраняется */
     let view = null, cur = path, list = null;
+    const amb = new Ambient();   // эмбиент и шаги живут у окна, а не у картинки: листание музыку не обрывает
     const siblings = async () => {
       if (list) return list;
       const dir = cur.slice(0, cur.lastIndexOf("/")) || "/";
@@ -44,7 +46,7 @@ export function openPhoto(path, opts = {}) {
       cur = p; w.key = "file:" + p; w.node.dataset.wkey = w.key; w.setTitle(baseName(p));
       view = mount(c, w, p, o || { mode }, nav);
     };
-    const nav = {
+    const nav = { amb,
       async step(d) {
         const L = await siblings(), i = L.indexOf(cur);
         if (L.length < 2) return;
@@ -59,7 +61,7 @@ export function openPhoto(path, opts = {}) {
       if (k) { e.preventDefault(); nav.step(k); }
       else if (e.key === "Home" || e.key === "End") { e.preventDefault(); nav.jump(e.key === "End"); }
     };
-    w.onClose = () => view?.stop();
+    w.onClose = () => { view?.stop(); amb.close(); };
     show(path, opts);
   } });
 }
@@ -68,7 +70,7 @@ export function openPhoto(path, opts = {}) {
 function mount(c, w, path, opts, nav) {
   const name = baseName(path);
   {
-    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, win: 0.5, pt: 1.2, collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
+    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, vol: 0.6, win: 0.5, pt: 1.2, collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
     const stage = el("div", { className: "ph-stage" });
     const img = el("img", { className: "ph-img", alt: name, src: fsUrl(path) });
     const canvas = el("canvas", { className: "ph-canvas", hidden: true });
@@ -87,7 +89,7 @@ function mount(c, w, path, opts, nav) {
 
     let depthImg = null, depthFrom = "", par = null, s3d = null, raf = 0, dead = false;
     const say = (t, ms = 0) => { info.textContent = t; info.hidden = !t; if (ms) setTimeout(() => info.textContent === t && (info.hidden = true), ms); };
-    const save = () => store.set(SET, { win: st.win, strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, collide: st.collide });
+    const save = () => store.set(SET, { vol: st.vol, win: st.win, strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, collide: st.collide });
 
     /* ---------- ползунки (они же цели проводков) ---------- */
     const range = (label, key, min, max, step, onSet, title = "") => {
@@ -149,6 +151,7 @@ function mount(c, w, path, opts, nav) {
       cancelAnimationFrame(raf);
       w.node.style.transform = "";
       if (m !== "3d" && s3d) { s3d.dispose(); s3d = null; }
+      if (m !== "3d") nav.amb.leave();   // ушли из 3D — эмбиент затихает
       if (m === "flat") { tools.replaceChildren(el("span", { className: "ph-dim", textContent: "Двойной клик — во весь экран окна" })); say(""); return; }
       if (m === "parallax") return startParallax();
       if (m === "3d") return start3d();
@@ -193,7 +196,8 @@ function mount(c, w, path, opts, nav) {
           const r = await fetch(fsUrl(path + ".scene.nvx"), { cache: "no-store" });
           if (!r.ok) throw new Error("нет файла сцены");
           const { createScene3D } = await import("./scene3d.js");
-          s3d = await createScene3D(box3d, await r.arrayBuffer(), { key: path, onInfo: t => say(t, 5000) });
+          s3d = await createScene3D(box3d, await r.arrayBuffer(), { key: path, onInfo: t => say(t, 5000), onStep: (p, mc) => nav.amb.step(p, mc) });
+          nav.amb.setVolume(st.vol); nav.amb.enter();
           s3d.setEye(st.eye); s3d.setPointSize(st.pt); s3d.setCollide(!!st.collide);
         } catch (e) { say("⚠ " + e.message + " — показываю фото", 4000); return setMode("flat"); }
         say((s3d.head.kind === "minecraft" ? "⛏ Сцена Minecraft" : "🧊 Сцена из фото") + ` · ${s3d.head.count.toLocaleString(globalThis.NOS_LOCALE)} вокселей`, 4000);
@@ -208,6 +212,7 @@ function mount(c, w, path, opts, nav) {
         (() => { const b = el("button", { className: "btn small" + (s3d.collide ? " on" : ""), textContent: "🧱", title: "Столкновения с вокселями (выкл — ходишь сквозь, только по полу)",
           onclick: () => { s3d.setCollide(!s3d.collide); b.classList.toggle("on", s3d.collide); st.collide = s3d.collide; save(); } }); return b; })(),
         pts,
+        range("Звук", "vol", 0, 1, 0.01, () => nav.amb.setVolume(st.vol), "Громкость эмбиента и шагов — цель для проводков"),
         range("Рост", "eye", 0.25, 4, 0.05, () => s3d?.setEye(st.eye), "Масштаб: высота глаз над полом (и скорость шага)"));
     }
 
