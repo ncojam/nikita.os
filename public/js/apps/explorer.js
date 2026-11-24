@@ -1,4 +1,4 @@
-import { GLYPH, kindOf } from "../core/types.js";
+import { GLYPH, isSidecar, kindOf } from "../core/types.js";
 import { baseName, el, fmtSize, joinPath, parentOf, plural } from "../core/util.js";
 import { Links, openFile } from "../open.js";
 import { GitHub } from "../remote/github.js";
@@ -14,6 +14,7 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
     title: baseName(path), icon: "📁", width: 760, height: 480,
     render(root, win) {
       let pendingSelect = opts.select || null;
+      let sideOpen = false;   // группа «данные просмотрщика фото» раскрыта?
       let cur = path, history = [], future = [];
       win.cmd = () => "open " + JSON.stringify(cur);   // ⌘: эта же папка (core/cmd.js)
       const bBack = el("button", { textContent: "←", title: "Назад" });
@@ -122,7 +123,13 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
           showBanner(info);
           grid.replaceChildren();
           if (!entries.length) grid.append(el("div", { className: "empty", textContent: "Папка пуста" }));
-          for (const it of entries) {
+          // данные просмотрщика фото (глубина, сцены) — отдельной группой внизу, свёрнутой по умолчанию
+          const side = entries.filter(e => e.type === "file" && isSidecar(e.name));
+          const ordered = [...entries.filter(e => !side.includes(e)), ...(side.length && sideOpen ? side : [])];
+          const sideHead = side.length ? el("button", { className: "grid-sep", title: "Карты глубины и 3D-сцены для просмотрщика фото",
+            textContent: `${sideOpen ? "▾" : "▸"} 🧊 Данные просмотрщика фото · ${side.length}`, onclick: () => { sideOpen = !sideOpen; load(); } }) : null;
+          for (const it of ordered) {
+            if (sideHead && it === side[0]) grid.append(sideHead);
             const full = joinPath(cur, it.name);
             const kind = it.type === "dir" ? "dir" : kindOf(it.name);
             const meta = { ...it, path: full, kind };
@@ -137,6 +144,7 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
             grid.append(ic);
             if (kind === "link" && !remote) Links.decorate(ic, full);
           }
+          if (sideHead && !sideOpen) grid.append(sideHead);
           const files = entries.filter(e => e.type === "file");
           summary = `${entries.length} элем. · ${fmtSize(files.reduce((s, f) => s + f.size, 0))}` + (remote ? " · GitHub" : "");
           status.textContent = summary;

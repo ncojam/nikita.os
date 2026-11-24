@@ -10,7 +10,12 @@ const EXT = {
   post: ["запись"],
   dawn: ["dawn"],
   script: ["nos"],
+  scene: ["nvx"],
 };
+
+/* «производные» файлы просмотрщика фото лежат рядом с картинкой: <картинка>.depth.png, <картинка>.scene.nvx.
+ * Проводник показывает их отдельной группой внизу, рабочий стол прячет. */
+const isSidecar = name => /\.(depth\.png|scene\.nvx)$/i.test(name);
 
 const kindOf = name => {
   const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
@@ -18,9 +23,9 @@ const kindOf = name => {
   return "other";
 };
 
-const GLYPH = { dir: "📁", audio: "🎵", video: "🎬", image: "🖼️", text: "📄", web: "🎮", rom: "🕹️", flash: "⚡", link: "🔗", post: "📝", dawn: "🌸", script: "📜", other: "📦" };
+const GLYPH = { dir: "📁", audio: "🎵", video: "🎬", image: "🖼️", text: "📄", web: "🎮", rom: "🕹️", flash: "⚡", link: "🔗", post: "📝", dawn: "🌸", script: "📜", scene: "🧊", other: "📦" };
 
 const KIND_NAME = { dir: "Папка", audio: "Аудио", video: "Видео", image: "Изображение", text: "Текст",
-  web: "Веб-страница / игра", rom: "ROM (GBA / GB)", flash: "Flash-игра (SWF)", link: "Ярлык", post: "Запись", dawn: "Проект DAWN", script: "Скрипт nikita.os", other: "Файл" };
+  web: "Веб-страница / игра", rom: "ROM (GBA / GB)", flash: "Flash-игра (SWF)", link: "Ярлык", post: "Запись", dawn: "Проект DAWN", script: "Скрипт nikita.os", scene: "Сцена 3D из фото", other: "Файл" };
 
-export { kindOf, GLYPH, KIND_NAME };
+export { kindOf, GLYPH, KIND_NAME, isSidecar };

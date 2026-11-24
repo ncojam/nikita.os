@@ -1,5 +1,5 @@
 import { openExplorer } from "./apps/lazy.js";
-import { GLYPH, kindOf } from "./core/types.js";
+import { GLYPH, isSidecar, kindOf } from "./core/types.js";
 import { $, joinPath, store } from "./core/util.js";
 import { VFS } from "./core/vfs.js";
 import { deleteIcons, makeDropTarget, makeIconsDraggable, renameIcon } from "./ui/fs-dnd.js";
@@ -73,7 +73,7 @@ const Desktop = {
     let entries = null;
     try {
       const r = await fetch("/api/ls?path=" + encodeURIComponent(DESKTOP), { cache: "no-store" });
-      if (r.ok) entries = (await r.json()).entries;
+      if (r.ok) entries = (await r.json()).entries.filter(e => !isSidecar(e.name));   // глубина и сцены фото — не на стол
     } catch {}
     // перерисовываем, только если в папке что-то поменялось
     const sig = JSON.stringify(entries);

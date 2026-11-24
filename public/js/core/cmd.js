@@ -192,6 +192,11 @@ Cmd.add("rig.pedal", "rig.pedal <id> <тип> [off] [{параметры}]", "П
   Pedalboard.boot();
   Bus.changed({});
 });
+Cmd.add("photo", "photo <путь> [flat|parallax|3d] [{настройки}]", "Просмотрщик фото в режиме: фото, параллакс по глубине или 3D", async ([p, mode, set], ctx) => {
+  if (!p) throw new Error("нужен путь к картинке");
+  const { openPhoto } = await import("../apps/photo/viewer.js");
+  ctx.win = openPhoto(p, { mode: ["flat", "parallax", "3d"].includes(mode) ? mode : "flat", set: set && typeof set === "object" ? set : undefined });
+});
 Cmd.add("wait", "wait <мс>", "Подождать", async ([ms]) => new Promise(r => setTimeout(r, Math.min(60000, Math.max(0, +ms || 0)))));
 Cmd.add("say", "say <текст>", "Показать уведомление", async a => { notify(a.join(" ")); });
 

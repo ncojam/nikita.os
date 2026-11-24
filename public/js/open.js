@@ -23,9 +23,8 @@ function openFile(path, link = null) {
     c.append(el("div", { className: "viewer-media" }, v));
     w.onClose = () => v.pause();
   }});
-  if (kind === "image") return WM.open({ ...opts, width: 760, height: 520, render(c) {
-    c.append(el("div", { className: "viewer-img" }, el("img", { src: url, alt: name })));
-  }});
+  if (kind === "image") return openPhoto(path);   // фото: параллакс по глубине и 3D (apps/photo)
+  if (kind === "scene") return openPhoto(path.replace(/\.scene\.nvx$/i, ""), { mode: "3d" });
   if (kind === "web") return WM.open({ ...opts, width: link?.width || 960, height: link?.height || 640, render(c, w) {
     // index.html игры открывается в iframe — соседние файлы (js, assets) подтянутся по относительным путям
     const f = el("iframe", { className: "viewer-frame", src: url, allow: "fullscreen; autoplay; gamepad" });

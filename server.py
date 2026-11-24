@@ -57,6 +57,10 @@ for _ext in (".gba", ".gb", ".gbc"):
     mimetypes.add_type("application/octet-stream", _ext)
 mimetypes.add_type("application/json", ".lnk")
 mimetypes.add_type("application/json", ".dawn")
+mimetypes.add_type("text/javascript", ".mjs")             # onnxruntime-web для глубины в браузере (fs/usr/share/depth)
+mimetypes.add_type("application/octet-stream", ".onnx")
+mimetypes.add_type("application/octet-stream", ".nvx")    # воксельная сцена из фото
+mimetypes.add_type("text/plain", ".nos")                   # скрипт команд ОС
 
 AUDIO_EXT = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".opus"}
 
@@ -912,6 +916,16 @@ def make_app():
     app["net"].forum = app["netforum"]
     app["net"].routes(app)
     app["netforum"].routes(app)
+    # глубина для фото: досчитывает сервер в тихие часы, если рядом с картинкой нет .depth.png
+    from depth import Depth
+
+    def real_image(v):
+        p = resolve_inside(FS_ROOT, v)
+        if p is not None and p.is_file():
+            return p
+        return app["folders"].real(v)
+    app["depth"] = Depth(DATA_DIR, real_image, FS_ROOT / "usr" / "share" / "depth" / "model.onnx")
+    app["depth"].routes(app)
     app.router.add_get("/browser{tail:(/.*)?}", serve_browser)  # прямые ссылки -> та же ОС, браузер откроет адрес
     app.router.add_get("/dawn{tail:(/.*)?}", serve_browser)     # /dawn и /dawn/<путь к .dawn> -> ОС откроет DAWN
     app.router.add_get("/fs/{tail:.*}", serve_fs)
