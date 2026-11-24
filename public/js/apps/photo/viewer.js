@@ -179,15 +179,15 @@ function mount(c, w, path, opts, nav) {
         rng("Обзор", "fov", 30, 120, 0.5, "Угол обзора, ° (колесо мыши)"),
         rng("Авто", "spin", -30, 30, 0.5, "Сама поворачивается, °/с (0 — стоит)"),
         rng("Планета", "planet", 0, 1, 0.01, "0 — обычный вид, 1 — «маленькая планета»"));
-      // тянуть мышью: как будто держишь панораму пальцем
+      // тянуть мышью: взгляд идёт за мышью (вправо — смотрим вправо, вниз — вниз)
       let drag = null, vel = 0;
       panoCv.onpointerdown = e => { drag = { x: e.clientX, y: e.clientY, t: performance.now() }; panoCv.setPointerCapture(e.pointerId); vel = 0; };
       panoCv.onpointermove = e => {
         if (!drag) return;
         const k = st.fov / panoCv.clientHeight, dx = e.clientX - drag.x, dy = e.clientY - drag.y, now = performance.now();
-        st.yaw = ((st.yaw - dx * k) % 360 + 360) % 360;
-        st.pitch = Math.max(-89, Math.min(89, st.pitch + dy * k));
-        vel = -dx * k / Math.max(1, now - drag.t) * 1000;
+        st.yaw = ((st.yaw + dx * k) % 360 + 360) % 360;              // мышь вправо — смотрим вправо
+        st.pitch = Math.max(-89, Math.min(89, st.pitch - dy * k));    // мышь вниз — смотрим вниз
+        vel = dx * k / Math.max(1, now - drag.t) * 1000;
         drag = { x: e.clientX, y: e.clientY, t: now };
       };
       panoCv.onpointerup = () => { drag = null; };
