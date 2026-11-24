@@ -49,10 +49,10 @@ const one = () => items.find(i => i.path === [...sel].at(-1));
 function showSel() {
   $("#sel").textContent = sel.size ? `выбрано: ${sel.size}` : "";
   $("#hint").style.display = sel.size ? "none" : "";
-  $("#doScene").disabled = sel.size !== 1;
+  $("#doScene").disabled = !sel.size;
   $("#doDepth").disabled = !sel.size;
   $("#doDepth").title = sel.size ? "" : "Сначала выбери картинки слева";
-  $("#doScene").title = sel.size === 1 ? "" : "Сцена делается по одной картинке — выбери одну";
+  $("#doScene").title = sel.size ? (sel.size > 1 ? `Сцены для всех ${sel.size} по очереди, с одинаковыми настройками` : "") : "Сначала выбери картинки слева";
   setTab(tab);
 }
 
@@ -144,8 +144,9 @@ async function watch() {
 $("#doDepth").onclick = () => job({ kind: "depth", paths: [...sel], model: $("#model").value, res: +$("#res").value });
 $("#doScene").onclick = () => {
   const mode = document.querySelector("input[name=mode]:checked").value, num = s => $(s).value === "" ? null : +$(s).value;
-  job({ kind: "scene", path: one().path, mode, model: $("#model").value, fov: num("#fov"), fill: $("#fill").checked,
-    range: mode === "minecraft" ? num("#mcrange") : num("#range"), res: num("#vres") || 256, blocks: mode === "minecraft" ? num("#blocks") : null });
+  for (const path of sel)   // по очереди: задачи идут одна за другой
+    job({ kind: "scene", path, mode, model: $("#model").value, fov: num("#fov"), fill: $("#fill").checked,
+      range: mode === "minecraft" ? num("#mcrange") : num("#range"), res: num("#vres") || 256, blocks: mode === "minecraft" ? num("#blocks") : null });
   tab = "3d";
 };
 $("#site").onclick = () => job({ kind: "site" });
