@@ -28,7 +28,6 @@
 | `NOS_UFS_MAX_*` | см. `userfs.py` | Лимиты папок |
 | `NOS_FORUM_*` | см. `forum.py` | Лимиты форума |
 | `NOS_AIR_MAX`, `NOS_AIR_GRACE` | см. `airhockey.py` | Игроков на арене; сколько держится платформа ушедшего |
-| `NOS_FINDS_TOKEN` | — | Ключ домашнего воркера «Находок» |
 | `NOS_VISITS_UNIQ_MAX` | `200000` | Потолок уникальных посетителей в счётчике |
 | `NOS_DAWN_MAX_PROJECTS`, `NOS_DAWN_MAX_BYTES` | `10`, 2 МБ | Общие проекты DAWN на аккаунт и размер одного |
 

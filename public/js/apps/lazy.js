@@ -31,7 +31,6 @@ export const openAirHockey = lazy("./airhockey.js", "openAirHockey");
 export const openDungeon = lazy("./dungeon/window.js", "openDungeon");
 export const openDawn = lazy("./dawn/index.js", "openDawn");
 export const openShare = lazy("./share.js", "openShare");
-export const openFinds = lazy("./finds.js", "openFinds");
 export const openTrip = lazy("./trip.js", "openTrip");
 export const openThawLab = lazy("./thawlab.js", "openThawLab");
 export const openKana = lazy("./kana.js", "openKana");

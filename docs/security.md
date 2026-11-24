@@ -44,7 +44,7 @@
 |---|---|---|
 | `Content-Security-Policy` | `frame-ancestors 'self' https://zcojam.neocities.org` (+ `https://web.telegram.org` для `/tg.html`) | Встраивать сайт в iframe можно только себе и neocities — защита от кликджекинга |
 | `Content-Security-Policy-Report-Only` | полная политика (`CSP_REPORT_ONLY`) | Пока только отчёты в консоли; см. «Что осталось» |
-| `Cross-Origin-Opener-Policy` / `-Embedder-Policy` | `same-origin` / `require-corp` | Нужно mGBA (SharedArrayBuffer); на `/tg.html` и `/finds` нет — им нужны внешние скрипты и плееры |
+| `Cross-Origin-Opener-Policy` / `-Embedder-Policy` | `same-origin` / `require-corp` | Нужно mGBA (SharedArrayBuffer); на `/tg.html` нет — им нужны внешние скрипты и плееры |
 | `Cross-Origin-Resource-Policy` | `same-origin` | Чужие сайты не встроят наши файлы |
 | `X-Content-Type-Options` | `nosniff` | Браузер не угадывает тип файла |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Пути страниц не утекают наружу |
@@ -92,7 +92,6 @@
 | IP при регистрации и входе | `chat.db: ip_log` | 180 дней (`IP_KEEP` в `chat.py`) |
 | IP последнего входа, IP регистрации | `chat.db: users` | пока есть аккаунт |
 | IP автора сообщения/комментария | `chat.db: messages`, `comments` | пока живёт сообщение (чат хранит последние 1000) |
-| IP в плейлистах и голосах | `finds.db` | бессрочно |
 | IP загрузившего картинку записи | `posts.json` — только солёный хэш | пока есть запись |
 | Прослушивания | `plays.json` — только счётчики; хэши IP в памяти до перезапуска | — |
 | Посетители счётчика | `visits.json` — хэши случайного id браузера | — |
@@ -102,9 +101,9 @@
 ## Что осталось сделать
 
 Средний приоритет:
-- **Включить CSP.** Пройтись по сайту (Flash, GBA, Unity-игры, «Находки», DAWN, Telegram Mini App) с открытой консолью. Если отчётов о нарушениях нет, переименовать `Content-Security-Policy-Report-Only` в `Content-Security-Policy` (переменная `CSP_REPORT_ONLY`).
+- **Включить CSP.** Пройтись по сайту (Flash, GBA, Unity-игры, DAWN, Telegram Mini App) с открытой консолью. Если отчётов о нарушениях нет, переименовать `Content-Security-Policy-Report-Only` в `Content-Security-Policy` (переменная `CSP_REPORT_ONLY`).
 - **Перебор паролей:** добавить лимит по нику (сейчас только по IP) и поднять минимум пароля до 8.
-- **IP в `messages`, `comments`, `finds.db`** — чистить по сроку, как `ip_log`.
+- **IP в `messages`, `comments`** — чистить по сроку, как `ip_log`.
 
 Низкий приоритет:
 - Удаление пользовательской папки оставляет чужим проектам DAWN записи в `projects.json` — чистить по префиксу.

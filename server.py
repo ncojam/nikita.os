@@ -724,11 +724,10 @@ async def add_headers(request, response):
     h = response.headers
     # cross-origin isolation: нужна эмулятору mGBA (SharedArrayBuffer + потоки).
     # Без неё: /tg.html и /dungeon.html (Telegram Mini App грузят telegram.org; но в iframe на сайте изоляция обязательна,
-    # иначе браузер не покажет страницу внутри изолированной ОС) и /finds… — «Находки» встраивают
-    # плееры YouTube/SoundCloud, а Firefox не умеет iframe credentialless. GBA в такой вкладке не стартует.
+    # иначе браузер не покажет страницу внутри изолированной ОС). GBA в такой вкладке не стартует.
     p = request.path
     mini_app = p == "/tg.html" or (p == "/dungeon.html" and "site" not in request.query)   # ?site=1 — окно на сайте
-    if not mini_app and p != "/finds" and not p.startswith("/finds/"):
+    if not mini_app:
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Cross-Origin-Embedder-Policy"] = "require-corp"
     h["Cross-Origin-Resource-Policy"] = "same-origin"
@@ -913,13 +912,8 @@ def make_app():
     app["net"].forum = app["netforum"]
     app["net"].routes(app)
     app["netforum"].routes(app)
-    # находки: плейлисты по настроениям + лента от домашнего воркера (NOS_FINDS_TOKEN)
-    from finds import Finds
-    app["finds"] = Finds(DATA_DIR / "finds.db", app["chat"].user_by_token, client_ip)
-    app["finds"].routes(app)
     app.router.add_get("/browser{tail:(/.*)?}", serve_browser)  # прямые ссылки -> та же ОС, браузер откроет адрес
     app.router.add_get("/dawn{tail:(/.*)?}", serve_browser)     # /dawn и /dawn/<путь к .dawn> -> ОС откроет DAWN
-    app.router.add_get("/finds{tail:(/.*)?}", serve_browser)    # /finds/<id> -> публичный плейлист находок
     app.router.add_get("/fs/{tail:.*}", serve_fs)
     app.router.add_get("/{tail:.*}", serve_public)
     return app

@@ -17,7 +17,6 @@
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
 | `share.py` | `Share` | `NOS_DATA/share/` (плоская папка файлов) | Файлообменник владельца: `GET /api/share/list`, `POST /api/share/upload` (multipart, потоково), `GET /api/share/file/{name}`, `POST /api/share/delete`, `GET/POST /api/share/clip` (общий текстовый буфер); всё только для ника `cojam` |
 | `trip.py` | `Trip` | `NOS_DATA/trip.json`, `trip_legs.json` | План поездки: `GET /api/trip`, `GET /api/trip/leg/{a}/{b}` (всем; пеший путь из OSRM FOSSGIS и высоты Open-Meteo, сервер кэширует навсегда; адреса — `NOS_TRIP_ROUTER`, `NOS_TRIP_ELEVATION`), `POST /api/trip/card`, `/api/trip/card/delete`, `/api/trip/day`, `/api/trip/stay`, `/api/trip/stay/delete` (только ник `cojam`, та же проверка, что в `share.py`) |
-| `finds.py` | `Finds` | `NOS_DATA/finds.db` (SQLite, WAL) | «Находки»: плейлисты по настроениям (до 6 на аккаунт), лента от домашнего воркера ([worker/README.md](../worker/README.md)), bump/dump. Сам никуда не ходит |
 
 ## Эндпоинты
 
@@ -47,15 +46,6 @@
 | * | `/api/net/...`, `/api/net/forum/...`, `/media/na/{id}`, `/media/nf/{id}` | network, netforum | См. [browser.md](browser.md#network-network) |
 | * | маршруты `AirHockey.routes` | airhockey | WS арены, таблица рекордов |
 | * | маршруты `Dungeon.routes` | dungeon | WS игры `/api/dungeon/ws`, кеш музыки `/api/dungeon/stem*` и `/api/dungeon/tracks` (запись — только владелец) |
-| GET | `/finds/...` | server | `index.html` — «Находки»; `/finds/<id>` — публичный плейлист |
-| GET | `/api/finds/mine` | finds | Кто я, мои плейлисты, лимит |
-| POST/PATCH/DELETE | `/api/finds/pl`, `/api/finds/pl/{id}` | finds | Плейлист `{name, descr, examples:[url]}` (только владелец) |
-| GET | `/api/finds/feed/{id}` | finds | Лента без голосов, до 20 (владелец) |
-| POST | `/api/finds/vote` `{pl, track, v}` | finds | 1 — bump, −1 — dump, 0 — снять |
-| POST | `/api/finds/move` `{from, to, track}` | finds | Перетащили в другой свой плейлист: там bump, в исходном v=2 (нейтрально, воркер не учится и не повторяет) |
-| GET | `/api/finds/pub/{id}` | finds | Публичный плейлист: bump-треки и примеры, без входа |
-| GET | `/api/finds/all` | finds | Каталог плейлистов всех пользователей (до 200), без входа |
-| GET/POST | `/api/finds/w/state`, `/api/finds/w/push` | finds | Домашний воркер, заголовок `X-Finds-Token` = `NOS_FINDS_TOKEN` (без него — 404) |
 
 ## Пути и безопасность
 
