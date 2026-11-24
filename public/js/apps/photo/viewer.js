@@ -182,7 +182,7 @@ function mount(c, w, path, opts, nav) {
         const x = Math.max(-1.5, Math.min(1.5, st.x + sm.x)), y = Math.max(-1.5, Math.min(1.5, st.y + sm.y));
         par.set({ x, y, strength: st.strength, focus: st.focus });
         // окно поворачивается вслед за ракурсом: смотришь справа — правый край ближе (как настоящая рамка)
-        const deg = st.win * 16;
+        const deg = st.win * 8;
         w.node.style.transform = deg && !w.maximized ? `perspective(1600px) rotateY(${(-x * deg).toFixed(2)}deg) rotateX(${(y * deg).toFixed(2)}deg)` : "";
         raf = requestAnimationFrame(tick);
       };
