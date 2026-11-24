@@ -38,3 +38,5 @@ export const openPalette = lazy("./palette.js", "openPalette");
 export const openRig = lazy("./rig/index.js", "openRig");
 export const openScripts = lazy("./scripts.js", "openScripts");
 export const openPhoto = lazy("./photo/viewer.js", "openPhoto");
+export const openSound = lazy("./sound.js", "openSound");
+export const openDJ = lazy("./dj.js", "openDJ");

@@ -2,6 +2,7 @@ import { ID3 } from "./id3.js";
 import { kindOf } from "../core/types.js";
 import { baseName, el, fmtCount, fmtTime, fsUrl, joinPath, parentOf, plural, store } from "../core/util.js";
 import { WM } from "../wm.js";
+import { AudioOS } from "../core/audio.js";
 
 /* ================= mp3-плеер ================= */
 const ICONS = {
@@ -203,15 +204,18 @@ const Player = {
   initGraph() {
     if (this.ctx) { this.ctx.resume(); return; }
     try {
-      this.ctx = new AudioContext();
+      // общий звук ОС (core/audio.js): плеер — источник «player», куда идёт его выход — решают кабели
+      // (по умолчанию — в микшер ОС; можно через педали: плеер → педаль → микшер, приложение «Звук»)
+      this.ctx = AudioOS.context();
       const src = this.ctx.createMediaElementSource(this.audio);
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.82;
-      // гнездо для педалей ОС (apps/rig/pedalboard.js): звук → fxIn → [педали] → fxOut → анализатор → выход
-      this.fxIn = this.ctx.createGain(); this.fxOut = this.ctx.createGain();
-      src.connect(this.fxIn); this.fxIn.connect(this.fxOut); this.fxOut.connect(this.analyser).connect(this.ctx.destination);
-      globalThis.nosPlayerGraph = { ctx: this.ctx, fxIn: this.fxIn, fxOut: this.fxOut, analyser: this.analyser };
+      this.out = this.ctx.createGain();
+      src.connect(this.analyser);
+      src.connect(this.out);
+      AudioOS.register({ id: "player", title: "Плеер", icon: "🎵", kind: "source", output: this.out });
+      globalThis.nosPlayerGraph = { ctx: this.ctx, analyser: this.analyser };
       dispatchEvent(new CustomEvent("nos-player-graph", { detail: globalThis.nosPlayerGraph }));
     } catch (e) { console.warn("WebAudio:", e); }
   },

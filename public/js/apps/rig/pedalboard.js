@@ -1,12 +1,14 @@
+import { AudioOS } from "../../core/audio.js";
 import { Bus } from "../../core/bus.js";
 import { Params } from "../../core/params.js";
 import { FX, fxDefaults, loadCodeWorklet } from "../dawn/fx.js";
 
 /* ================= Педали ОС — звуковой движок системной стойки =================
- * Педали из Bus.rig.pedals стоят цепочкой в гнезде плеера ОС (apps/player.js: fxIn → педали → fxOut),
- * сверху вниз. Эффекты — те же, что в DAWN (dawn/fx.js), кроме сайдчейна (ему нужны ноты DAWN).
+ * Каждая педаль из Bus.rig.pedals — узел звука ОС (core/audio.js) «pedal:<id>» со своим входом и выходом.
+ * Куда она стоит, решают кабели (приложение «Звук»): например, плеер → педаль → микшер ОС.
+ * Эффекты — те же, что в DAWN (dawn/fx.js), кроме сайдчейна (ему нужны ноты DAWN).
+ * Выключенная педаль пропускает звук насквозь (кабели остаются на месте).
  * Параметры педалей — цели проводков: rig.<id педали>.<параметр> (провайдер Params, группа «Педали ОС»).
- * Пока плеер не играл, звукового графа нет — педали ждут события nos-player-graph.
  */
 export const RIG_FX = Object.keys(FX).filter(t => !Object.values(FX[t].params).some(p => p.kind === "channel"));
 
@@ -15,49 +17,61 @@ export function newPedal(type) {
 }
 
 export const Pedalboard = {
-  chain: new Map(),   // id → эффект Web Audio
+  units: new Map(),   // id → { inG, outG, fx, type, on }
   over: new Map(),    // адрес → значение от проводов
-  sig: "",
   booted: false,
 
   boot() {
     if (this.booted) return;
     this.booted = true;
-    addEventListener("nos-player-graph", () => { this.sig = ""; this.rebuild(); });
-    Bus.on(e => { if (e.rig) this.rebuild(); });
-    this.rebuild();
+    Bus.on(e => { if (e.rig) this.sync(); });
+    this.sync();
   },
-  graph() { return globalThis.nosPlayerGraph || null; },
   find(id) { return Bus.rig.pedals.find(p => p.id === id); },
   params(pd) {
     const p = { ...pd.p };
     for (const k of Object.keys(p)) { const a = `rig.${pd.id}.${k}`; if (this.over.has(a)) p[k] = this.over.get(a); }
     return p;
   },
-  /* цепочка перестраивается, только когда поменялся её состав (типы, порядок, вкл/выкл) */
-  async rebuild(force = false) {
-    const g = this.graph();
-    const sig = Bus.rig.pedals.map(p => p.id + ":" + p.type + ":" + (p.on ? 1 : 0)).join("|");
-    if (!g || (!force && sig === this.sig)) return;
-    this.sig = sig;
-    if (Bus.rig.pedals.some(p => p.on && (p.type === "formula" || p.type === "code"))) await loadCodeWorklet(g.ctx).catch(() => {});
-    try { g.fxIn.disconnect(); } catch {}
-    for (const fx of this.chain.values()) { try { fx.output.disconnect(); fx.dispose(); } catch {} }
-    this.chain.clear();
-    let node = g.fxIn;
+  /* привести узлы в соответствие со стойкой: новые — создать, удалённые — убрать, сменился тип/вкл — пересобрать внутри */
+  sync() { return (this._q = (this._q || Promise.resolve()).then(() => this._sync()).catch(e => console.warn("pedals:", e))); },
+  async _sync() {
+    const ctx = AudioOS.context();
+    if (Bus.rig.pedals.some(p => p.type === "formula" || p.type === "code")) await loadCodeWorklet(ctx).catch(() => {});
+    const ids = new Set(Bus.rig.pedals.map(p => p.id));
+    for (const id of [...this.units.keys()]) if (!ids.has(id)) { this.drop(id); AudioOS.unregister("pedal:" + id); }
     for (const pd of Bus.rig.pedals) {
-      if (!pd.on || !FX[pd.type]) continue;
-      const fx = FX[pd.type].create(g.ctx, this.params(pd));
-      fx.tempo?.(Bus.rig.bpm || 120);
-      node.connect(fx.input);
-      node = fx.output;
-      this.chain.set(pd.id, fx);
+      if (!FX[pd.type]) continue;
+      let u = this.units.get(pd.id);
+      if (!u) {
+        u = { inG: ctx.createGain(), outG: ctx.createGain(), fx: null, type: null, on: null };
+        this.units.set(pd.id, u);
+        AudioOS.register({ id: "pedal:" + pd.id, title: FX[pd.type].name, icon: FX[pd.type].icon, kind: "fx", input: () => u.inG, output: u.outG, pedal: pd.id });
+      }
+      if (u.type !== pd.type || u.on !== pd.on) {
+        try { u.inG.disconnect(); } catch {}
+        if (u.fx) { try { u.fx.output.disconnect(); u.fx.dispose?.(); } catch {} u.fx = null; }
+        if (pd.on) {
+          u.fx = FX[pd.type].create(ctx, this.params(pd));
+          u.fx.tempo?.(Bus.rig.bpm || 120);
+          u.inG.connect(u.fx.input); u.fx.output.connect(u.outG);
+        } else u.inG.connect(u.outG);           // выключена — насквозь
+        u.type = pd.type; u.on = pd.on;
+        const n = AudioOS.nodes.get("pedal:" + pd.id);
+        if (n) { n.title = FX[pd.type].name; n.icon = FX[pd.type].icon; }
+        AudioOS.emit();
+      }
     }
-    node.connect(g.fxOut);
+  },
+  drop(id) {
+    const u = this.units.get(id);
+    if (!u) return;
+    try { u.inG.disconnect(); u.outG.disconnect(); u.fx?.output.disconnect(); u.fx?.dispose?.(); } catch {}
+    this.units.delete(id);
   },
   set(id) {
-    const pd = this.find(id), fx = this.chain.get(id);
-    if (pd && fx) fx.set(this.params(pd));
+    const pd = this.find(id), u = this.units.get(id);
+    if (pd && u?.fx) u.fx.set(this.params(pd));
   },
 };
 

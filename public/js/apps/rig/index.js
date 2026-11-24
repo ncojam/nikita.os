@@ -1,3 +1,4 @@
+import { AudioOS } from "../../core/audio.js";
 import { Bus } from "../../core/bus.js";
 import { el } from "../../core/util.js";
 import "../../i18n/dawn.js";
@@ -15,7 +16,7 @@ import { Pedalboard, RIG_FX, newPedal } from "./pedalboard.js";
  *
  *   openRig("auto")        — ручки, огибающие, курсор, громкость плеера
  *   openRig("gen")         — генераторы: LFO и ветер
- *   openRig("pedals")      — педалборд: все педали ОС одним окном (цепочка на звуке плеера, сверху вниз)
+ *   openRig("pedals")      — педалборд: все педали ОС одним окном; куда каждая стоит — кабели в «Звуке» (apps/sound.js)
  *   openRig("pedal", id)   — одна педаль своим маленьким окном: можно поставить куда угодно на экране
  *
  * Педалборд — один экземпляр (окно одно, педалей в нём сколько угодно). Любую педаль можно ⧉ вынести
@@ -56,8 +57,11 @@ function pedalsWindow(c) {
   const body = el("div", { className: "dw-pedal-list" }), foot = el("div", { className: "dw-fx-add" });
   root.append(hint, body, foot);
   function build() {
-    hint.textContent = (Pedalboard.graph() ? "" : "🎵 Включи музыку в плеере ОС — педали встанут на её звук. ")
-      + "Цепочка сверху вниз. Ручки педалей — цели проводков (Автоматизация, Генераторы, DAWN). ⧉ — педаль отдельным окном.";
+    const wired = id => AudioOS.routes.some(r => r.to === "pedal:" + id) && AudioOS.routes.some(r => r.from === "pedal:" + id);
+    const loose = Bus.rig.pedals.filter(p => !wired(p.id)).length;
+    hint.replaceChildren(
+      el("span", { textContent: (loose ? `${loose} — без кабелей: подключи вход и выход. ` : "") + "Педали стоят там, куда их подключили кабелями. Ручки — цели проводков. ⧉ — педаль отдельным окном. " }),
+      dwBtn("🔀 Кабели", () => import("../sound.js").then(m => m.openSound("patch")), { title: "Коммутация звука ОС: плеер → педаль → микшер" }));
     const list = Bus.rig.pedals;
     body.replaceChildren(...(list.length ? list.map(pd => pedalCard(pd, true))
       : [el("div", { className: "dw-dim dw-empty", textContent: "Педалей нет. Добавь снизу — сколько угодно." })]));
@@ -65,10 +69,8 @@ function pedalsWindow(c) {
       ...RIG_FX.map(t => dwBtn(FX[t].icon + " " + FX[t].name, () => { Bus.rig.pedals.push(newPedal(t)); Bus.changed({ pedals: true }); })));
   }
   build();
-  const offs = [Bus.on(e => { if (e.rig && !e.tick) build(); })];
-  const onGraph = () => build();
-  addEventListener("nos-player-graph", onGraph);
-  return () => { offs.forEach(f => f()); removeEventListener("nos-player-graph", onGraph); };
+  const offs = [Bus.on(e => { if (e.rig && !e.tick) build(); }), AudioOS.on(() => build())];
+  return () => offs.forEach(f => f());
 }
 
 function openPedal(id) {

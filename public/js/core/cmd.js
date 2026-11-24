@@ -1,3 +1,4 @@
+import { AudioOS } from "./audio.js";
 import { Bus } from "./bus.js";
 import { el } from "./util.js";
 import { notify, copyText } from "../ui/notify.js";
@@ -90,7 +91,7 @@ export const Cmd = {
 };
 
 /* окна, которые узнаются по ключу */
-const APP_KEYS = ["settings", "about", "chat", "airhockey", "dungeon", "share", "trip", "thawlab", "kana", "palette", "scripts"];
+const APP_KEYS = ["sound", "dj", "settings", "about", "chat", "airhockey", "dungeon", "share", "trip", "thawlab", "kana", "palette", "scripts"];
 function byKey(w) {
   const k = w.key || "";
   if (k.startsWith("file:")) return "open " + q(k.slice(5));
@@ -119,7 +120,11 @@ export function pedalLine(p) { return `rig.pedal ${p.id} ${p.type}${p.on ? "" : 
 export function rigScript({ kinds = null, pedals = true, mods = true } = {}) {
   const L = [`rig.bpm ${Bus.rig.bpm || 120}`];
   if (mods) for (const m of Bus.rig.mods) if (!kinds || kinds.includes(m.type)) L.push(...srcLines(m));
-  if (pedals) for (const p of Bus.rig.pedals) L.push(pedalLine(p));
+  if (pedals) {
+    for (const p of Bus.rig.pedals) L.push(pedalLine(p));
+    const ids = new Set(Bus.rig.pedals.map(p => "pedal:" + p.id));   // и кабели педалей (звук ОС)
+    for (const r of AudioOS.routes) if (ids.has(r.from) || ids.has(r.to)) L.push(`audio.route ${r.from} ${r.to}`);
+  }
   return L.join("\n");
 }
 
@@ -196,6 +201,15 @@ Cmd.add("photo", "photo <путь> [flat|parallax|3d] [{настройки}]", "
   if (!p) throw new Error("нужен путь к картинке");
   const { openPhoto } = await import("../apps/photo/viewer.js");
   ctx.win = openPhoto(p, { mode: ["flat", "parallax", "3d"].includes(mode) ? mode : "flat", set: set && typeof set === "object" ? set : undefined });
+});
+Cmd.add("audio.route", "audio.route <откуда> <куда>", "Кабель звука ОС: player, dj.a, dj.b, pedal:<id>, mixer", async ([from, to]) => {
+  const { AudioOS } = await import("./audio.js");
+  if (!from || !to) throw new Error("нужно: откуда и куда");
+  AudioOS.connect(from, to);
+});
+Cmd.add("audio.unroute", "audio.unroute <откуда> <куда>", "Вынуть кабель звука ОС", async ([from, to]) => {
+  const { AudioOS } = await import("./audio.js");
+  AudioOS.disconnect(from, to);
 });
 Cmd.add("wait", "wait <мс>", "Подождать", async ([ms]) => new Promise(r => setTimeout(r, Math.min(60000, Math.max(0, +ms || 0)))));
 Cmd.add("say", "say <текст>", "Показать уведомление", async a => { notify(a.join(" ")); });

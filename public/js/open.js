@@ -1,5 +1,5 @@
 import { Player } from "./apps/player.js";
-import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFakeDL, openPost, openRamDL, openSettings, openShare, openKana, openPalette, openRig, openScripts, openPhoto, openThawLab, openTrip } from "./apps/lazy.js";
+import { openAirHockey, openDungeon, openBrowser, openChat, openDawn, openExplorer, openFakeDL, openPost, openRamDL, openSettings, openShare, openKana, openPalette, openRig, openScripts, openPhoto, openSound, openDJ, openThawLab, openTrip } from "./apps/lazy.js";
 import { GLYPH, kindOf } from "./core/types.js";
 import { baseName, el, fsUrl } from "./core/util.js";
 import { GitHub } from "./remote/github.js";
@@ -105,6 +105,8 @@ const APPS = {
   dawn: l => openDawn(l.path),
   rig: l => openRig(l.path || "auto"),          // path: auto | gen | pedals
   scripts: l => openScripts(l.path),
+  sound: l => openSound(l.path || "patch"),   // звук ОС: коммутация и микшер
+  dj: () => openDJ(),
 };
 
 const Links = {
