@@ -2201,3 +2201,15 @@ a.nw-chip:hover { border-color: var(--mt); }
 .ph-rng { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
 .ph-rng input { width: 90px; }
 .ph-dim { font-size: 12px; color: var(--muted); }
+
+/* ---------- превью картинок в проводнике (ui/thumbs.js) ---------- */
+.icon .glyph img.thumb { width: 54px; height: 42px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.45); }
+
+/* ---------- просмотрщик фото: листать ---------- */
+.ph-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 40px; height: 64px; border: 0; border-radius: 12px;
+  background: rgba(10,10,14,.45); color: var(--text); font-size: 26px; cursor: pointer; opacity: 0; transition: opacity .15s, background .15s; }
+.ph-stage:hover .ph-nav { opacity: .8; }
+.ph-nav:hover { opacity: 1 !important; background: rgba(10,10,14,.75); }
+.ph-nav.prev { left: 8px; } .ph-nav.next { right: 8px; }
+.ph-nav[hidden] { display: none; }
+.ph-count { font-size: 12px; color: var(--muted); }

@@ -5,6 +5,7 @@ import { GitHub } from "../remote/github.js";
 import { VFS } from "../core/vfs.js";
 import { deleteIcons, makeDropTarget, makeIconsDraggable, newFolder, pickAndUpload, renameIcon } from "../ui/fs-dnd.js";
 import { makeIcon, makeSelectable } from "../ui/icons.js";
+import { thumb } from "../ui/thumbs.js";
 import { WM } from "../wm.js";
 
 /* ================= проводник ================= */
@@ -143,6 +144,7 @@ function openExplorer(path = "/home/nikita/Projects", opts = {}) {
             meta.openNew = it.type === "dir" ? () => openExplorer(full) : null;
             grid.append(ic);
             if (kind === "link" && !remote) Links.decorate(ic, full);
+            if (kind === "image" && !remote) thumb(ic.querySelector(".glyph"), full, `${it.mtime || ""}-${it.size || ""}`);
           }
           if (sideHead && !sideOpen) grid.append(sideHead);
           const files = entries.filter(e => e.type === "file");

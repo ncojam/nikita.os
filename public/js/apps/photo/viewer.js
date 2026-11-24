@@ -1,4 +1,5 @@
 import { baseName, el, fsUrl, store } from "../../core/util.js";
+import { isSidecar, kindOf } from "../../core/types.js";
 import { VFS } from "../../core/vfs.js";
 import { notify } from "../../ui/notify.js";
 import { WM } from "../../wm.js";
@@ -24,20 +25,65 @@ const SET = "photo.set";
 const enc = encodeURIComponent;
 
 export function openPhoto(path, opts = {}) {
+  return WM.open({ title: baseName(path), icon: "🖼️", key: "file:" + path, width: 820, height: 600, render(c, w) {
+    /* листать: соседние картинки той же папки (‹ ›, ←/→, PageUp/PageDown, Home/End); режим сохраняется */
+    let view = null, cur = path, list = null;
+    const siblings = async () => {
+      if (list) return list;
+      const dir = cur.slice(0, cur.lastIndexOf("/")) || "/";
+      try {
+        const d = await (await fetch("/api/ls?path=" + enc(dir))).json();
+        list = (d.entries || []).filter(e => e.type === "file" && kindOf(e.name) === "image" && !isSidecar(e.name)).map(e => (dir === "/" ? "" : dir) + "/" + e.name);
+      } catch { list = []; }
+      return list;
+    };
+    const show = (p, o) => {
+      const mode = view?.mode();
+      view?.stop();
+      c.replaceChildren();
+      cur = p; w.key = "file:" + p; w.node.dataset.wkey = w.key; w.setTitle(baseName(p));
+      view = mount(c, w, p, o || { mode }, nav);
+    };
+    const nav = {
+      async step(d) {
+        const L = await siblings(), i = L.indexOf(cur);
+        if (L.length < 2) return;
+        show(L[i < 0 ? 0 : (i + d + L.length) % L.length]);
+      },
+      async jump(end) { const L = await siblings(); if (L.length) show(end ? L.at(-1) : L[0]); },
+      async where() { const L = await siblings(); return L.length > 1 ? `${L.indexOf(cur) + 1} / ${L.length}` : ""; },
+    };
+    w.onKey = e => {
+      if (e.target.closest?.("input, select")) return;
+      const k = { ArrowRight: 1, PageDown: 1, ArrowLeft: -1, PageUp: -1 }[e.key];
+      if (k) { e.preventDefault(); nav.step(k); }
+      else if (e.key === "Home" || e.key === "End") { e.preventDefault(); nav.jump(e.key === "End"); }
+    };
+    w.onClose = () => view?.stop();
+    show(path, opts);
+  } });
+}
+
+/* одна картинка в окне просмотрщика; возвращает { stop(), mode() } */
+function mount(c, w, path, opts, nav) {
   const name = baseName(path);
-  return WM.open({ title: name, icon: "🖼️", key: "file:" + path, width: 820, height: 600, render(c, w) {
+  {
     const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, ...store.get(SET, {}), ...(opts.set || {}) };
     const stage = el("div", { className: "ph-stage" });
     const img = el("img", { className: "ph-img", alt: name, src: fsUrl(path) });
     const canvas = el("canvas", { className: "ph-canvas", hidden: true });
     const box3d = el("div", { className: "ph-3d", hidden: true });
     const info = el("div", { className: "ph-info" });
-    stage.append(img, canvas, box3d, info);
+    const bPrev = el("button", { className: "ph-nav prev", textContent: "‹", title: "Предыдущая (←)", onclick: () => nav.step(-1) });
+    const bNext = el("button", { className: "ph-nav next", textContent: "›", title: "Следующая (→)", onclick: () => nav.step(1) });
+    const count = el("span", { className: "ph-count no-i18n" });
+    nav.where().then(t => { count.textContent = t; bPrev.hidden = bNext.hidden = !t; });
+    stage.append(img, canvas, box3d, bPrev, bNext, info);
     const bFlat = el("button", { className: "ph-mode", textContent: "🖼 Фото" });
     const bPar = el("button", { className: "ph-mode", textContent: "🌊 Параллакс" });
     const b3d = el("button", { className: "ph-mode", textContent: "🧊 3D", disabled: true, title: "Сцену 3D делает тулчейн на компьютере (tools/photo3d) — файл <картинка>.scene.nvx" });
     const tools = el("div", { className: "ph-tools" });
-    c.append(el("div", { className: "photo" }, stage, el("div", { className: "ph-bar" }, el("div", { className: "ph-modes" }, bFlat, bPar, b3d), tools)));
+    c.append(el("div", { className: "photo" }, stage, el("div", { className: "ph-bar" }, el("div", { className: "ph-modes" }, bFlat, bPar, b3d), tools, count)));
 
     let depthImg = null, depthFrom = "", par = null, s3d = null, raf = 0, dead = false;
     const say = (t, ms = 0) => { info.textContent = t; info.hidden = !t; if (ms) setTimeout(() => info.textContent === t && (info.hidden = true), ms); };
@@ -143,7 +189,7 @@ export function openPhoto(path, opts = {}) {
           const { createScene3D } = await import("./scene3d.js");
           s3d = await createScene3D(box3d, await r.arrayBuffer(), { key: path, onInfo: t => say(t, 5000) });
           s3d.setEye(st.eye);
-        } catch (e) { say("⚠ " + e.message); return; }
+        } catch (e) { say("⚠ " + e.message + " — показываю фото", 4000); return setMode("flat"); }
         say((s3d.head.kind === "minecraft" ? "⛏ Сцена Minecraft" : "🧊 Сцена из фото") + ` · ${s3d.head.count.toLocaleString(globalThis.NOS_LOCALE)} вокселей`, 4000);
       }
       const walk = el("button", { className: "btn small", textContent: "🚶 Ходить", onclick: () => { const on = s3d.mode !== "walk"; s3d.setMode(on ? "walk" : "orbit"); walk.classList.toggle("on", on); } });
@@ -162,7 +208,7 @@ export function openPhoto(path, opts = {}) {
     fetch(fsUrl(path + ".scene.nvx"), { method: "HEAD", cache: "no-store" }).then(r => { if (r.ok) { b3d.disabled = false; b3d.title = "Воксельная сцена: облёт, ходьба, пол"; } }).catch(() => {});
 
     w.cmd = () => `photo ${JSON.stringify(path)} ${st.mode} ${JSON.stringify({ strength: st.strength, focus: st.focus, x: st.x, y: st.y, cursor: st.cursor, eye: st.eye })}`;
-    w.onClose = () => { dead = true; cancelAnimationFrame(raf); par?.dispose(); s3d?.dispose(); };
+    const stop = () => { dead = true; cancelAnimationFrame(raf); par?.dispose(); s3d?.dispose(); };
     const want = opts.mode || "flat";
     if (want !== "flat") setMode(want);
     else {
@@ -170,5 +216,6 @@ export function openPhoto(path, opts = {}) {
       // глубина уже есть рядом — сразу оживляем (параллакс — главная фишка просмотрщика)
       fetch(fsUrl(path + ".depth.png"), { method: "HEAD", cache: "no-store" }).then(r => r.ok && !dead && st.mode === "flat" && setMode("parallax")).catch(() => {});
     }
-  } });
+    return { stop, mode: () => st.mode };
+  }
 }
