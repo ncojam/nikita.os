@@ -9,7 +9,7 @@
  *   trig  { trig: { ch, att, hold, rel, vel } } — по ноте канала DAWN (только в проекте)
  *   meter { meter: { mix, gain } }  — уровень инсерта микшера DAWN (только в проекте)
  *   mouse { mouse: { axis: "x" | "y" } } — положение курсора на экране
- *   level { level: { gain } }       — громкость плеера ОС
+ *   level { level: { gain, node?, band? } } — громкость плеера ОС; node = "pedal:<id>" — педаль «Уровень», band: all|low|mid|high
  * rt — «живые» данные: now (сек), notes(ch), meter(i), srcVal(id), mouse(axis), level().
  */
 export const SYNC = [["1/16", 0.25], ["1/8", 0.5], ["1/8.", 0.75], ["1/4", 1], ["1/4.", 1.5], ["1/2", 2], ["1 такт", 4]];
@@ -26,7 +26,7 @@ export function srcValue(src, beat, rt) {
     return clamp01((w.strength ?? 0.5) * inp * gust);
   }
   if (src.type === "mouse") return clamp01(rt?.mouse?.(src.mouse?.axis || "x") ?? 0.5);   // курсор: 0 — левый/верхний край
-  if (src.type === "level") return clamp01((rt?.level?.() || 0) * (src.level?.gain ?? 1.5));     // громкость плеера ОС
+  if (src.type === "level") return clamp01((rt?.level?.(src) || 0) * (src.level?.gain ?? 1.5));  // громкость плеера ОС или педали «Уровень» (полоса)
   if (src.type === "trig") return trigValue(src.trig || {}, rt?.notes?.(src.trig?.ch) || [], rt?.now ?? 0);
   if (src.type === "env") {
     const e = src.env || {}, pts = (e.pts || []).slice().sort((a, b) => a[0] - b[0]), len = Math.max(0.25, e.len || 16);

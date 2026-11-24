@@ -2278,3 +2278,35 @@ a.nw-chip:hover { border-color: var(--mt); }
 .dw-dockrow { display: flex; align-items: center; gap: 6px; justify-content: flex-end; pointer-events: auto; }
 .dw-dockname { background: rgba(10,10,14,.7); color: var(--text); border: 1px solid var(--glass-border); border-radius: 8px; padding: 3px 8px; font: inherit; font-size: 11.5px; cursor: pointer; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dw-srcdock .dw-jack { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--jc); background: radial-gradient(circle, #1a1130 35%, var(--jc) 36%, var(--jc) 55%, transparent 56%); cursor: grab; padding: 0; }
+
+/* ---------- аудиокабели между окнами (core/aucables.js) ---------- */
+.au-cables { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 8990; overflow: visible; }
+.au-cable { fill: none; stroke: #ffd36e; stroke-width: 4; stroke-linecap: round; pointer-events: stroke; cursor: pointer; }
+.au-cable:hover { stroke: #ff8a8a; stroke-width: 6; }
+.au-cable.ghost { stroke: rgba(255,211,110,.35); stroke-dasharray: 7 6; }
+.au-cable.temp { stroke: #b8f59e; pointer-events: none; stroke-dasharray: 8 5; }
+.au-cable-shadow { fill: none; stroke: rgba(0,0,0,.4); stroke-width: 7; stroke-linecap: round; }
+.au-jack { display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; vertical-align: middle; cursor: crosshair;
+  background: radial-gradient(circle, #111 38%, #2a2a33 40%); border: 3px solid #ffd36e; box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
+.au-jack.in { border-color: #9fd3ff; cursor: pointer; }
+.au-patching .au-jack.in { box-shadow: 0 0 0 4px rgba(159,211,255,.45); }
+.au-patching .au-jack.in:hover { transform: scale(1.25); }
+.au-patching, .au-patching * { cursor: crosshair !important; }
+/* старые линии коммутации «Звука» больше не нужны — кабели рисует общий слой */
+.snd-jacks { display: flex; flex-direction: column; gap: 4px; min-width: 16px; }
+.snd-jp { display: inline-flex; align-items: center; gap: 3px; }
+.snd-jp small { font-size: 10px; color: var(--muted); }
+.snd-mix-title { display: flex; align-items: center; gap: 4px; }
+.pl-out { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
+.pl-out small { font-size: 10.5px; color: var(--muted); }
+.dj-out { margin-left: 4px; }
+.rig-jacks { display: flex; justify-content: space-between; gap: 10px; padding: 2px 4px 6px; }
+.rig-jk { display: flex; flex-direction: column; gap: 4px; }
+.rig-jk.out { align-items: flex-end; }
+.rig-jl { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dw-dim, #999); }
+.rig-meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 0 4px 8px; }
+.rig-mt { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.rig-mt b { font: 600 13px ui-monospace, monospace; }
+.rig-mbar { height: 5px; border-radius: 3px; background: rgba(0,0,0,.35); overflow: hidden; }
+.rig-mbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #b8f59e, #ffd36e 70%, #ff8a8a); }
+.au-patching .au-cable { pointer-events: none; }

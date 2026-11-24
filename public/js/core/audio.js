@@ -2,14 +2,16 @@ import { store } from "./util.js";
 
 /* ================= Звук ОС: граф с кабелями =================
  * Один AudioContext на всю ОС. Узлы — источники (плеер, деки пульта…), обработка (педали) и выход (микшер ОС).
- * Кабель — маршрут { from, to }: выход узла from → вход узла to. Кабели хранятся у посетителя (localStorage
+ * Кабель — маршрут { from, to, fp, tp }: выход fp узла from → вход tp узла to (fp/tp — порты, "" — единственный). Кабели хранятся у посетителя (localStorage
  * "audio.routes") и переживают перезагрузку: узел пропал (окно закрыто) — кабель ждёт, появился — снова звучит.
  *
  * По умолчанию новый источник при первом появлении подключается в микшер (как будто так и было всегда).
  * Дальше — как на пульте: вытащил кабель — тишина, провёл плеер → педаль → микшер — звук через педаль.
  *
  *   AudioOS.context()                     — общий контекст (создаётся по первому требованию, просыпается по жесту)
- *   AudioOS.register({ id, title, icon, kind: "source"|"fx"|"sink", input(from) → AudioNode, output })
+ *   AudioOS.register({ id, title, icon, kind: "source"|"fx"|"sink", input(from, port) → AudioNode, output | outs: { порт: AudioNode },
+ *                      ins: ["a", "b"] — имена входов, если их несколько })
+ *   Гнёзда прямо в окнах приложений и кабели поверх экрана — core/aucables.js.
  *   AudioOS.unregister(id)
  *   AudioOS.connect(from, to) / disconnect(from, to)   — циклы и дубли не пускает
  *   AudioOS.on(fn)                        — fn() при любом изменении узлов или кабелей
@@ -38,6 +40,7 @@ export const AudioOS = {
       this.makeMixer();
       // браузер будит звук только по жесту — будим при первом же клике
       const wake = () => { this.ctx.resume?.(); };
+      import("./aucables.js").then(m => m.AuCables.start());   // кабели между окнами
       addEventListener("pointerdown", wake, { capture: true });
       addEventListener("keydown", wake, { capture: true });
     }
@@ -101,20 +104,24 @@ export const AudioOS = {
     }
     this.apply();
   },
+  outsOf(n) { return n.outs ? Object.values(n.outs) : n.output ? [n.output] : []; },
+  outPort(n, port) { return n.outs ? n.outs[port] ?? null : n.output || null; },
+  ports(n, dir) { return dir === "out" ? (n.outs ? Object.keys(n.outs) : n.output ? [""] : []) : (n.ins ? n.ins : n.input ? [""] : []); },
   unregister(id) {
     const n = this.nodes.get(id);
     if (!n) return;
-    try { n.output?.disconnect(); } catch {}
+    for (const o of this.outsOf(n)) { try { o.disconnect(); } catch {} }
     this.nodes.delete(id);
     this.apply();
   },
   /* кабели: всё снять и заново провести по списку — просто и без рассинхрона */
   apply() {
-    for (const n of this.nodes.values()) { try { n.output?.disconnect(); } catch {} }
+    for (const n of this.nodes.values()) for (const o of this.outsOf(n)) { try { o.disconnect(); } catch {} }
     for (const r of this.routes) {
       const a = this.nodes.get(r.from), b = this.nodes.get(r.to);
-      if (!a?.output || !b?.input) continue;
-      try { a.output.connect(b.input(r.from)); } catch (e) { console.warn("audio route:", r, e); }
+      const out = a && this.outPort(a, r.fp || ""), inp = b?.input?.(r.from, r.tp || "");
+      if (!out || !inp) continue;
+      try { out.connect(inp); } catch (e) { console.warn("audio route:", r, e); }
     }
     this.emit();
   },
@@ -129,21 +136,27 @@ export const AudioOS = {
     }
     return false;
   },
-  connect(from, to) {
+  same(r, from, to, fp, tp) { return r.from === from && r.to === to && (r.fp || "") === fp && (r.tp || "") === tp; },
+  connect(from, to, fp = "", tp = "") {
     if (from === to) throw new Error("кабель сам в себя не воткнуть");
-    if (this.routes.some(r => r.from === from && r.to === to)) return false;
+    if (this.routes.some(r => this.same(r, from, to, fp, tp))) return false;
     if (this.reaches(to, from)) throw new Error("так получится петля");
     const a = this.nodes.get(from), b = this.nodes.get(to);
-    if (a && !a.output) throw new Error("у «" + a.title + "» нет выхода");
+    if (a && !this.outPort(a, fp)) throw new Error("у «" + a.title + "» нет такого выхода");
     if (b && !b.input) throw new Error("у «" + b.title + "» нет входа");
     this.seen.add(from);
-    this.routes.push({ from, to });
+    const r = { from, to };
+    if (fp) r.fp = fp;
+    if (tp) r.tp = tp;
+    this.routes.push(r);
     this.save(); this.apply();
     return true;
   },
-  disconnect(from, to) {
-    this.routes = this.routes.filter(r => !(r.from === from && r.to === to));
+  disconnect(from, to, fp = "", tp = "") {
+    this.routes = this.routes.filter(r => !this.same(r, from, to, fp, tp));
     this.save(); this.apply();
   },
+  /* уровень узла (пик 0..1): у педали «Уровень» — по полосам all/low/mid/high */
+  nodeLevel(id, band = "all") { const n = this.nodes.get(id); return this.level(n?.meters?.[band] || n?.meters?.all); },
   title(id) { const n = this.nodes.get(id); return n ? `${n.icon || ""} ${n.title}`.trim() : id; },
 };

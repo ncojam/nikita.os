@@ -1,3 +1,4 @@
+import { AudioOS } from "../../core/audio.js";
 import { Bus } from "../../core/bus.js";
 import { gridButton } from "../../ui/grid.js";
 import { UIParams } from "../../core/uiparams.js";
@@ -282,7 +283,7 @@ const Wires = {
 addEventListener("pointerdown", e => Wires.grab(e), true);   // раньше крутилки: схватить конец провода
 
 /* области: где живут источники и что в них можно добавить */
-const NAMES = { knob: "Ручка", env: "Огибающая", lfo: "LFO", meter: "Уровень", trig: "По ноте", wind: "Ветер", mouse: "Курсор", level: "Громкость плеера" };
+const NAMES = { knob: "Ручка", env: "Огибающая", lfo: "LFO", meter: "Уровень", trig: "По ноте", wind: "Ветер", mouse: "Курсор", level: "Громкость" };
 const GLYPHS = { knob: "🎚", env: "📈", lfo: "∿", meter: "📶", trig: "⚡", wind: "🌬", mouse: "🖱", level: "🎵" };
 const DAWN_SCOPE = {
   id: "dawn", kinds: ["knob", "env", "lfo", "trig", "wind", "meter"],
@@ -342,7 +343,7 @@ export const MODS = {
         lfo: "Качание в такт", trig: "Огибающая, которая стартует от каждой ноты канала. Провод с минусом на громкость — сайдчейн",
         wind: "Генератор ветра/вибрации: качает провода на экране; вход — любой источник (бочка, LFO…), выходов — сколько угодно",
         meter: "Громкость инсерта микшера как источник: бочка громче — окна трясутся",
-        mouse: "Положение курсора на экране (по горизонтали или вертикали)", level: "Громкость музыки в плеере ОС: громче — больше" };
+        mouse: "Положение курсора на экране (по горизонтали или вертикали)", level: "Громкость плеера ОС или полосы с педали «Уровень»: громче — больше" };
       top.replaceChildren(
         ...S.kinds.map(k => dwBtn("＋ " + NAMES[k], () => add(k), { title: TIPS[k] })),
         S.id === "sys" ? el("label", { className: "dw-dim dw-bpm", title: "Темп часов ОС: по нему идут LFO и огибающие системной стойки" }, "BPM ",
@@ -411,9 +412,12 @@ export const MODS = {
           el("span", { className: "dw-dim", textContent: "0 — левый/верхний край экрана, 1 — правый/нижний" }));
       } else if (src.type === "level") {
         const lv = (src.level ||= { gain: 1.5 });
+        const meters = [...AudioOS.nodes.values()].filter(n => n.pedal && Bus.rig.pedals.find(p => p.id === n.pedal)?.type === "meter");
         body = el("div", { className: "dw-modbody" },
+          select([["", "🎵 Плеер ОС"], ...meters.map(n => [n.id, "📶 " + n.title + " · " + n.pedal])], lv.node || "", v => { lv.node = v || undefined; S.touch({ param: true }); }, "Откуда уровень: плеер или педаль «Уровень»"),
+          lv.node ? select([["all", "всё"], ["low", "низ"], ["mid", "середина"], ["high", "верх"]], lv.band || "all", v => { lv.band = v; S.touch({ param: true }); }, "Полоса частот") : "",
           knob({ spec: { min: 0, max: 8, def: 1.5, label: "Gain", curve: 2 }, color: src.color, get: () => lv.gain, set: v => { lv.gain = v; }, done: () => S.touch({ param: true }) }).node,
-          el("span", { className: "dw-dim", textContent: "Громкость плеера ОС → провода (включи музыку в 🎵)" }));
+          el("span", { className: "dw-dim", textContent: lv.node ? "Уровень полосы с педали → провода (на любую графику)" : "Громкость плеера ОС → провода (включи музыку в 🎵)" }));
       } else body = envEditor(src);
       const wires = el("div", { className: "dw-wirelist" }, ...src.wires.map(w => el("div", { className: "dw-wire" },
         el("span", { className: "dw-wire-to", textContent: "→ " + Mod.targetLabel(w.to), title: w.to }),

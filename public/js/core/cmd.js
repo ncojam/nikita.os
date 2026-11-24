@@ -123,7 +123,7 @@ export function rigScript({ kinds = null, pedals = true, mods = true } = {}) {
   if (pedals) {
     for (const p of Bus.rig.pedals) L.push(pedalLine(p));
     const ids = new Set(Bus.rig.pedals.map(p => "pedal:" + p.id));   // и кабели педалей (звук ОС)
-    for (const r of AudioOS.routes) if (ids.has(r.from) || ids.has(r.to)) L.push(`audio.route ${r.from} ${r.to}`);
+    for (const r of AudioOS.routes) if (ids.has(r.from) || ids.has(r.to)) L.push(`audio.route ${r.from}${r.fp ? "#" + r.fp : ""} ${r.to}${r.tp ? "#" + r.tp : ""}`);
   }
   return L.join("\n");
 }
@@ -202,14 +202,15 @@ Cmd.add("photo", "photo <путь> [flat|parallax|3d] [{настройки}]", "
   const { openPhoto } = await import("../apps/photo/viewer.js");
   ctx.win = openPhoto(p, { mode: ["flat", "parallax", "3d"].includes(mode) ? mode : "flat", set: set && typeof set === "object" ? set : undefined });
 });
-Cmd.add("audio.route", "audio.route <откуда> <куда>", "Кабель звука ОС: player, dj.a, dj.b, pedal:<id>, mixer", async ([from, to]) => {
-  const { AudioOS } = await import("./audio.js");
+const port = s => { const i = String(s || "").lastIndexOf("#"); return i < 0 ? [s, ""] : [s.slice(0, i), s.slice(i + 1)]; };
+Cmd.add("audio.route", "audio.route <откуда[#порт]> <куда[#порт]>", "Кабель звука ОС: player, dj.a, dj.b, pedal:<id>, mixer; порты — pedal:p1#2, pedal:p2#B", async ([from, to]) => {
   if (!from || !to) throw new Error("нужно: откуда и куда");
-  AudioOS.connect(from, to);
+  const [a, fp] = port(from), [b, tp] = port(to);
+  AudioOS.connect(a, b, fp, tp);
 });
-Cmd.add("audio.unroute", "audio.unroute <откуда> <куда>", "Вынуть кабель звука ОС", async ([from, to]) => {
-  const { AudioOS } = await import("./audio.js");
-  AudioOS.disconnect(from, to);
+Cmd.add("audio.unroute", "audio.unroute <откуда[#порт]> <куда[#порт]>", "Вынуть кабель звука ОС", async ([from, to]) => {
+  const [a, fp] = port(from), [b, tp] = port(to);
+  AudioOS.disconnect(a, b, fp, tp);
 });
 Cmd.add("wait", "wait <мс>", "Подождать", async ([ms]) => new Promise(r => setTimeout(r, Math.min(60000, Math.max(0, +ms || 0)))));
 Cmd.add("say", "say <текст>", "Показать уведомление", async a => { notify(a.join(" ")); });

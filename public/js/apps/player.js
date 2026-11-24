@@ -3,6 +3,7 @@ import { kindOf } from "../core/types.js";
 import { baseName, el, fmtCount, fmtTime, fsUrl, joinPath, parentOf, plural, store } from "../core/util.js";
 import { WM } from "../wm.js";
 import { AudioOS } from "../core/audio.js";
+import { auJack } from "../core/aucables.js";
 
 /* ================= mp3-плеер ================= */
 const ICONS = {
@@ -109,6 +110,8 @@ const Player = {
       play: q(".pl-play"), shuffle: q(".pl-shuffle"), repeat: q(".pl-repeat"),
       mute: q(".pl-mute"), vol: q(".pl-volbar"), list: q(".pl-list"),
     };
+    // гнездо выхода: тяни кабель прямо отсюда — в педаль, в микшер ОС (core/aucables.js)
+    q(".pl-vol").append(el("span", { className: "pl-out", title: "Выход плеера — тяни кабель в педаль или микшер" }, auJack("player", "out"), el("small", { textContent: "выход" })));
     const a = this.audio;
     ui.play.onclick = () => this.toggle();
     q(".pl-prev").onclick = () => this.prev();

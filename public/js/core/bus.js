@@ -1,3 +1,4 @@
+import { AudioOS } from "./audio.js";
 import { Params } from "./params.js";
 import { srcValue } from "./signals.js";
 import { store } from "./util.js";
@@ -75,7 +76,8 @@ export const Bus = {
     return m;
   },
   rt(now, beat) {
-    const r = { now, mouse: ax => this.mouse[ax] ?? 0.5, level: () => this.level() };
+    const r = { now, mouse: ax => this.mouse[ax] ?? 0.5,
+      level: src => src?.level?.node ? AudioOS.nodeLevel(src.level.node, src.level.band || "all") : this.level() };
     r.srcVal = id => { const s = this.rig.mods.find(m => m.id === id); return s && s.type !== "wind" ? srcValue(s, beat, r) : 0; };
     return r;
   },

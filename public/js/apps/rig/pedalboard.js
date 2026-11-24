@@ -1,7 +1,8 @@
 import { AudioOS } from "../../core/audio.js";
 import { Bus } from "../../core/bus.js";
 import { Params } from "../../core/params.js";
-import { FX, fxDefaults, loadCodeWorklet } from "../dawn/fx.js";
+import { FX as DAWN_FX, fxDefaults, loadCodeWorklet } from "../dawn/fx.js";
+import { UTIL } from "./utilfx.js";
 
 /* ================= Педали ОС — звуковой движок системной стойки =================
  * Каждая педаль из Bus.rig.pedals — узел звука ОС (core/audio.js) «pedal:<id>» со своим входом и выходом.
@@ -10,10 +11,14 @@ import { FX, fxDefaults, loadCodeWorklet } from "../dawn/fx.js";
  * Выключенная педаль пропускает звук насквозь (кабели остаются на месте).
  * Параметры педалей — цели проводков: rig.<id педали>.<параметр> (провайдер Params, группа «Педали ОС»).
  */
-export const RIG_FX = Object.keys(FX).filter(t => !Object.values(FX[t].params).some(p => p.kind === "channel"));
+/* все педали ОС: эффекты DAWN (кроме сайдчейна) + служебные (уровень, разветвитель, смеситель, формула) */
+export const FX = { ...Object.fromEntries(Object.entries(DAWN_FX).filter(([, f]) => !Object.values(f.params).some(p => p.kind === "channel"))), ...UTIL };
+export const RIG_FX = Object.keys(FX);
+export const portsOf = type => FX[type]?.ports || { ins: [""], outs: [""] };
 
 export function newPedal(type) {
-  return { id: Bus.uid("p"), type, on: true, p: fxDefaults(type) };
+  const p = UTIL[type] ? Object.fromEntries(Object.entries(UTIL[type].params).map(([k, s]) => [k, s.def])) : fxDefaults(type);
+  return { id: Bus.uid("p"), type, on: true, p };
 }
 
 export const Pedalboard = {
@@ -43,19 +48,30 @@ export const Pedalboard = {
     for (const pd of Bus.rig.pedals) {
       if (!FX[pd.type]) continue;
       let u = this.units.get(pd.id);
+      const ports = portsOf(pd.type), sig = ports.ins.join(",") + "|" + ports.outs.join(",");
+      if (u && u.sig !== sig) { this.drop(pd.id); AudioOS.unregister("pedal:" + pd.id); u = null; }   // другие гнёзда — новый узел
       if (!u) {
-        u = { inG: ctx.createGain(), outG: ctx.createGain(), fx: null, type: null, on: null };
+        // постоянные гнёзда: кабели держатся за них, а эффект внутри можно менять и выключать
+        u = { ins: Object.fromEntries(ports.ins.map(k => [k, ctx.createGain()])), outs: Object.fromEntries(ports.outs.map(k => [k, ctx.createGain()])), fx: null, type: null, on: null, sig };
         this.units.set(pd.id, u);
-        AudioOS.register({ id: "pedal:" + pd.id, title: FX[pd.type].name, icon: FX[pd.type].icon, kind: "fx", input: () => u.inG, output: u.outG, pedal: pd.id });
+        const multiIn = ports.ins.length > 1 || ports.ins[0] !== "", multiOut = ports.outs.length > 1 || ports.outs[0] !== "";
+        const unit = u;
+        AudioOS.register({ id: "pedal:" + pd.id, title: FX[pd.type].name, icon: FX[pd.type].icon, kind: "fx", pedal: pd.id,
+          input: (from, port) => unit.ins[port] ?? unit.ins[ports.ins[0]],
+          ...(multiIn ? { ins: ports.ins } : {}),
+          ...(multiOut ? { outs: unit.outs } : { output: unit.outs[""] }),
+          get meters() { return unit.fx?.meters; } });
       }
       if (u.type !== pd.type || u.on !== pd.on) {
-        try { u.inG.disconnect(); } catch {}
-        if (u.fx) { try { u.fx.output.disconnect(); u.fx.dispose?.(); } catch {} u.fx = null; }
+        for (const g of Object.values(u.ins)) { try { g.disconnect(); } catch {} }
+        if (u.fx) { try { for (const o of Object.values(u.fx.outs || { "": u.fx.output })) o.disconnect(); u.fx.dispose?.(); } catch {} u.fx = null; }
         if (pd.on) {
-          u.fx = FX[pd.type].create(ctx, this.params(pd));
-          u.fx.tempo?.(Bus.rig.bpm || 120);
-          u.inG.connect(u.fx.input); u.fx.output.connect(u.outG);
-        } else u.inG.connect(u.outG);           // выключена — насквозь
+          const fx = u.fx = FX[pd.type].create(ctx, this.params(pd));
+          fx.tempo?.(Bus.rig.bpm || 120);
+          const fi = fx.ins || { "": fx.input }, fo = fx.outs || { "": fx.output };
+          for (const k of ports.ins) u.ins[k].connect(fi[k]);
+          for (const k of ports.outs) fo[k].connect(u.outs[k]);
+        } else for (const k of ports.outs) u.ins[ports.ins[0]].connect(u.outs[k]);   // выключена — первый вход насквозь на все выходы
         u.type = pd.type; u.on = pd.on;
         const n = AudioOS.nodes.get("pedal:" + pd.id);
         if (n) { n.title = FX[pd.type].name; n.icon = FX[pd.type].icon; }
@@ -66,7 +82,7 @@ export const Pedalboard = {
   drop(id) {
     const u = this.units.get(id);
     if (!u) return;
-    try { u.inG.disconnect(); u.outG.disconnect(); u.fx?.output.disconnect(); u.fx?.dispose?.(); } catch {}
+    try { for (const g of [...Object.values(u.ins), ...Object.values(u.outs)]) g.disconnect(); u.fx?.dispose?.(); } catch {}
     this.units.delete(id);
   },
   set(id) {

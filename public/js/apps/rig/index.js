@@ -5,10 +5,10 @@ import "../../i18n/dawn.js";
 import { notify } from "../../ui/notify.js";
 import { WM } from "../../wm.js";
 import { pedalLine, rigScript } from "../../core/cmd.js";
-import { FX } from "../dawn/fx.js";
 import { MODS } from "../dawn/mod.js";
 import { applyTheme, dwBtn, knob, led, select, shell } from "../dawn/ui.js";
-import { Pedalboard, RIG_FX, newPedal } from "./pedalboard.js";
+import { FX, Pedalboard, RIG_FX, newPedal, portsOf } from "./pedalboard.js";
+import { auJack } from "../../core/aucables.js";
 
 /* ================= Системная стойка: окна «Автоматизация», «Генераторы», «Педали» =================
  * Открываются из Пуска (Приложения → под DAWN) без самой DAWN. Источники и педали живут в шине ОС (core/bus.js),
@@ -115,9 +115,36 @@ function pedalCard(pd, full) {
       led(pd.on, () => { pd.on = !pd.on; Bus.changed({ pedals: true }); }, "Вкл/выкл", spec.color),
       el("b", { textContent: spec.icon + " " + spec.name }),
       select(RIG_FX.map(t => [t, FX[t].name]), pd.type, v => { const fresh = newPedal(v); pd.type = v; pd.p = fresh.p; Bus.changed({ pedals: true }); }, "Тип эффекта"),
-      full ? dwBtn("↑", () => move(-1), { title: "Раньше в цепочке" }) : "",
-      full ? dwBtn("↓", () => move(1), { title: "Позже в цепочке" }) : "",
+      full ? dwBtn("↑", () => move(-1), { title: "Выше в списке" }) : "",
+      full ? dwBtn("↓", () => move(1), { title: "Ниже в списке" }) : "",
       full ? dwBtn("⧉", () => openPedal(pd.id), { title: "Эта педаль отдельным окном" }) : "",
       dwBtn("✕", () => { Bus.rig.pedals = Bus.rig.pedals.filter(x => x !== pd); Bus.changed({ pedals: true }); }, { title: "Убрать", className: "dw-btn dw-x" })),
+    jacksRow(pd),
+    pd.type === "meter" ? meterView(pd) : "",
     el("div", { className: "dw-fx-knobs" }, ...knobs));
+}
+
+/* гнёзда педали: входы слева, выходы справа — тяни кабели прямо отсюда (в плеер, пульт, микшер, другие педали) */
+function jacksRow(pd) {
+  const { ins, outs } = portsOf(pd.type), id = "pedal:" + pd.id;
+  const lab = (p, d) => p ? `${d === "in" ? "вход" : "выход"} ${p}` : d === "in" ? "вход" : "выход";
+  return el("div", { className: "rig-jacks" },
+    el("div", { className: "rig-jk" }, ...ins.map(p => el("span", { className: "rig-jl" }, auJack(id, "in", p), el("span", { textContent: lab(p, "in") })))),
+    el("div", { className: "rig-jk out" }, ...outs.map(p => el("span", { className: "rig-jl" }, el("span", { textContent: lab(p, "out") }), auJack(id, "out", p)))));
+}
+
+/* педаль «Уровень»: цифры по полосам, обновляются сами, пока карточка на экране */
+function meterView(pd) {
+  const bands = [["all", "Всё"], ["low", "Низ"], ["mid", "Середина"], ["high", "Верх"]];
+  const cells = bands.map(([k, t]) => { const v = el("b", { className: "no-i18n", textContent: "—" }), bar = el("i"); return [k, v, bar, el("div", { className: "rig-mt" }, el("span", { textContent: t }), v, el("div", { className: "rig-mbar" }, bar))]; });
+  const box = el("div", { className: "rig-meter" }, ...cells.map(c => c[3]));
+  const t = setInterval(() => {
+    if (!box.isConnected) return clearInterval(t);
+    for (const [k, v, bar] of cells) {
+      const x = AudioOS.nodeLevel("pedal:" + pd.id, k);
+      v.textContent = x > 0.0001 ? (20 * Math.log10(x)).toFixed(1) + " дБ" : "−∞";
+      bar.style.width = Math.min(100, x * 100).toFixed(1) + "%";
+    }
+  }, 66);
+  return box;
 }

@@ -1,4 +1,5 @@
 import { AudioOS } from "../core/audio.js";
+import { auJack } from "../core/aucables.js";
 import { kindOf } from "../core/types.js";
 import { baseName, el, fmtTime, fsUrl, store } from "../core/util.js";
 import { pickGrid } from "../ui/grid.js";
@@ -187,7 +188,8 @@ function deckUI(d, other) {
   const meter = el("div", { className: "dj-meter" }, el("i"));
   const load = el("button", { className: "btn", textContent: "📂", title: "Выбрать трек", onclick: () => chooseTrack(d, load) });
   const root = el("div", { className: "dj-deck", style: `--dc:${ac}` },
-    el("div", { className: "dj-head" }, el("b", { className: "dj-id", textContent: d.id.toUpperCase() }), name, load),
+    el("div", { className: "dj-head" }, el("b", { className: "dj-id", textContent: d.id.toUpperCase() }), name, load,
+      el("span", { className: "dj-out", title: "Выход деки — тяни кабель в педаль или микшер" }, auJack("dj." + d.id, "out"))),
     info, wave,
     el("div", { className: "dj-row" }, play, cue, sync, nudge(-1), nudge(1)),
     el("div", { className: "dj-row dj-knobs" }, kTrim, kHi, kMid, kLo, kFilt),
