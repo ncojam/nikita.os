@@ -68,7 +68,7 @@ export function openPhoto(path, opts = {}) {
 function mount(c, w, path, opts, nav) {
   const name = baseName(path);
   {
-    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, pt: 1.2, style: "cubes", collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
+    const st = { mode: "flat", strength: 0.04, focus: 0.5, x: 0, y: 0, cursor: true, eye: 1, win: 0.5, pt: 1.2, style: "cubes", collide: false, ...store.get(SET, {}), ...(opts.set || {}) };
     const stage = el("div", { className: "ph-stage" });
     const img = el("img", { className: "ph-img", alt: name, src: fsUrl(path) });
     const canvas = el("canvas", { className: "ph-canvas", hidden: true });
@@ -87,7 +87,7 @@ function mount(c, w, path, opts, nav) {
 
     let depthImg = null, depthFrom = "", par = null, s3d = null, raf = 0, dead = false;
     const say = (t, ms = 0) => { info.textContent = t; info.hidden = !t; if (ms) setTimeout(() => info.textContent === t && (info.hidden = true), ms); };
-    const save = () => store.set(SET, { strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, style: st.style, collide: st.collide });
+    const save = () => store.set(SET, { win: st.win, strength: st.strength, focus: st.focus, cursor: st.cursor, eye: st.eye, pt: st.pt, style: st.style, collide: st.collide });
 
     /* ---------- ползунки (они же цели проводков) ---------- */
     const range = (label, key, min, max, step, onSet, title = "") => {
@@ -147,6 +147,7 @@ function mount(c, w, path, opts, nav) {
       [bFlat, bPar, b3d].forEach((b, i) => b.classList.toggle("on", ["flat", "parallax", "3d"][i] === m));
       img.hidden = m !== "flat"; canvas.hidden = m !== "parallax"; box3d.hidden = m !== "3d";
       cancelAnimationFrame(raf);
+      w.node.style.transform = "";
       if (m !== "3d" && s3d) { s3d.dispose(); s3d = null; }
       if (m === "flat") { tools.replaceChildren(el("span", { className: "ph-dim", textContent: "Двойной клик — во весь экран окна" })); say(""); return; }
       if (m === "parallax") return startParallax();
@@ -166,6 +167,7 @@ function mount(c, w, path, opts, nav) {
         range("Угол Y", "y", -1, 1, 0.01, null, "Угол обзора по вертикали — цель для проводков"),
         range("Сила", "strength", 0, 0.12, 0.002),
         range("Фокус", "focus", 0, 1, 0.01, null, "Какая глубина стоит на месте: 0 — дальнее, 1 — ближнее"),
+        range("Окно", "win", 0, 1, 0.01, null, "Окно поворачивается вместе с картинкой (0 — не поворачивать) — цель для проводков"),
         el("span", { className: "ph-dim", textContent: "глубина: " + depthFrom }));
       say("");
       const m = { x: 0, y: 0 }, sm = { x: 0, y: 0 };
@@ -174,7 +176,11 @@ function mount(c, w, path, opts, nav) {
       const tick = () => {
         if (dead || st.mode !== "parallax") { removeEventListener("pointermove", onMove); return; }
         sm.x += ((st.cursor ? m.x : 0) - sm.x) * 0.12; sm.y += ((st.cursor ? m.y : 0) - sm.y) * 0.12;
-        par.set({ x: Math.max(-1.5, Math.min(1.5, st.x + sm.x)), y: Math.max(-1.5, Math.min(1.5, st.y + sm.y)), strength: st.strength, focus: st.focus });
+        const x = Math.max(-1.5, Math.min(1.5, st.x + sm.x)), y = Math.max(-1.5, Math.min(1.5, st.y + sm.y));
+        par.set({ x, y, strength: st.strength, focus: st.focus });
+        // окно поворачивается вслед за ракурсом: смотришь справа — правый край ближе (как настоящая рамка)
+        const deg = st.win * 16;
+        w.node.style.transform = deg && !w.maximized ? `perspective(1600px) rotateY(${(-x * deg).toFixed(2)}deg) rotateX(${(y * deg).toFixed(2)}deg)` : "";
         raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
@@ -215,8 +221,8 @@ function mount(c, w, path, opts, nav) {
     stage.ondblclick = () => WM.setMax(w, !w.maximized);
     fetch(fsUrl(path + ".scene.nvx"), { method: "HEAD", cache: "no-store" }).then(r => { if (r.ok) { b3d.disabled = false; b3d.title = "Воксельная сцена: облёт, ходьба, пол"; } }).catch(() => {});
 
-    w.cmd = () => `photo ${JSON.stringify(path)} ${st.mode} ${JSON.stringify({ strength: st.strength, focus: st.focus, x: st.x, y: st.y, cursor: st.cursor, eye: st.eye })}`;
-    const stop = () => { dead = true; cancelAnimationFrame(raf); par?.dispose(); s3d?.dispose(); };
+    w.cmd = () => `photo ${JSON.stringify(path)} ${st.mode} ${JSON.stringify({ strength: st.strength, focus: st.focus, x: st.x, y: st.y, win: st.win, cursor: st.cursor, eye: st.eye })}`;
+    const stop = () => { dead = true; cancelAnimationFrame(raf); w.node.style.transform = ""; par?.dispose(); s3d?.dispose(); };
     const want = opts.mode || "flat";
     if (want !== "flat") setMode(want);
     else {
