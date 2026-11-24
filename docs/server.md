@@ -16,6 +16,7 @@
 | `dungeon.py` | `Dungeon` | `NOS_DATA` (`dungeon.json`) | Clown Dungeon, см. [dungeon.md](dungeon.md) |
 | `dawnstore.py` | `Projects`, `Visits` | файлы `.dawn` в `ufs/` + `ufs/.meta/projects.json`; `NOS_DATA/visits.json` | Общие проекты DAWN (до 10 на аккаунт, ≤ 2 МБ), счётчик посещений |
 | `share.py` | `Share` | `NOS_DATA/share/` (плоская папка файлов) | Файлообменник владельца: `GET /api/share/list`, `POST /api/share/upload` (multipart, потоково), `GET /api/share/file/{name}`, `POST /api/share/delete`, `GET/POST /api/share/clip` (общий текстовый буфер); всё только для ника `cojam` |
+| `depth.py` | `Depth` | `NOS_DATA/depth/` (кэш PNG + `queue.json`) | Глубина для фото без файла рядом: очередь, считает в тихие часы при низкой нагрузке, модель — `fs/usr/share/depth/model.onnx`. См. [photo.md](photo.md) |
 | `trip.py` | `Trip` | `NOS_DATA/trip.json`, `trip_legs.json` | План поездки: `GET /api/trip`, `GET /api/trip/leg/{a}/{b}` (всем; пеший путь из OSRM FOSSGIS и высоты Open-Meteo, сервер кэширует навсегда; адреса — `NOS_TRIP_ROUTER`, `NOS_TRIP_ELEVATION`), `POST /api/trip/card`, `/api/trip/card/delete`, `/api/trip/day`, `/api/trip/stay`, `/api/trip/stay/delete` (только ник `cojam`, та же проверка, что в `share.py`) |
 
 ## Эндпоинты
@@ -28,6 +29,7 @@
 | POST | `/api/listen?path=` | server | +1 прослушивание (1 раз с IP за 30 мин) |
 | GET | `/fs/{path}` | server | Файл: канон → ufs → JSON виртуальной записи. `.br/.gz` отдаются с `Content-Encoding` (Unity) |
 | GET | `/grab/{name}` | server | «Бесконечная загрузка» для fakedl |
+| GET | `/api/depth?path=` | depth | Карта глубины картинки: 200 PNG (готово) · 202 `{queued, position}` · 404 (нет модели/картинки) |
 | GET | `/browser/...`, `/dawn/...` | server | `index.html` — прямые ссылки в браузер ОС и в DAWN (`/dawn/<путь к .dawn>`) |
 | POST | `/api/dawn/save` `{dir, name, data}` | dawnstore | Сохранить проект в папку (нужен вход; своё — перезаписывается) |
 | POST | `/api/dawn/delete` `{path}` | dawnstore | Удалить свой проект |

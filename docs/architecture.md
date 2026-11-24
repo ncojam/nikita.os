@@ -46,7 +46,8 @@ index.html
      ├─ init_apps_player()
      ├─ init_desktop()             иконки = /home/nikita/Desktop
      ├─ init_ui_taskbar(), init_ui_wallpaper(), init_ui_glow(), init_ui_context_menu()
-     ├─ init_params() + core/uiparams.js    параметры ОС и любые регуляторы — цели проводков DAWN
+     ├─ init_params() + core/uiparams.js    параметры ОС и любые регуляторы — цели проводков
+     ├─ init_bus()                 шина сигналов: системная стойка (автоматизация, генераторы, педали ОС) — docs/signals.md
      └─ стартовое окно: /browser/<адрес> → openBrowser(адрес), иначе openExplorer(Projects)
 ```
 

@@ -6,7 +6,10 @@
 |---|---|---|
 | Проводник | `apps/explorer.js` | `openExplorer(path, {select})`; слушает `nos-posts-changed` |
 | Плеер | `apps/player.js`, `apps/id3.js` | аудиофайл; плейлист из папки, теги и обложки ID3 (cp1251 для старых русских тегов), `POST /api/listen` |
-| Просмотр видео / картинок / текста | `open.js` | по типу файла |
+| Просмотр видео / текста | `open.js` | по типу файла |
+| Фото | `apps/photo/` | картинка (`.scene.nvx` — сразу в 3D). Режимы 🖼 фото · 🌊 параллакс по карте глубины (ракурс от курсора + ползунки-цели проводков) · 🧊 3D: облёт, ходьба (WASD), пол по 3 точкам, «Рост». См. [photo.md](photo.md) |
+| Автоматизация, Генераторы, Педали ОС | `apps/rig/`, `core/bus.js` | Пуск → Приложения → под DAWN; `app: "rig"` (`path`: `auto` / `gen` / `pedals`). Системная стойка без DAWN, см. [signals.md](signals.md) |
+| Скрипты | `apps/scripts.js`, `core/cmd.js` | Пуск → Приложения → «Скрипты», `app: "scripts"`, файлы `.nos`. Редактор, ▶ (Ctrl+Enter), 💾 в `/home/nikita/Scripts`, 📸 снимок всех окон и стойки, справка по командам |
 | GBA / GB | `public/apps/gba.html`, `gba.js`, `vendor/mgba` | `.gba/.gb/.gbc` → iframe `gba.html?rom=`. Настройки `fs/etc/gba.json`, сохранения в IndexedDB. Нужны COOP/COEP |
 | Flash | `public/apps/flash.html`, `vendor/ruffle` | `.swf` → iframe; только файлы из своей `/fs/` (см. [security.md](security.md)) |
 | Веб-игры (Unity и др.) | `open.js` | `index.html` → iframe; `.br/.gz` сервер отдаёт с `Content-Encoding` |

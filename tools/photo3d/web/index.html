@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nikita.os · фото → глубина и 3D</title>
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<header>
+  <b>🧊 фото → глубина и 3D</b>
+  <button id="up" title="Папка выше">↑</button>
+  <input id="dir" spellcheck="false">
+  <button id="go">Открыть</button>
+  <span id="chips"></span>
+  <button id="site" title="Лёгкая модель и onnxruntime-web → fs/usr/share/depth (для глубины в браузере и на сервере)">📦 Подготовить сайт</button>
+</header>
+<main>
+  <section id="left">
+    <div id="dirs"></div>
+    <div id="imgs"></div>
+  </section>
+  <section id="right">
+    <div id="tabs"><button data-t="img" class="on">🖼 Фото</button><button data-t="depth">🌊 Глубина</button><button data-t="3d">🧊 3D</button><span id="sel"></span></div>
+    <div id="view"><img id="pv" alt=""><div id="v3"></div><div id="hint">Выбери картинку слева (Ctrl — несколько)</div></div>
+    <div class="box">
+      <h3>🌊 Глубина</h3>
+      <label>Модель <select id="model"><option value="small">small — быстро</option><option value="base" selected>base — по умолчанию</option><option value="large">large — лучше, медленно</option></select></label>
+      <label>Детали <select id="res"><option>518</option><option>770</option><option>1036</option></select></label>
+      <button id="doDepth">Посчитать для выбранных</button>
+    </div>
+    <div class="box">
+      <h3>🧊 Сцена</h3>
+      <label><input type="radio" name="mode" value="photo" checked> Фото</label>
+      <label><input type="radio" name="mode" value="minecraft"> ⛏ Minecraft</label>
+      <label title="Вертикальный угол обзора камеры. Minecraft «Нормальный» = 70">FOV <input id="fov" type="number" min="20" max="120" step="1" placeholder="авто"></label>
+      <label class="ph" title="Во сколько раз дальнее дальше ближнего">Диапазон <input id="range" type="number" min="1.5" max="200" step="0.5" placeholder="8"></label>
+      <label class="mc" title="Пусто — найти самому">Диапазон <input id="mcrange" type="number" min="1.5" max="200" step="0.5" placeholder="авто"></label>
+      <label class="ph" title="Вокселей поперёк кадра">Разрешение <input id="vres" type="number" min="32" max="1024" step="16" value="256"></label>
+      <label class="mc" title="Если размер блока нашёлся неверно: сколько блоков от камеры до середины кадра">Блоков до центра <input id="blocks" type="number" min="2" max="400" step="1" placeholder="авто"></label>
+      <label title="Фото: слой фона за краями ближних предметов (инпейнт). Minecraft: досыпать блоки вниз до земли"><input id="fill" type="checkbox" checked> Дозаполнить скрытое</label>
+      <button id="doScene">Сделать сцену</button>
+    </div>
+    <div id="jobs"></div>
+  </section>
+</main>
+<script type="module" src="/web/app.js"></script>
+</body>
+</html>

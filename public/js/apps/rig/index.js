@@ -6,7 +6,7 @@ import { WM } from "../../wm.js";
 import { pedalLine, rigScript } from "../../core/cmd.js";
 import { FX } from "../dawn/fx.js";
 import { MODS } from "../dawn/mod.js";
-import { dwBtn, knob, led, select, shell } from "../dawn/ui.js";
+import { applyTheme, dwBtn, knob, led, select, shell } from "../dawn/ui.js";
 import { Pedalboard, RIG_FX, newPedal } from "./pedalboard.js";
 
 /* ================= Системная стойка: окна «Автоматизация», «Генераторы», «Педали» =================
@@ -27,6 +27,7 @@ const TITLES = { auto: "Автоматизация", gen: "Генераторы"
 const ICONS = { auto: "🔌", gen: "∿", pedals: "🎛" };
 
 export function openRig(kind = "auto", id = null) {
+  applyTheme();   // тема DAWN (светлая/тёмная) — окна стойки в том же стиле, даже если DAWN не открыт
   if (kind === "pedal") return openPedal(id);
   if (!TITLES[kind]) kind = "auto";
   const w = WM.open({ title: TITLES[kind], icon: ICONS[kind], key: "rig:" + kind,
@@ -71,6 +72,7 @@ function pedalsWindow(c) {
 }
 
 function openPedal(id) {
+  applyTheme();
   const pd = Pedalboard.find(id);
   if (!pd) { notify("Нет такой педали: " + id); return null; }
   Pedalboard.boot();
