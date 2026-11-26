@@ -16,7 +16,7 @@ import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-
  * Катакана: на уровнях 1–2 засчитываем и хирагану, с 3-го — только настоящую (F7 перед Enter).
  * Статистика ошибок по знакам — store("kana.type").kana: слабые знаки чаще попадаются в уроках.
  */
-const LESSON = 12, CHECK = 5;
+const LESSON = 12, CHECK = 5, EXAM_AFTER = 20, EXAM_SIZE = 5;
 const LEVELS = [
   { n: 1, h: "Короткие слова", sub: "2–3 знака хираганой" },
   { n: 2, h: "Длинные слова", sub: "хирагана и катакана" },
@@ -27,7 +27,7 @@ const LEVELS = [
 ];
 const KEYMODES = [["auto", "Авто: уровни 1–2 и после ошибки"], ["always", "Всегда"], ["miss", "Только после ошибки"]];
 
-const st = Object.assign({ level: 1, max: 1, voice: true, keys: "auto", kana: {}, hist: [] }, store.get("kana.type", {}));
+const st = Object.assign({ level: 1, max: 1, voice: true, keys: "auto", kana: {}, hist: [], words: {}, examCredit: 0, examHist: [] }, store.get("kana.type", {}));
 const save = () => store.set("kana.type", st);
 
 /* ---------- кана: слоги, клавиши, сравнение ---------- */
@@ -129,12 +129,55 @@ const POOLS = {
   ],
 };
 
-// слабые знаки весят больше: карточка с ними попадается чаще
-const weight = c => 1 + c.slots.reduce((a, s) => { const x = st.kana[toHira(s)]; return a + (x ? Math.min(2, x.err / (x.ok + 1)) : 0); }, 0);
+// Словарные слова для экзамена: только отдельные слова, не случайные фразы.
+const DICT = [...WORDS.hira, ...WORDS.kata].filter(w => KANA.test(w.k) && w.m && w.r && !/\s/.test(w.r.trim()));
+const byWord = new Map(DICT.map(w => [w.k, w]));
+const difficulty = x => x ? Math.min(5, (x.err || 0) / ((x.ok || 0) + 1) * 2 + Math.min(3, x.streak || 0)) : 0;
+const weight = c => 1 + c.slots.reduce((a, s) => a + difficulty(st.kana[toHira(s)]), 0) / c.slots.length
+  + 2 * c.toks.reduce((a,t) => a + (t.p ? 0 : difficulty(st.words[t.k])), 0) / c.toks.length;
+function wordMark(k, ok, ru = "") {
+  const x = st.words[k] ||= { ok: 0, err: 0, streak: 0, ru };
+  if (ru && !x.ru) x.ru = ru;
+  if (ok) { x.ok++; x.streak = Math.max(0, (x.streak || 0) - 1); }
+  else { x.err++; x.streak = (x.streak || 0) + 1; }
+  x.last = Date.now();
+}
+function recordCard(cd, missed, exact = true) {
+  const tokens = new Map();
+  cd.toks.forEach((t, i) => {
+    if (t.p || !KANA.test(t.k)) return;
+    const bad = cd.owner.some((owner, si) => owner === i && missed.has(si));
+    const previous = tokens.get(t.k);
+    tokens.set(t.k, { bad: bad || !!previous?.bad, ru: byWord.get(t.k)?.m || t.g || (cd.toks.length === 1 ? cd.ru : "") });
+  });
+  // An extra character is a card error even if every target syllable matched.
+  if (!exact && !missed.size && tokens.size) for (const t of tokens.values()) t.bad = true;
+  for (const [k,t] of tokens) wordMark(k,!t.bad,t.ru);
+  if (exact && !missed.size) st.examCredit++;
+  save();
+}
+function examPool() {
+  const seen = new Set();
+  return DICT.filter(w => st.words[w.k] && !seen.has(w.m) && seen.add(w.m))
+    .map(w => ({ ...w, priority: difficulty(st.words[w.k]) + Math.random() }))
+    .sort((a,b) => b.priority-a.priority);
+}
+const examReady = () => st.examCredit >= EXAM_AFTER && examPool().length >= EXAM_SIZE;
+function weakWords() {
+  return Object.entries(st.words).filter(([,x]) => x.err).sort((a,b) => difficulty(b[1])-difficulty(a[1]));
+}
 function pick(level, n) {
   const seen = new Set();
   let pool = POOLS[level]().filter(c => c && !seen.has(c.target) && seen.add(c.target));
   const out = [];
+  // Up to three older, weak dictionary words in every lesson, not just the current level.
+  const review = weakWords().filter(([k,x]) => byWord.has(k) && difficulty(x) > 0.35).slice(0,3);
+  for (const [k] of review) {
+    const w = byWord.get(k), c = card([{k:w.k,r:w.r,g:""}],w.m);
+    if (!c || (level === 1 && /[ァ-ヺー]/.test(k))) continue;
+    out.push(c);
+    pool = pool.filter(x => x.target !== c.target);
+  }
   while (out.length < n && pool.length) {
     const w = pool.map(weight), sum = w.reduce((a, b) => a + b, 0);
     let r = Math.random() * sum, i = 0;
@@ -199,6 +242,7 @@ export function openKanaType() {
         el("select", { onchange: e => { st.keys = e.target.value; save(); } },
           ...KEYMODES.map(([v, t]) => el("option", { value: v, selected: v === st.keys, textContent: t }))));
       const weak = Object.entries(st.kana).filter(([, x]) => x.err).sort((a, b) => b[1].err / (b[1].ok + 1) - a[1].err / (a[1].ok + 1)).slice(0, 10);
+      const weakW = weakWords().slice(0,10);
       const voiceStatus = el("p", { className: "kn-muted", role: "status" });
       KanaTTS.bindStatus(voiceStatus);
       const engine = el("label", { className: "kn-bsel" }, el("span", { textContent: "Движок озвучки" }),
@@ -219,10 +263,73 @@ export function openKanaType() {
         el("a", { className: "kn-muted", href: "/vendor/openjtalk-v1/NOTICE.txt", target: "_blank", rel: "noopener", textContent: "Open JTalk / Mei · лицензии" }),
         weak.length ? el("div", { className: "kt-weak" }, el("span", { className: "kn-label", textContent: "Слабые знаки:" }),
           ...weak.map(([k, x]) => el("span", { className: "kn-chip", title: `ошибок ${x.err}, верно ${x.ok}`, textContent: k }))) : "",
+        weakW.length ? el("div", { className: "kt-weak" }, el("span", { className: "kn-label", textContent: "Слабые слова:" }),
+          ...weakW.map(([k,x]) => el("span", { className: "kn-chip", title: `${x.ru || ""} · ошибок ${x.err}, верно ${x.ok}`, textContent: k + (x.ru ? " · " + x.ru : "") }))) : "",
+        el("p", { className: "kn-muted", textContent: `До экзамена: ${Math.min(st.examCredit, EXAM_AFTER)} / ${EXAM_AFTER} безошибочных карточек · изучено слов: ${examPool().length}` }),
+        st.examHist.length ? el("p", { className: "kn-muted", textContent: `Последний экзамен: ${st.examHist.at(-1).ok} / ${st.examHist.at(-1).total}` }) : "",
+        examReady() ? el("button", { className: "kn-btn kt-go", textContent: "🎓 Начать экзамен", onclick: () => exam(menu) }) : "",
         st.hist.length ? el("div", { className: "kt-hist" }, el("span", { className: "kn-label", textContent: "Недавно:" }),
           ...st.hist.slice(-6).reverse().map(h => el("span", { className: "kt-hgrade g-" + h.grade, title: `уровень ${h.level} · точность ${h.acc} · проверка ${h.check}`, textContent: `${h.grade} · ур.${h.level}` }))) : "",
         el("button", { className: "kn-btn kt-go", textContent: `▶ Начать урок — уровень ${st.level}`, onclick: () => lesson(st.level) }),
         el("button", { className: "kn-btn", textContent: "✍ Тренажёр письма", onclick: () => writing(weak.map(([k]) => k)) })));
+    }
+
+    /* --- экзамен: только перевод, без длины ответа и TTS до сдачи --- */
+    function exam(back = menu) {
+      TTS.stop(); KanaTTS.bindStatus(null);
+      const list = examPool().slice(0, EXAM_SIZE);
+      if (list.length < EXAM_SIZE || st.examCredit < EXAM_AFTER) { back(); return; }
+      let i = 0, score = 0;
+      const errors = [];
+      function next() {
+        TTS.stop();
+        if (i >= list.length) {
+          st.examCredit = Math.max(0, st.examCredit - EXAM_AFTER);
+          st.examHist.push({ok:score,total:list.length,at:Date.now()});
+          st.examHist = st.examHist.slice(-30); save();
+          c.replaceChildren(el("div",{className:"kt-menu kt-result"},
+            el("h3",{textContent:"🎓 Экзамен завершён"}),
+            el("div",{className:"kt-grade "+(score===list.length?"g-S":score>=4?"g-A":"g-C"),textContent:score+" / "+list.length}),
+            el("p",{textContent:errors.length?"Ошибочные слова попадутся чаще в следующих уроках.":"Все слова вспомнил самостоятельно!"}),
+            ...errors.map(w=>el("div",{className:"kn-row"},el("span",{textContent:w.m+" → "+w.k+" ("+w.r+")"}),el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}))),
+            el("button",{className:"kn-btn kt-go",textContent:"Продолжить обучение",onclick:back})));
+          return;
+        }
+        const w = list[i];
+        const accepted = DICT.filter(x=>x.m===w.m).map(x=>x.k);
+        let submitted = false;
+        const input = el("input",{className:"kt-in",lang:"ja",autocomplete:"off",spellcheck:false,placeholder:"Напиши слово по-японски"});
+        const feedback = el("div",{className:"kt-hint",role:"status"});
+        const submitBtn = el("button",{className:"kn-btn kt-go",textContent:"Проверить",onclick:()=>submit()});
+        const skip = el("button",{className:"kn-btn",textContent:"Не помню",onclick:()=>submit(true)});
+        const panel = el("div",{className:"kt-menu kt-card"},el("h3",{textContent:"🎓 Экзамен "+(i+1)+" / "+list.length}),
+          el("div",{className:"kt-ru",textContent:w.m}),input,feedback,
+          el("div",{className:"kn-row"},submitBtn,skip),
+          el("button",{className:"kn-btn",textContent:"В меню (экзамен позже)",onclick:menu}));
+        c.replaceChildren(panel); setTimeout(()=>{if(panel.isConnected)input.focus();},30);
+        input.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229){e.preventDefault();submit();}});
+        function submit(skipped=false) {
+          if(submitted||!panel.isConnected)return;
+          const typed=input.value.trim().normalize("NFKC").replace(/\s/g,"");
+          if(!typed&&!skipped){input.focus();return;}
+          if(!skipped&&!KANA.test(typed)){feedback.textContent="Введи ответ каной (Mozc), без кандзи.";return;}
+          submitted=true; input.disabled=true; skip.disabled=true;
+          // Accept dictionary synonyms with the same Russian gloss; exact kana spelling required.
+          const ok=!skipped&&accepted.includes(typed);
+          if(ok)score++;else errors.push(w);
+          wordMark(ok?typed:w.k,ok,w.m);
+          const slots=slotsOf(w.k), hit=lcsHits([...w.k],[...typed]);
+          let offset=0;
+          for(const sl of slots){mark(sl,ok||[...sl].every((_,j)=>hit[offset+j]));offset+=sl.length;}
+          save();
+          feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?"Верно!":"Правильно: "+w.k+" · "+w.r}),
+            el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
+          ok?Juice.ding(4):Juice.buzz();TTS.say(ok?typed:w.k);
+          submitBtn.textContent="Далее →";submitBtn.onclick=()=>{i++;next();};
+          submitBtn.focus();
+        }
+      }
+      next();
     }
 
     /* --- урок --- */
@@ -235,6 +342,7 @@ export function openKanaType() {
       const test = cards.slice(live.length);
       next();
       function next() {
+        if (examReady()) { exam(next); return; }
         if (i < live.length) play(live[i], `Карточка ${i + 1} / ${live.length}`, false, () => { i++; next(); });
         else if (i - live.length < test.length) {
           const j = i - live.length;
@@ -286,6 +394,7 @@ export function openKanaType() {
         if (checking) {
           input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); } });
           let submitted = false, autoTimer, voicedTo = 0;
+          const firstMisses = new Set();
           const norm = strictKata ? s => s : toHira;
           const slotAt = pos => cd.slots.findIndex((sl, si) => cd.start[si] + sl.length > pos);
           function reveal(si) {
@@ -307,30 +416,12 @@ export function openKanaType() {
               TTS.say(tok.p && SAY[sl] && tok.k === sl ? SAY[sl] : sl, 1.1);
             });
             voicedTo = spokenTo;
-            // Do not mistake unfinished romaji or an incomplete compound syllable for an error.
-            // Revealed keys remain visible for this card, even after the learner corrects the typo.
-            slotEls.forEach(sl => sl.classList.remove("bad"));
-            hint.replaceChildren();
-            if (n < typed.length && n < cd.target.length) {
-              const si = slotAt(n);
-              reveal(si);
-              warn(hint, `Нужно: ${cd.slots[si]} → ${cd.keys[si]}`);
-            } else if (typed.length > cd.target.length) {
-              warn(hint, "Лишние знаки в конце — удали их.");
-            }
+            // No visual correction during the attempt. Remember actual kana typos for adaptive review.
+            if (n < typed.length && n < cd.target.length) firstMisses.add(slotAt(n));
             if (LATIN_TAIL.test(raw)) return;
             const exact = norm(typed) === norm(cd.target);
-            if (!exact && strictKata && toHira(typed) === toHira(cd.target)) {
-              const pos = [...typed].findIndex((ch, i) => ch !== cd.target[i]);
-              const si = slotAt(pos);
-              if (si >= 0) {
-                reveal(si);
-                warn(hint, cd.slots[si] === toHira(cd.slots[si])
-                  ? `Нужно: ${cd.slots[si]} → ${cd.keys[si]} (хирагана)`
-                  : `Нужно: ${cd.slots[si]} → ${cd.keys[si]}, затем F7 (катакана)`);
-              }
-              return;
-            }
+            // Allow time for F7 instead of treating in-progress hiragana as a typo.
+            if (!exact && strictKata && toHira(typed) === toHira(cd.target)) return;
             if (exact || typed.length >= cd.target.length)
               autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(); }, exact ? 220 : 1600);
           }
@@ -342,22 +433,30 @@ export function openKanaType() {
             clearTimeout(autoTimer);
             const typed = input.value.replace(/\s|[A-Za-zＡ-Ｚａ-ｚ'’]/g, "");
             const hit = lcsHits([...norm(cd.target)], [...norm(typed)]);
+            const exact = norm(typed) === norm(cd.target);
+            const missed = new Set(firstMisses);
             let good = 0;
             cd.slots.forEach((s, si) => {
               const ok = [...s].every((_, k) => hit[cd.start[si] + k]);
               slotEls[si].classList.remove("bad");
-              if (ok) good++;
-              else {
+              if (ok) good++; else missed.add(si);
+              if (missed.has(si)) {
                 R.weak[toHira(s)] = (R.weak[toHira(s)] || 0) + 1;
                 reveal(si);
               }
+              mark(s, !missed.has(si));
               slotEls[si].classList.add(ok ? "ok" : "bad");
             });
-            R.check.push(good / cd.slots.length);
+            R.check.push(exact ? 1 : Math.min(good / cd.slots.length, (cd.slots.length - 1) / cd.slots.length));
+            recordCard(cd, missed, exact);
             input.disabled = true;
             hint.replaceChildren(el("span", { className: "kn-muted", textContent: typed ? "Ты набрал: " : "Пусто" }), typed ? el("span", { className: "kt-typed", textContent: typed }) : "");
-            good === cd.slots.length ? Juice.ding(4) : Juice.buzz();
-            setTimeout(() => { if (box.isConnected) done(); }, good === cd.slots.length ? 950 : 2800);
+            if (missed.size || !exact) {
+              hint.append(el("div", {className:"kt-warn",textContent:"Правильно: " + cd.target + " · " + cd.keys.join(" ")}));
+              if (strictKata && /[ァ-ヺ]/.test(cd.target)) hint.append(el("div",{className:"kn-muted",textContent:"Для катаканы используй F7."}));
+            }
+            exact ? Juice.ding(4) : Juice.buzz();
+            setTimeout(() => { if (box.isConnected) done(); }, exact && !missed.size ? 950 : 3200);
           }
           return;
         }
@@ -458,7 +557,7 @@ export function openKanaType() {
           input.disabled = true;
           R.chars += cd.target.length;
           if (t0) R.ms += performance.now() - t0;
-          save();
+          recordCard(cd, missed);
           box.classList.add("done");
           setTimeout(() => { if (box.isConnected) done(); }, 950);
         }
