@@ -22,7 +22,7 @@ import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-
  */
 const LESSON = 12, CHECK = 5, EXAM_AFTER = 20, EXAM_SIZE = 5;
 const LEVELS = [
-  { n: 1, h: "Короткие слова", sub: "2–3 знака хираганой" },
+  { n: 1, h: "Короткие слова", sub: "1–3 знака хираганой" },
   { n: 2, h: "Длинные слова", sub: "хирагана и катакана" },
   { n: 3, h: "Слово + частица", sub: "すしを, カフェで, わたしは" },
   { n: 4, h: "Два слова", sub: "すしを たべます" },
@@ -122,7 +122,7 @@ function phrase({ forms, sub = [1], time = 0, place = 0, q = 0 }) {
 const many = (n, f) => Array.from({ length: n }, f);
 
 const POOLS = {
-  1: () => words("hira", n => n >= 2 && n <= 3),
+  1: () => words("hira", n => n >= 1 && n <= 3),
   2: () => [...words("hira", n => n >= 4), ...words("kata", () => true)],
   3: () => [
     ...SUBJ.filter(x => x.k).map(x => card([{ k: x.k, r: x.r, g: x.g }, P("は", "wa", "тема")], `${x.ru[0].toUpperCase() + x.ru.slice(1)} — тема (は)`)),
@@ -179,11 +179,22 @@ function pick(level, n) {
   const seen = new Set();
   let pool = POOLS[level]().filter(c => c && !seen.has(c.target) && seen.add(c.target));
   const out = [];
+  // Keep introducing vocabulary even after reaching phrase levels.
+  // Reserve two guided cards for unseen words.
+  if (level >= 3) {
+    const fresh = [...words("hira", () => true), ...words("kata", () => true)]
+      .filter(c => c && !st.words[c.target]);
+    for (let j = 0; j < 2 && fresh.length && out.length < n; j++) {
+      const c = fresh.splice(Math.floor(Math.random() * fresh.length), 1)[0];
+      out.push(c);
+      pool = pool.filter(x => x.target !== c.target);
+    }
+  }
   // Up to three older, weak dictionary words in every lesson, not just the current level.
   const review = weakWords().filter(([k,x]) => byWord.has(k) && difficulty(x) > 0.35).slice(0,3);
   for (const [k] of review) {
     const w = byWord.get(k), c = card([{k:w.k,r:w.r,g:""}],w.m);
-    if (!c || (level === 1 && /[ァ-ヺー]/.test(k))) continue;
+    if (!c || out.some(x => x.target === c.target) || (level === 1 && /[ァ-ヺー]/.test(k))) continue;
     out.push(c);
     pool = pool.filter(x => x.target !== c.target);
   }
@@ -452,7 +463,7 @@ export function openKanaType() {
               spokenTo = end;
               if (end <= voicedTo || /^[ーっッ]$/.test(sl)) return;
               const tok = cd.toks[cd.owner[si]];
-              TTS.say(tok.p && SAY[sl] && tok.k === sl ? SAY[sl] : sl, 1.1);
+              TTS.say((tok.p && SAY[sl] && tok.k === sl) ? SAY[sl] : (/^(こんにちは|こんばんは)$/.test(tok.k) && sl === "は" ? "わ" : sl), 1.1);
             });
             voicedTo = spokenTo;
             // No visual correction during the attempt. Remember actual kana typos for adaptive review.
@@ -574,7 +585,7 @@ export function openKanaType() {
               Juice.ding(streak++);
               const tok = cd.toks[cd.owner[si]];
               const sl0 = cd.slots[si];
-              if (!/^[ーっッ]$/.test(sl0)) TTS.say(tok.p && SAY[sl0] && tok.k === sl0 ? SAY[sl0] : sl0, 1.1);   // ー и っ отдельно не звучат
+              if (!/^[ーっッ]$/.test(sl0)) TTS.say((tok.p && SAY[sl0] && tok.k === sl0) ? SAY[sl0] : (/^(こんにちは|こんばんは)$/.test(tok.k) && sl0 === "は" ? "わ" : sl0), 1.1);   // ー и っ отдельно не звучат
             }
           }
           const cur = cd.slots.findIndex((s, si) => cd.start[si] + s.length > doneTo);

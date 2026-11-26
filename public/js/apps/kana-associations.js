@@ -1,5 +1,5 @@
 // Curated phonetic and semantic memory hooks, not etymology or pronunciation rules.
-// Familiar words deliberately excluded: neko, kawaii, anime.
+// Familiar words deliberately excluded: neko, kawaii, anime and other widely recognized words.
 export const ASSOCIATIONS = {
   "かさ": {
     "meaning": "☂️",
@@ -1659,6 +1659,2134 @@ export const ASSOCIATIONS = {
     "keyword": "oishii — oh, shii~",
     "story": "Настолько вкусно, что после хруста протягиваешь «oh, shii~!». Это ассоциация; в японском конечное i долгое.",
     "sfx": "delicious"
+  },
+  "あし": {
+    "meaning": "🦶",
+    "anchor": "👣",
+    "keyword": "ashi",
+    "story": "Аси — «а, шаг!»: слышишь собственные шаги.",
+    "sfx": "footstep"
+  },
+  "あたま": {
+    "meaning": "🧠",
+    "anchor": "🎩",
+    "keyword": "atama",
+    "story": "Шляпа подпрыгивает на голове.",
+    "sfx": "tap"
+  },
+  "からだ": {
+    "meaning": "🧍",
+    "anchor": "💪",
+    "keyword": "karada",
+    "story": "Чувствуешь биение сердца во всём теле.",
+    "sfx": "heart"
+  },
+  "おなか": {
+    "meaning": "🍽️",
+    "anchor": "😋",
+    "keyword": "onaka",
+    "story": "Живот урчит перед обедом.",
+    "sfx": "rumble"
+  },
+  "はなす": {
+    "meaning": "🗣️",
+    "anchor": "💬",
+    "keyword": "hanasu",
+    "story": "Слова вылетают изо рта в облачках.",
+    "sfx": "type"
+  },
+  "きく": {
+    "meaning": "👂",
+    "anchor": "🎧",
+    "keyword": "kiku",
+    "story": "Прислушайся к тихому звону.",
+    "sfx": "chime"
+  },
+  "みる": {
+    "meaning": "👀",
+    "anchor": "🌍",
+    "keyword": "miru",
+    "story": "Миру — мир: смотри на мир глазами.",
+    "sfx": "tap"
+  },
+  "かく": {
+    "meaning": "✍️",
+    "anchor": "✏️",
+    "keyword": "kaku",
+    "story": "Карандаш выводит знак на бумаге.",
+    "sfx": "pencil"
+  },
+  "あるく": {
+    "meaning": "🚶",
+    "anchor": "👟",
+    "keyword": "aruku",
+    "story": "Представь размеренный ритм шагов.",
+    "sfx": "footstep"
+  },
+  "はしる": {
+    "meaning": "🏃",
+    "anchor": "💨",
+    "keyword": "hashiru",
+    "story": "Бегун срывается с места.",
+    "sfx": "footstep"
+  },
+  "およぐ": {
+    "meaning": "🏊",
+    "anchor": "🌊",
+    "keyword": "oyogu",
+    "story": "Пловец ныряет и поднимает брызги.",
+    "sfx": "splash"
+  },
+  "とぶ": {
+    "meaning": "🕊️",
+    "anchor": "💨",
+    "keyword": "tobu",
+    "story": "Предмет взлетает в воздух со свистом.",
+    "sfx": "whip"
+  },
+  "たつ": {
+    "meaning": "🧍",
+    "anchor": "🪑",
+    "keyword": "tatsu",
+    "story": "Стул отодвигается, и ты встаёшь.",
+    "sfx": "wood"
+  },
+  "すわる": {
+    "meaning": "🪑",
+    "anchor": "🛋️",
+    "keyword": "suwaru",
+    "story": "Садишься на мягкую подушку.",
+    "sfx": "fabric"
+  },
+  "おきる": {
+    "meaning": "⏰",
+    "anchor": "🛏️",
+    "keyword": "okiru",
+    "story": "Будильник будит тебя утром.",
+    "sfx": "school"
+  },
+  "かう": {
+    "meaning": "🛒",
+    "anchor": "💴",
+    "keyword": "kau",
+    "story": "Оплачиваешь покупку на кассе.",
+    "sfx": "cash"
+  },
+  "うる": {
+    "meaning": "🏪",
+    "anchor": "🏷️",
+    "keyword": "uru",
+    "story": "Продавец получает деньги за товар.",
+    "sfx": "cash"
+  },
+  "いく": {
+    "meaning": "🚶",
+    "anchor": "➡️",
+    "keyword": "iku",
+    "story": "Отправляешься куда-то по дороге.",
+    "sfx": "footstep"
+  },
+  "くる": {
+    "meaning": "🚶",
+    "anchor": "🏠",
+    "keyword": "kuru",
+    "story": "Кто-то подходит к твоей двери.",
+    "sfx": "door"
+  },
+  "かえる": {
+    "meaning": "🏠",
+    "anchor": "🐸",
+    "keyword": "kaeru",
+    "story": "Лягушка возвращается в родной пруд. Два слова с одним чтением.",
+    "sfx": "splash"
+  },
+  "まつ": {
+    "meaning": "⏳",
+    "anchor": "🌲",
+    "keyword": "matsu",
+    "story": "Мацу — ещё и сосна: ждёшь под сосной, пока тикают часы.",
+    "sfx": "clock"
+  },
+  "あう": {
+    "meaning": "🤝",
+    "anchor": "👋",
+    "keyword": "au",
+    "story": "При встрече друзья хлопают по ладони.",
+    "sfx": "clap"
+  },
+  "つかう": {
+    "meaning": "🛠️",
+    "anchor": "⚙️",
+    "keyword": "tsukau",
+    "story": "Берёшь инструмент и используешь его.",
+    "sfx": "tap"
+  },
+  "つくる": {
+    "meaning": "🛠️",
+    "anchor": "🧱",
+    "keyword": "tsukuru",
+    "story": "Из деталей собирается новая вещь.",
+    "sfx": "wood"
+  },
+  "あける": {
+    "meaning": "🚪",
+    "anchor": "🔓",
+    "keyword": "akeru",
+    "story": "Отпираешь замок и открываешь дверь.",
+    "sfx": "door"
+  },
+  "しめる": {
+    "meaning": "🚪",
+    "anchor": "🔒",
+    "keyword": "shimeru",
+    "story": "Дверь закрывается со стуком.",
+    "sfx": "door"
+  },
+  "はいる": {
+    "meaning": "🚪",
+    "anchor": "➡️",
+    "keyword": "hairu",
+    "story": "Шаг внутрь комнаты.",
+    "sfx": "footstep"
+  },
+  "でる": {
+    "meaning": "🚪",
+    "anchor": "👣",
+    "keyword": "deru",
+    "story": "Выходишь из дома, дверь щёлкает.",
+    "sfx": "door"
+  },
+  "おす": {
+    "meaning": "👆",
+    "anchor": "🔘",
+    "keyword": "osu",
+    "story": "Нажимаешь большую кнопку.",
+    "sfx": "tap"
+  },
+  "ひく": {
+    "meaning": "🪢",
+    "anchor": "⬅️",
+    "keyword": "hiku",
+    "story": "Тянешь верёвку на себя.",
+    "sfx": "slide"
+  },
+  "もつ": {
+    "meaning": "🤲",
+    "anchor": "👜",
+    "keyword": "motsu",
+    "story": "Держишь сумку в руке.",
+    "sfx": "fabric"
+  },
+  "おく": {
+    "meaning": "📦",
+    "anchor": "🪑",
+    "keyword": "oku",
+    "story": "Ставишь коробку на деревянный стол.",
+    "sfx": "wood"
+  },
+  "とる": {
+    "meaning": "✋",
+    "anchor": "📷",
+    "keyword": "toru",
+    "story": "Берёшь предмет рукой или снимаешь кадр.",
+    "sfx": "camera"
+  },
+  "わらう": {
+    "meaning": "😂",
+    "anchor": "💬",
+    "keyword": "warau",
+    "story": "Слышишь весёлый смех.",
+    "sfx": "laugh"
+  },
+  "なく": {
+    "meaning": "😢",
+    "anchor": "💧",
+    "keyword": "naku",
+    "story": "Слеза капает на пол.",
+    "sfx": "drop"
+  },
+  "おもう": {
+    "meaning": "🤔",
+    "anchor": "💭",
+    "keyword": "omou",
+    "story": "Мысль появляется над головой.",
+    "sfx": "dream"
+  },
+  "わかる": {
+    "meaning": "💡",
+    "anchor": "✅",
+    "keyword": "wakaru",
+    "story": "Загорается лампочка: наконец понял.",
+    "sfx": "sparkle"
+  },
+  "わすれる": {
+    "meaning": "🧠",
+    "anchor": "❓",
+    "keyword": "wasureru",
+    "story": "Мысль исчезает, оставляя пустое место.",
+    "sfx": "miss"
+  },
+  "おぼえる": {
+    "meaning": "🧠",
+    "anchor": "📚",
+    "keyword": "oboeru",
+    "story": "Слово закрепляется в памяти, словно сохранённая запись.",
+    "sfx": "chime"
+  },
+  "おしえる": {
+    "meaning": "👩‍🏫",
+    "anchor": "📋",
+    "keyword": "oshieru",
+    "story": "Учитель показывает, как решить задачу.",
+    "sfx": "school"
+  },
+  "ならう": {
+    "meaning": "🧑‍🎓",
+    "anchor": "✍️",
+    "keyword": "narau",
+    "story": "Повторяешь движение за учителем.",
+    "sfx": "pencil"
+  },
+  "しる": {
+    "meaning": "💡",
+    "anchor": "📖",
+    "keyword": "shiru",
+    "story": "Открываешь книгу и узнаёшь новый факт.",
+    "sfx": "chime"
+  },
+  "しらべる": {
+    "meaning": "🔍",
+    "anchor": "📚",
+    "keyword": "shiraberu",
+    "story": "Ищешь ответ в словаре или компьютере.",
+    "sfx": "type"
+  },
+  "あそぶ": {
+    "meaning": "🎮",
+    "anchor": "🛝",
+    "keyword": "asobu",
+    "story": "Запускаешь игру и слышишь стартовый сигнал.",
+    "sfx": "beep"
+  },
+  "はたらく": {
+    "meaning": "💼",
+    "anchor": "⚙️",
+    "keyword": "hataraku",
+    "story": "Начинается рабочий день за клавиатурой.",
+    "sfx": "type"
+  },
+  "やすむ": {
+    "meaning": "🛋️",
+    "anchor": "💤",
+    "keyword": "yasumu",
+    "story": "Устраиваешься на диване и спокойно дышишь.",
+    "sfx": "breath"
+  },
+  "つかれる": {
+    "meaning": "😩",
+    "anchor": "🪫",
+    "keyword": "tsukareru",
+    "story": "После долгого дня батарейка почти пуста.",
+    "sfx": "breath"
+  },
+  "まける": {
+    "meaning": "🎮",
+    "anchor": "❌",
+    "keyword": "makeru",
+    "story": "В игре появляется экран поражения.",
+    "sfx": "miss"
+  },
+  "かつ": {
+    "meaning": "🏆",
+    "anchor": "🎮",
+    "keyword": "katsu",
+    "story": "Слышишь финальный свисток и поднимаешь кубок.",
+    "sfx": "goal"
+  },
+  "しぬ": {
+    "meaning": "💀",
+    "anchor": "🎮",
+    "keyword": "shinu",
+    "story": "Игровой персонаж теряет последнюю жизнь.",
+    "sfx": "miss"
+  },
+  "いきる": {
+    "meaning": "❤️",
+    "anchor": "🌱",
+    "keyword": "ikiru",
+    "story": "Живое сердце продолжает биться.",
+    "sfx": "heart"
+  },
+  "はやい": {
+    "meaning": "⚡",
+    "anchor": "⏰",
+    "keyword": "hayai",
+    "story": "Секундомер не успевает за быстрым движением.",
+    "sfx": "whip"
+  },
+  "おそい": {
+    "meaning": "🐌",
+    "anchor": "⌛",
+    "keyword": "osoi",
+    "story": "Улитка ползёт к часам, пока время идёт.",
+    "sfx": "clock"
+  },
+  "おおきい": {
+    "meaning": "🐘",
+    "anchor": "📏",
+    "keyword": "ōkii",
+    "story": "Огромный слон не помещается на экране.",
+    "sfx": "elephant"
+  },
+  "ちいさい": {
+    "meaning": "🐜",
+    "anchor": "🔍",
+    "keyword": "chiisai",
+    "story": "Крошечный муравей виден через лупу.",
+    "sfx": "tap"
+  },
+  "あたらしい": {
+    "meaning": "✨",
+    "anchor": "📦",
+    "keyword": "atarashii",
+    "story": "Распаковываешь совершенно новую вещь.",
+    "sfx": "sparkle"
+  },
+  "ふるい": {
+    "meaning": "📜",
+    "anchor": "🕰️",
+    "keyword": "furui",
+    "story": "Старинные часы медленно тикают.",
+    "sfx": "clock"
+  },
+  "たかい": {
+    "meaning": "🏔️",
+    "anchor": "💴",
+    "keyword": "takai",
+    "story": "Цена взлетает выше горы.",
+    "sfx": "cash"
+  },
+  "やすい": {
+    "meaning": "🏷️",
+    "anchor": "🪙",
+    "keyword": "yasui",
+    "story": "На ценнике всего одна монетка.",
+    "sfx": "cash"
+  },
+  "ひくい": {
+    "meaning": "📉",
+    "anchor": "🪑",
+    "keyword": "hikui",
+    "story": "Ставишь предмет на низкую полку.",
+    "sfx": "thud"
+  },
+  "みじかい": {
+    "meaning": "📏",
+    "anchor": "✂️",
+    "keyword": "mijikai",
+    "story": "Ножницы укорачивают длинную ленту.",
+    "sfx": "slice"
+  },
+  "おもい": {
+    "meaning": "🏋️",
+    "anchor": "📦",
+    "keyword": "omoi",
+    "story": "Тяжёлая коробка с грохотом падает.",
+    "sfx": "thud"
+  },
+  "かるい": {
+    "meaning": "🪶",
+    "anchor": "💨",
+    "keyword": "karui",
+    "story": "Перо легко подхватывает ветер.",
+    "sfx": "wind"
+  },
+  "あつい": {
+    "meaning": "🔥",
+    "anchor": "☀️",
+    "keyword": "atsui",
+    "story": "Горячий пар поднимается от чашки.",
+    "sfx": "steam"
+  },
+  "さむい": {
+    "meaning": "🥶",
+    "anchor": "🌬️",
+    "keyword": "samui",
+    "story": "Холодный ветер заставляет дрожать.",
+    "sfx": "wind"
+  },
+  "つめたい": {
+    "meaning": "🧊",
+    "anchor": "✋",
+    "keyword": "tsumetai",
+    "story": "Прикасаешься к кубику льда.",
+    "sfx": "drop"
+  },
+  "あたたかい": {
+    "meaning": "🧣",
+    "anchor": "☕",
+    "keyword": "atatakai",
+    "story": "Согреваешь руки о тёплую чашку.",
+    "sfx": "steam"
+  },
+  "あかるい": {
+    "meaning": "💡",
+    "anchor": "☀️",
+    "keyword": "akarui",
+    "story": "Включаешь яркую лампу.",
+    "sfx": "sparkle"
+  },
+  "くらい": {
+    "meaning": "🌑",
+    "anchor": "🔦",
+    "keyword": "kurai",
+    "story": "Клац — выключатель гасит свет.",
+    "sfx": "tap"
+  },
+  "あまい": {
+    "meaning": "🍬",
+    "anchor": "🍯",
+    "keyword": "amai",
+    "story": "Конфета тает во рту.",
+    "sfx": "delicious"
+  },
+  "からい": {
+    "meaning": "🌶️",
+    "anchor": "🔥",
+    "keyword": "karai",
+    "story": "От острого перца словно вырывается пар.",
+    "sfx": "steam"
+  },
+  "すっぱい": {
+    "meaning": "🍋",
+    "anchor": "😖",
+    "keyword": "suppai",
+    "story": "Лимон заставляет сморщиться.",
+    "sfx": "pop"
+  },
+  "にがい": {
+    "meaning": "☕",
+    "anchor": "😣",
+    "keyword": "nigai",
+    "story": "Глоток горького кофе без сахара.",
+    "sfx": "gulp"
+  },
+  "しょっぱい": {
+    "meaning": "🧂",
+    "anchor": "🥨",
+    "keyword": "shoppai",
+    "story": "Хруст солёного кренделя.",
+    "sfx": "salt"
+  },
+  "うれしい": {
+    "meaning": "😊",
+    "anchor": "🎉",
+    "keyword": "ureshii",
+    "story": "Получаешь долгожданный подарок.",
+    "sfx": "sparkle"
+  },
+  "かなしい": {
+    "meaning": "😢",
+    "anchor": "🌧️",
+    "keyword": "kanashii",
+    "story": "За окном дождь, становится грустно.",
+    "sfx": "rain"
+  },
+  "こわい": {
+    "meaning": "😨",
+    "anchor": "👻",
+    "keyword": "kowai",
+    "story": "В темноте слышишь учащённое сердцебиение.",
+    "sfx": "heart"
+  },
+  "たのしい": {
+    "meaning": "🎉",
+    "anchor": "🎮",
+    "keyword": "tanoshii",
+    "story": "Весёлая вечеринка с друзьями.",
+    "sfx": "dance"
+  },
+  "おもしろい": {
+    "meaning": "🤩",
+    "anchor": "🎬",
+    "keyword": "omoshiroi",
+    "story": "Смешная сцена в фильме удерживает внимание.",
+    "sfx": "laugh"
+  },
+  "むずかしい": {
+    "meaning": "🧩",
+    "anchor": "🧠",
+    "keyword": "muzukashii",
+    "story": "Пазл никак не складывается.",
+    "sfx": "miss"
+  },
+  "やさしい": {
+    "meaning": "🤝",
+    "anchor": "❤️",
+    "keyword": "yasashii",
+    "story": "Кто-то заботливо помогает тебе.",
+    "sfx": "heart"
+  },
+  "かんたん": {
+    "meaning": "✅",
+    "anchor": "🧩",
+    "keyword": "kantan",
+    "story": "Последняя деталь пазла легко встаёт на место.",
+    "sfx": "chime"
+  },
+  "いそがしい": {
+    "meaning": "🏃",
+    "anchor": "🕰️",
+    "keyword": "isogashii",
+    "story": "Спешишь между делами, часы тикают.",
+    "sfx": "clock"
+  },
+  "ひま": {
+    "meaning": "🛋️",
+    "anchor": "⏳",
+    "keyword": "hima",
+    "story": "Никуда не надо спешить: свободный вечер.",
+    "sfx": "dream"
+  },
+  "きれい": {
+    "meaning": "✨",
+    "anchor": "🪞",
+    "keyword": "kirei",
+    "story": "Чистое зеркало блестит.",
+    "sfx": "sparkle"
+  },
+  "きたない": {
+    "meaning": "🗑️",
+    "anchor": "🧹",
+    "keyword": "kitanai",
+    "story": "Перед уборкой комната завалена мусором.",
+    "sfx": "paper"
+  },
+  "しずか": {
+    "meaning": "🤫",
+    "anchor": "🌙",
+    "keyword": "shizuka",
+    "story": "Ночью слышно лишь дыхание.",
+    "sfx": "breath"
+  },
+  "にぎやか": {
+    "meaning": "🎉",
+    "anchor": "👥",
+    "keyword": "nigiyaka",
+    "story": "Многолюдный праздник и аплодисменты.",
+    "sfx": "clap"
+  },
+  "べんり": {
+    "meaning": "🧰",
+    "anchor": "✅",
+    "keyword": "benri",
+    "story": "Удобный инструмент сразу решает задачу.",
+    "sfx": "tap"
+  },
+  "たいせつ": {
+    "meaning": "💎",
+    "anchor": "❤️",
+    "keyword": "taisetsu",
+    "story": "Бережно держишь дорогую вещь.",
+    "sfx": "heart"
+  },
+  "きょう": {
+    "meaning": "📅",
+    "anchor": "☀️",
+    "keyword": "kyō",
+    "story": "Сегодняшний лист календаря открыт.",
+    "sfx": "morning"
+  },
+  "あした": {
+    "meaning": "📅",
+    "anchor": "➡️",
+    "keyword": "ashita",
+    "story": "Завтра — следующий лист календаря.",
+    "sfx": "clock"
+  },
+  "あさって": {
+    "meaning": "📅",
+    "anchor": "⏭️",
+    "keyword": "asatte",
+    "story": "Перелистываешь календарь на два дня вперёд.",
+    "sfx": "page"
+  },
+  "おととい": {
+    "meaning": "📅",
+    "anchor": "⏪",
+    "keyword": "ototoi",
+    "story": "Отматываешь два дня назад.",
+    "sfx": "rewind"
+  },
+  "いま": {
+    "meaning": "⏱️",
+    "anchor": "👇",
+    "keyword": "ima",
+    "story": "Секундомер отмечает текущий момент.",
+    "sfx": "tick"
+  },
+  "あと": {
+    "meaning": "➡️",
+    "anchor": "⏳",
+    "keyword": "ato",
+    "story": "Стрелка времени движется дальше.",
+    "sfx": "clock"
+  },
+  "まえ": {
+    "meaning": "⬅️",
+    "anchor": "📅",
+    "keyword": "mae",
+    "story": "Отматываешь время назад.",
+    "sfx": "rewind"
+  },
+  "いつ": {
+    "meaning": "❓",
+    "anchor": "🕰️",
+    "keyword": "itsu",
+    "story": "Указываешь на часы и спрашиваешь о времени.",
+    "sfx": "clock"
+  },
+  "どう": {
+    "meaning": "❓",
+    "anchor": "🛠️",
+    "keyword": "dō",
+    "story": "Спрашиваешь, как пользоваться инструментом.",
+    "sfx": "tap"
+  },
+  "なぜ": {
+    "meaning": "❓",
+    "anchor": "🤔",
+    "keyword": "naze",
+    "story": "Ищешь причину загадочного события.",
+    "sfx": "sonar"
+  },
+  "たぶん": {
+    "meaning": "🤔",
+    "anchor": "🎲",
+    "keyword": "tabun",
+    "story": "Кубик ещё не упал: вероятно, выпадет нужное число.",
+    "sfx": "tap"
+  },
+  "いつも": {
+    "meaning": "🔁",
+    "anchor": "⏰",
+    "keyword": "itsumo",
+    "story": "Каждый день повторяется один и тот же ритм.",
+    "sfx": "clock"
+  },
+  "ときどき": {
+    "meaning": "🎲",
+    "anchor": "🕰️",
+    "keyword": "tokidoki",
+    "story": "Два «токи»: время от времени тикают часы.",
+    "sfx": "tick"
+  },
+  "また": {
+    "meaning": "🔁",
+    "anchor": "🎵",
+    "keyword": "mata",
+    "story": "Перематываешь любимую мелодию и включаешь снова.",
+    "sfx": "rewind"
+  },
+  "まだ": {
+    "meaning": "⏳",
+    "anchor": "🚦",
+    "keyword": "mada",
+    "story": "Светофор всё ещё красный.",
+    "sfx": "clock"
+  },
+  "もう": {
+    "meaning": "✅",
+    "anchor": "⏰",
+    "keyword": "mō",
+    "story": "Таймер уже прозвенел.",
+    "sfx": "bell"
+  },
+  "いっしょ": {
+    "meaning": "🧑‍🤝‍🧑",
+    "anchor": "👣",
+    "keyword": "issho",
+    "story": "Два человека идут в одном ритме.",
+    "sfx": "footstep"
+  },
+  "ひとり": {
+    "meaning": "🧍",
+    "anchor": "👣",
+    "keyword": "hitori",
+    "story": "Слышна только одна пара шагов.",
+    "sfx": "footstep"
+  },
+  "ふたり": {
+    "meaning": "🧑‍🤝‍🧑",
+    "anchor": "👣",
+    "keyword": "futari",
+    "story": "Два друга идут рядом.",
+    "sfx": "footstep"
+  },
+  "おおい": {
+    "meaning": "📦",
+    "anchor": "📦",
+    "keyword": "ōi",
+    "story": "Коробок становится всё больше.",
+    "sfx": "box"
+  },
+  "すくない": {
+    "meaning": "🤏",
+    "anchor": "🪙",
+    "keyword": "sukunai",
+    "story": "Остаётся всего несколько монет.",
+    "sfx": "coins"
+  },
+  "ちょっと": {
+    "meaning": "🤏",
+    "anchor": "⏱️",
+    "keyword": "chotto",
+    "story": "Подожди совсем чуть-чуть.",
+    "sfx": "tick"
+  },
+  "たくさん": {
+    "meaning": "🧺",
+    "anchor": "🍎",
+    "keyword": "takusan",
+    "story": "Корзина переполнена яблоками.",
+    "sfx": "box"
+  },
+  "おみせ": {
+    "meaning": "🏪",
+    "anchor": "🛒",
+    "keyword": "omise",
+    "story": "Входишь в магазин, звенит колокольчик.",
+    "sfx": "doorbell"
+  },
+  "いりぐち": {
+    "meaning": "🚪",
+    "anchor": "➡️",
+    "keyword": "iriguchi",
+    "story": "Гути — рот: вход словно рот здания.",
+    "sfx": "door"
+  },
+  "まちがい": {
+    "meaning": "❌",
+    "anchor": "📝",
+    "keyword": "machigai",
+    "story": "Неправильный ответ отмечен красным.",
+    "sfx": "miss"
+  },
+  "しごと": {
+    "meaning": "💼",
+    "anchor": "💻",
+    "keyword": "shigoto",
+    "story": "Рабочее место, слышны клавиши.",
+    "sfx": "type"
+  },
+  "かいしゃ": {
+    "meaning": "🏢",
+    "anchor": "💼",
+    "keyword": "kaisha",
+    "story": "Лифт доставляет сотрудников в офис.",
+    "sfx": "elevator"
+  },
+  "こうえん": {
+    "meaning": "🌳",
+    "anchor": "🐦",
+    "keyword": "kōen",
+    "story": "Гуляешь в парке среди поющих птиц.",
+    "sfx": "birdsong"
+  },
+  "としょかん": {
+    "meaning": "📚",
+    "anchor": "🤫",
+    "keyword": "toshokan",
+    "story": "В тишине библиотеки шелестят страницы.",
+    "sfx": "page"
+  },
+  "ほんや": {
+    "meaning": "📚",
+    "anchor": "🏪",
+    "keyword": "hon'ya",
+    "story": "Хон — книга, я — магазин: полки книг.",
+    "sfx": "page"
+  },
+  "ゆうびんきょく": {
+    "meaning": "📮",
+    "anchor": "✉️",
+    "keyword": "yūbinkyoku",
+    "story": "На почте опускаешь письмо в ящик.",
+    "sfx": "mail"
+  },
+  "くうこう": {
+    "meaning": "✈️",
+    "anchor": "🧳",
+    "keyword": "kūkō",
+    "story": "Самолёт взлетает с полосы аэропорта.",
+    "sfx": "plane"
+  },
+  "ひこうき": {
+    "meaning": "✈️",
+    "anchor": "☁️",
+    "keyword": "hikōki",
+    "story": "Самолёт гудит в облаках.",
+    "sfx": "plane"
+  },
+  "でんしゃ": {
+    "meaning": "🚆",
+    "anchor": "⚡",
+    "keyword": "densha",
+    "story": "Электропоезд мчится по рельсам.",
+    "sfx": "train"
+  },
+  "じてんしゃ": {
+    "meaning": "🚲",
+    "anchor": "🛞",
+    "keyword": "jitensha",
+    "story": "Крутишь педали и звонишь велосипедным звонком.",
+    "sfx": "bell"
+  },
+  "みち": {
+    "meaning": "🛣️",
+    "anchor": "👣",
+    "keyword": "michi",
+    "story": "Шаги по длинной дороге.",
+    "sfx": "footstep"
+  },
+  "はし": {
+    "meaning": "🌉",
+    "anchor": "🥢",
+    "keyword": "hashi",
+    "story": "Палочки превращаются в мост: одинаковое чтение, разные слова.",
+    "sfx": "wood"
+  },
+  "しんごう": {
+    "meaning": "🚦",
+    "anchor": "🚗",
+    "keyword": "shingō",
+    "story": "Светофор меняет сигнал.",
+    "sfx": "beep"
+  },
+  "みぎ": {
+    "meaning": "➡️",
+    "anchor": "✋",
+    "keyword": "migi",
+    "story": "Правая рука указывает направление.",
+    "sfx": "tap"
+  },
+  "ひだり": {
+    "meaning": "⬅️",
+    "anchor": "✋",
+    "keyword": "hidari",
+    "story": "Левая рука указывает направление.",
+    "sfx": "tap"
+  },
+  "うえ": {
+    "meaning": "⬆️",
+    "anchor": "🎈",
+    "keyword": "ue",
+    "story": "Шарик поднимается вверх.",
+    "sfx": "slide"
+  },
+  "した": {
+    "meaning": "⬇️",
+    "anchor": "👅",
+    "keyword": "shita",
+    "story": "Предмет падает вниз; другое слово с таким чтением — язык.",
+    "sfx": "thud"
+  },
+  "なか": {
+    "meaning": "📦",
+    "anchor": "🔍",
+    "keyword": "naka",
+    "story": "Открываешь коробку и смотришь внутрь.",
+    "sfx": "box"
+  },
+  "となり": {
+    "meaning": "🏠",
+    "anchor": "🏠",
+    "keyword": "tonari",
+    "story": "Слышишь стук у соседней двери.",
+    "sfx": "knock"
+  },
+  "ちかく": {
+    "meaning": "📍",
+    "anchor": "👣",
+    "keyword": "chikaku",
+    "story": "До места всего несколько шагов.",
+    "sfx": "footstep"
+  },
+  "とおく": {
+    "meaning": "🔭",
+    "anchor": "🏔️",
+    "keyword": "tōku",
+    "story": "Гора далеко на горизонте.",
+    "sfx": "wind"
+  },
+  "さとう": {
+    "meaning": "🍬",
+    "anchor": "☕",
+    "keyword": "satō",
+    "story": "Сыплешь сахар в чашку чая.",
+    "sfx": "salt"
+  },
+  "しょうゆ": {
+    "meaning": "🥢",
+    "anchor": "🍶",
+    "keyword": "shōyu",
+    "story": "Тёмный соус льётся в пиалу.",
+    "sfx": "pour"
+  },
+  "みそ": {
+    "meaning": "🥣",
+    "anchor": "🍲",
+    "keyword": "miso",
+    "story": "Из мисо готовят горячий суп.",
+    "sfx": "steam"
+  },
+  "そば": {
+    "meaning": "🍜",
+    "anchor": "📍",
+    "keyword": "soba",
+    "story": "Миска собы стоит совсем рядом: разные значения одного чтения.",
+    "sfx": "slurp"
+  },
+  "ぎゅうにゅう": {
+    "meaning": "🥛",
+    "anchor": "🐄",
+    "keyword": "gyūnyū",
+    "story": "Молоко наливают из бутылки с рисунком коровы.",
+    "sfx": "pour"
+  },
+  "くだもの": {
+    "meaning": "🍎",
+    "anchor": "🍇",
+    "keyword": "kudamono",
+    "story": "Корзина спелых фруктов хрустит и пахнет летом.",
+    "sfx": "crunch"
+  },
+  "いちご": {
+    "meaning": "🍓",
+    "anchor": "1️⃣",
+    "keyword": "ichigo",
+    "story": "Ичи — один: одна огромная клубника.",
+    "sfx": "bite"
+  },
+  "ぶどう": {
+    "meaning": "🍇",
+    "anchor": "🥤",
+    "keyword": "budō",
+    "story": "Из виноградных ягод выжимают сок.",
+    "sfx": "pour"
+  },
+  "すいか": {
+    "meaning": "🍉",
+    "anchor": "💧",
+    "keyword": "suika",
+    "story": "Разрезаешь сочный арбуз.",
+    "sfx": "slice"
+  },
+  "きゅうり": {
+    "meaning": "🥒",
+    "anchor": "🔪",
+    "keyword": "kyūri",
+    "story": "Свежий огурец громко хрустит.",
+    "sfx": "crunch"
+  },
+  "たまねぎ": {
+    "meaning": "🧅",
+    "anchor": "😢",
+    "keyword": "tamanegi",
+    "story": "Режешь лук и начинаешь плакать.",
+    "sfx": "slice"
+  },
+  "じゃがいも": {
+    "meaning": "🥔",
+    "anchor": "🍳",
+    "keyword": "jagaimo",
+    "story": "Картофель шипит на сковороде.",
+    "sfx": "fry"
+  },
+  "にんじん": {
+    "meaning": "🥕",
+    "anchor": "🐇",
+    "keyword": "ninjin",
+    "story": "Кролик грызёт морковку.",
+    "sfx": "crunch"
+  },
+  "おかし": {
+    "meaning": "🍪",
+    "anchor": "🍬",
+    "keyword": "okashi",
+    "story": "Открываешь пакет сладостей.",
+    "sfx": "bite"
+  },
+  "あさごはん": {
+    "meaning": "🌅",
+    "anchor": "🍚",
+    "keyword": "asagohan",
+    "story": "Аса — утро, гохан — еда.",
+    "sfx": "morning"
+  },
+  "ひるごはん": {
+    "meaning": "☀️",
+    "anchor": "🍱",
+    "keyword": "hirugohan",
+    "story": "Хиру — полдень, гохан — еда.",
+    "sfx": "cutlery"
+  },
+  "ばんごはん": {
+    "meaning": "🌙",
+    "anchor": "🍚",
+    "keyword": "bangohan",
+    "story": "Бан — вечер, гохан — еда.",
+    "sfx": "cutlery"
+  },
+  "おはよう": {
+    "meaning": "🌅",
+    "anchor": "👋",
+    "keyword": "ohayō",
+    "story": "Утром машешь рукой знакомому.",
+    "sfx": "morning"
+  },
+  "こんばんは": {
+    "meaning": "🌆",
+    "anchor": "👋",
+    "keyword": "konbanwa",
+    "story": "Вечером здороваешься у двери.",
+    "sfx": "dream"
+  },
+  "すみません": {
+    "meaning": "🙇",
+    "anchor": "💬",
+    "keyword": "sumimasen",
+    "story": "Вежливо привлекаешь внимание человека.",
+    "sfx": "bell"
+  },
+  "ごめん": {
+    "meaning": "🙇",
+    "anchor": "❤️",
+    "keyword": "gomen",
+    "story": "Извиняешься перед близким другом.",
+    "sfx": "heart"
+  },
+  "おねがい": {
+    "meaning": "🙏",
+    "anchor": "✨",
+    "keyword": "onegai",
+    "story": "Складываешь ладони и просишь об услуге.",
+    "sfx": "chime"
+  },
+  "だいじょうぶ": {
+    "meaning": "👌",
+    "anchor": "✅",
+    "keyword": "daijōbu",
+    "story": "После падения персонаж встаёт и показывает, что всё хорошо.",
+    "sfx": "chime"
+  },
+  "おやすみ": {
+    "meaning": "🌙",
+    "anchor": "🛏️",
+    "keyword": "oyasumi",
+    "story": "Гасишь свет перед сном.",
+    "sfx": "dream"
+  },
+  "さようなら": {
+    "meaning": "👋",
+    "anchor": "🚪",
+    "keyword": "sayōnara",
+    "story": "Машешь рукой уходящему человеку.",
+    "sfx": "door"
+  },
+  "またね": {
+    "meaning": "👋",
+    "anchor": "🔁",
+    "keyword": "mata ne",
+    "story": "Мата — снова: увидимся снова.",
+    "sfx": "chime"
+  },
+  "おめでとう": {
+    "meaning": "🎉",
+    "anchor": "🎂",
+    "keyword": "omedetō",
+    "story": "Слышишь праздничный хлопок конфетти.",
+    "sfx": "firework"
+  },
+  "いただきます": {
+    "meaning": "🙏",
+    "anchor": "🍽️",
+    "keyword": "itadakimasu",
+    "story": "Перед едой благодарно складываешь руки.",
+    "sfx": "cutlery"
+  },
+  "ごちそうさま": {
+    "meaning": "🍽️",
+    "anchor": "🙏",
+    "keyword": "gochisōsama",
+    "story": "Закончил есть и благодаришь за угощение.",
+    "sfx": "chime"
+  },
+  "おれ": {
+    "meaning": "🙋‍♂️",
+    "anchor": "💬",
+    "keyword": "ore",
+    "story": "Говорящий уверенно показывает на себя.",
+    "sfx": "thud"
+  },
+  "あたし": {
+    "meaning": "🙋‍♀️",
+    "anchor": "💬",
+    "keyword": "atashi",
+    "story": "Неформальное обращение к себе.",
+    "sfx": "chime"
+  },
+  "あなた": {
+    "meaning": "🫵",
+    "anchor": "💬",
+    "keyword": "anata",
+    "story": "Обращаешься к собеседнику, а не к себе.",
+    "sfx": "tap"
+  },
+  "かれ": {
+    "meaning": "👨",
+    "anchor": "💬",
+    "keyword": "kare",
+    "story": "Указываешь на мужчину в разговоре.",
+    "sfx": "tap"
+  },
+  "かのじょ": {
+    "meaning": "👩",
+    "anchor": "❤️",
+    "keyword": "kanojo",
+    "story": "Женщина, о которой говорят, или романтическая партнёрша.",
+    "sfx": "heart"
+  },
+  "みんな": {
+    "meaning": "👥",
+    "anchor": "🤝",
+    "keyword": "minna",
+    "story": "Все собираются в одной компании.",
+    "sfx": "clap"
+  },
+  "おとうさん": {
+    "meaning": "👨",
+    "anchor": "🏠",
+    "keyword": "otōsan",
+    "story": "Папа приходит домой.",
+    "sfx": "door"
+  },
+  "おかあさん": {
+    "meaning": "👩",
+    "anchor": "🏠",
+    "keyword": "okāsan",
+    "story": "Мама открывает дверь дома.",
+    "sfx": "door"
+  },
+  "こども": {
+    "meaning": "🧒",
+    "anchor": "🧸",
+    "keyword": "kodomo",
+    "story": "Ребёнок смеётся и играет с игрушкой.",
+    "sfx": "laugh"
+  },
+  "おとこ": {
+    "meaning": "👨",
+    "anchor": "🚶",
+    "keyword": "otoko",
+    "story": "Мужчина проходит по улице.",
+    "sfx": "footstep"
+  },
+  "おんな": {
+    "meaning": "👩",
+    "anchor": "🚶",
+    "keyword": "onna",
+    "story": "Женщина проходит по улице.",
+    "sfx": "footstep"
+  },
+  "どうぶつ": {
+    "meaning": "🐾",
+    "anchor": "🐘",
+    "keyword": "dōbutsu",
+    "story": "Следы животных ведут в зоопарк.",
+    "sfx": "elephant"
+  },
+  "うさぎ": {
+    "meaning": "🐇",
+    "anchor": "🥕",
+    "keyword": "usagi",
+    "story": "Кролик грызёт морковку.",
+    "sfx": "crunch"
+  },
+  "たぬき": {
+    "meaning": "🦝",
+    "anchor": "🌲",
+    "keyword": "tanuki",
+    "story": "Тануки из японских сказок крадётся по лесу.",
+    "sfx": "footstep"
+  },
+  "くま": {
+    "meaning": "🐻",
+    "anchor": "🍯",
+    "keyword": "kuma",
+    "story": "Большой медведь тяжело шагает.",
+    "sfx": "thud"
+  },
+  "さる": {
+    "meaning": "🐒",
+    "anchor": "🍌",
+    "keyword": "saru",
+    "story": "Обезьяна снимает кожуру банана.",
+    "sfx": "peel"
+  },
+  "うし": {
+    "meaning": "🐄",
+    "anchor": "🥛",
+    "keyword": "ushi",
+    "story": "У коровы получают молоко.",
+    "sfx": "pour"
+  },
+  "うま": {
+    "meaning": "🐎",
+    "anchor": "👣",
+    "keyword": "uma",
+    "story": "Копыта лошади отбивают ритм.",
+    "sfx": "footstep"
+  },
+  "かめ": {
+    "meaning": "🐢",
+    "anchor": "⏳",
+    "keyword": "kame",
+    "story": "Черепаха неспешно ползёт мимо часов.",
+    "sfx": "clock"
+  },
+  "ちょう": {
+    "meaning": "🦋",
+    "anchor": "🌸",
+    "keyword": "chō",
+    "story": "Бабочка порхает над цветком.",
+    "sfx": "wind"
+  },
+  "はち": {
+    "meaning": "🐝",
+    "anchor": "8️⃣",
+    "keyword": "hachi",
+    "story": "Восемь пчёл одновременно жужжат: разные слова с одним чтением.",
+    "sfx": "buzz"
+  },
+  "かみ": {
+    "meaning": "📄",
+    "anchor": "💇",
+    "keyword": "kami",
+    "story": "Бумажная фигурка с длинными волосами; разные слова с одним чтением.",
+    "sfx": "paper"
+  },
+  "つち": {
+    "meaning": "🌱",
+    "anchor": "🪴",
+    "keyword": "tsuchi",
+    "story": "Засыпаешь почву в цветочный горшок.",
+    "sfx": "thud"
+  },
+  "いし": {
+    "meaning": "🪨",
+    "anchor": "⛰️",
+    "keyword": "ishi",
+    "story": "Камень тяжело падает на землю.",
+    "sfx": "thud"
+  },
+  "ひかり": {
+    "meaning": "💡",
+    "anchor": "✨",
+    "keyword": "hikari",
+    "story": "Луч света появляется в темноте.",
+    "sfx": "sparkle"
+  },
+  "おと": {
+    "meaning": "🔊",
+    "anchor": "🎵",
+    "keyword": "oto",
+    "story": "Один отчётливый звук.",
+    "sfx": "chime"
+  },
+  "おんがく": {
+    "meaning": "🎵",
+    "anchor": "🎸",
+    "keyword": "ongaku",
+    "story": "Слышишь аккорд гитары.",
+    "sfx": "guitar"
+  },
+  "えいが": {
+    "meaning": "🎬",
+    "anchor": "🍿",
+    "keyword": "eiga",
+    "story": "Кинопроектор запускает фильм.",
+    "sfx": "projector"
+  },
+  "しゃしん": {
+    "meaning": "📷",
+    "anchor": "🖼️",
+    "keyword": "shashin",
+    "story": "Затвор фотоаппарата делает снимок.",
+    "sfx": "camera"
+  },
+  "にほんご": {
+    "meaning": "🇯🇵",
+    "anchor": "🔤",
+    "keyword": "nihongo",
+    "story": "Японские знаки появляются на экране.",
+    "sfx": "type"
+  },
+  "えいご": {
+    "meaning": "🔤",
+    "anchor": "🌍",
+    "keyword": "eigo",
+    "story": "Печатаешь слово на английском.",
+    "sfx": "type"
+  },
+  "じぶん": {
+    "meaning": "🪞",
+    "anchor": "🙋",
+    "keyword": "jibun",
+    "story": "Смотришь на собственное отражение.",
+    "sfx": "tap"
+  },
+  "しゅみ": {
+    "meaning": "🎨",
+    "anchor": "🎮",
+    "keyword": "shumi",
+    "story": "В свободное время занимаешься любимым хобби.",
+    "sfx": "chime"
+  },
+  "れんしゅう": {
+    "meaning": "✍️",
+    "anchor": "🔁",
+    "keyword": "renshū",
+    "story": "Снова и снова повторяешь навык.",
+    "sfx": "pencil"
+  },
+  "もんだい": {
+    "meaning": "❓",
+    "anchor": "🧩",
+    "keyword": "mondai",
+    "story": "Перед тобой загадка, которую нужно решить.",
+    "sfx": "sonar"
+  },
+  "こたえ": {
+    "meaning": "💬",
+    "anchor": "✅",
+    "keyword": "kotae",
+    "story": "После вопроса появляется правильный ответ.",
+    "sfx": "chime"
+  },
+  "せいこう": {
+    "meaning": "🏆",
+    "anchor": "✨",
+    "keyword": "seikō",
+    "story": "Победный звон после удачного задания.",
+    "sfx": "sparkle"
+  },
+  "しっぱい": {
+    "meaning": "❌",
+    "anchor": "🎮",
+    "keyword": "shippai",
+    "story": "Попытка не удалась, можно попробовать ещё.",
+    "sfx": "miss"
+  },
+  "はじめる": {
+    "meaning": "▶️",
+    "anchor": "🏁",
+    "keyword": "hajimeru",
+    "story": "Нажимаешь старт.",
+    "sfx": "beep"
+  },
+  "おわる": {
+    "meaning": "🏁",
+    "anchor": "✅",
+    "keyword": "owaru",
+    "story": "Финишная черта и сигнал окончания.",
+    "sfx": "chime"
+  },
+  "できる": {
+    "meaning": "💪",
+    "anchor": "✅",
+    "keyword": "dekiru",
+    "story": "Наконец получилось выполнить сложное действие.",
+    "sfx": "chime"
+  },
+  "ほしい": {
+    "meaning": "⭐",
+    "anchor": "🎁",
+    "keyword": "hoshii",
+    "story": "Видишь звезду и загадываешь желание. Хоси (звезда) и хосии — разные слова.",
+    "sfx": "sparkle"
+  },
+  "だいすき": {
+    "meaning": "❤️",
+    "anchor": "💖",
+    "keyword": "daisuki",
+    "story": "Дай — большой: большое сердце обозначает сильную симпатию.",
+    "sfx": "heart"
+  },
+  "きらい": {
+    "meaning": "🙅",
+    "anchor": "💔",
+    "keyword": "kirai",
+    "story": "Отодвигаешь предмет, который тебе не нравится.",
+    "sfx": "miss"
+  },
+  "アイデア": {
+    "meaning": "💡",
+    "anchor": "📝",
+    "keyword": "aidea",
+    "story": "Над головой загорается лампочка.",
+    "sfx": "sparkle"
+  },
+  "アプリ": {
+    "meaning": "📱",
+    "anchor": "🔲",
+    "keyword": "apuri",
+    "story": "Запускаешь приложение на экране телефона.",
+    "sfx": "tap"
+  },
+  "アバター": {
+    "meaning": "👤",
+    "anchor": "🎮",
+    "keyword": "abatā",
+    "story": "Выбираешь игрового персонажа для профиля.",
+    "sfx": "beep"
+  },
+  "アクション": {
+    "meaning": "🎮",
+    "anchor": "💥",
+    "keyword": "akushon",
+    "story": "Герой совершает быстрое действие.",
+    "sfx": "whip"
+  },
+  "アイテム": {
+    "meaning": "🎒",
+    "anchor": "✨",
+    "keyword": "aitemu",
+    "story": "Подбираешь предмет в игре.",
+    "sfx": "pop"
+  },
+  "イベント": {
+    "meaning": "🎉",
+    "anchor": "📅",
+    "keyword": "ibento",
+    "story": "Начинается праздничное событие.",
+    "sfx": "firework"
+  },
+  "エンジン": {
+    "meaning": "⚙️",
+    "anchor": "🚗",
+    "keyword": "enjin",
+    "story": "Запускается двигатель.",
+    "sfx": "car"
+  },
+  "キャラクター": {
+    "meaning": "🧑‍🎨",
+    "anchor": "🎮",
+    "keyword": "kyarakutā",
+    "story": "Персонаж появляется в игровой сцене.",
+    "sfx": "beep"
+  },
+  "コード": {
+    "meaning": "💻",
+    "anchor": "🎸",
+    "keyword": "kōdo",
+    "story": "Печатаешь код; другое значение — музыкальный аккорд.",
+    "sfx": "type"
+  },
+  "コントローラー": {
+    "meaning": "🎮",
+    "anchor": "🕹️",
+    "keyword": "kontorōrā",
+    "story": "Нажимаешь кнопку геймпада.",
+    "sfx": "tap"
+  },
+  "コンピューター": {
+    "meaning": "💻",
+    "anchor": "⌨️",
+    "keyword": "konpyūtā",
+    "story": "Компьютер запускается под стук клавиш.",
+    "sfx": "type"
+  },
+  "サウンド": {
+    "meaning": "🔊",
+    "anchor": "🎛️",
+    "keyword": "saundo",
+    "story": "Включаешь звуковую дорожку.",
+    "sfx": "beep"
+  },
+  "システム": {
+    "meaning": "⚙️",
+    "anchor": "💻",
+    "keyword": "shisutemu",
+    "story": "Компоненты системы связываются.",
+    "sfx": "modem"
+  },
+  "スタート": {
+    "meaning": "🏁",
+    "anchor": "▶️",
+    "keyword": "sutāto",
+    "story": "Слышишь стартовый сигнал.",
+    "sfx": "beep"
+  },
+  "ストップ": {
+    "meaning": "🛑",
+    "anchor": "⏹️",
+    "keyword": "sutoppu",
+    "story": "Нажимаешь кнопку остановки.",
+    "sfx": "tap"
+  },
+  "ステージ": {
+    "meaning": "🎭",
+    "anchor": "🎮",
+    "keyword": "sutēji",
+    "story": "Проходишь очередной этап игры.",
+    "sfx": "goal"
+  },
+  "スコア": {
+    "meaning": "🏆",
+    "anchor": "🔢",
+    "keyword": "sukoa",
+    "story": "Очки прибавляются после успеха.",
+    "sfx": "chime"
+  },
+  "セーブ": {
+    "meaning": "💾",
+    "anchor": "🎮",
+    "keyword": "sēbu",
+    "story": "Сохраняешь игру в контрольной точке.",
+    "sfx": "chime"
+  },
+  "ロード": {
+    "meaning": "💾",
+    "anchor": "⏳",
+    "keyword": "rōdo",
+    "story": "Идёт загрузка сохранения.",
+    "sfx": "modem"
+  },
+  "ダウンロード": {
+    "meaning": "⬇️",
+    "anchor": "💻",
+    "keyword": "daunrōdo",
+    "story": "Файл скачивается на компьютер.",
+    "sfx": "modem"
+  },
+  "データ": {
+    "meaning": "💾",
+    "anchor": "📊",
+    "keyword": "dēta",
+    "story": "Сохраняешь таблицу данных.",
+    "sfx": "type"
+  },
+  "デザイン": {
+    "meaning": "🎨",
+    "anchor": "📐",
+    "keyword": "dezain",
+    "story": "Дизайнер рисует эскиз.",
+    "sfx": "pencil"
+  },
+  "ドット": {
+    "meaning": "🔴",
+    "anchor": "🎨",
+    "keyword": "dotto",
+    "story": "Одна точка появляется на пиксельной сетке.",
+    "sfx": "tap"
+  },
+  "パズル": {
+    "meaning": "🧩",
+    "anchor": "💡",
+    "keyword": "pazuru",
+    "story": "Последний кусочек встаёт на место.",
+    "sfx": "chime"
+  },
+  "ピクセル": {
+    "meaning": "🟦",
+    "anchor": "🎮",
+    "keyword": "pikuseru",
+    "story": "Отдельный пиксель загорается.",
+    "sfx": "tap"
+  },
+  "プログラム": {
+    "meaning": "💻",
+    "anchor": "⌨️",
+    "keyword": "puroguramu",
+    "story": "Запускаешь написанную программу.",
+    "sfx": "type"
+  },
+  "プログラマー": {
+    "meaning": "🧑‍💻",
+    "anchor": "⌨️",
+    "keyword": "puroguramā",
+    "story": "Программист печатает код.",
+    "sfx": "type"
+  },
+  "マウス": {
+    "meaning": "🖱️",
+    "anchor": "🐭",
+    "keyword": "mausu",
+    "story": "Мышка щёлкает по экрану.",
+    "sfx": "tap"
+  },
+  "キーボード": {
+    "meaning": "⌨️",
+    "anchor": "💻",
+    "keyword": "kībōdo",
+    "story": "Пальцы отбивают ритм по клавишам.",
+    "sfx": "type"
+  },
+  "モニター": {
+    "meaning": "🖥️",
+    "anchor": "💡",
+    "keyword": "monitā",
+    "story": "Монитор включается.",
+    "sfx": "beep"
+  },
+  "ヘッドホン": {
+    "meaning": "🎧",
+    "anchor": "🎵",
+    "keyword": "heddohon",
+    "story": "Надеваешь наушники и слышишь музыку.",
+    "sfx": "guitar"
+  },
+  "マイク": {
+    "meaning": "🎙️",
+    "anchor": "🗣️",
+    "keyword": "maiku",
+    "story": "Проверяешь микрофон лёгким касанием.",
+    "sfx": "tap"
+  },
+  "スピーカー": {
+    "meaning": "🔊",
+    "anchor": "🎵",
+    "keyword": "supīkā",
+    "story": "Динамик воспроизводит сигнал.",
+    "sfx": "beep"
+  },
+  "シンセサイザー": {
+    "meaning": "🎹",
+    "anchor": "🎛️",
+    "keyword": "shinsesaizā",
+    "story": "DAWN синтезирует новый звук.",
+    "sfx": "modem"
+  },
+  "ドラム": {
+    "meaning": "🥁",
+    "anchor": "🎵",
+    "keyword": "doramu",
+    "story": "Барабанщик отбивает ритм.",
+    "sfx": "dance"
+  },
+  "リズム": {
+    "meaning": "🥁",
+    "anchor": "⏱️",
+    "keyword": "rizumu",
+    "story": "Повторяющиеся удары задают ритм.",
+    "sfx": "dance"
+  },
+  "メロディー": {
+    "meaning": "🎶",
+    "anchor": "🎹",
+    "keyword": "merodī",
+    "story": "Несколько нот складываются в мелодию.",
+    "sfx": "dream"
+  },
+  "テンポ": {
+    "meaning": "🎵",
+    "anchor": "⏱️",
+    "keyword": "tenpo",
+    "story": "Метроном задаёт темп.",
+    "sfx": "clock"
+  },
+  "ボリューム": {
+    "meaning": "🔊",
+    "anchor": "🎛️",
+    "keyword": "boryūmu",
+    "story": "Поворачиваешь ручку громкости.",
+    "sfx": "beep"
+  },
+  "ノイズ": {
+    "meaning": "📻",
+    "anchor": "🌫️",
+    "keyword": "noizu",
+    "story": "Радио шипит между станциями.",
+    "sfx": "radio"
+  },
+  "エフェクト": {
+    "meaning": "✨",
+    "anchor": "🎛️",
+    "keyword": "efekuto",
+    "story": "Добавляешь эффект в синтезаторе.",
+    "sfx": "whip"
+  },
+  "アート": {
+    "meaning": "🎨",
+    "anchor": "🖼️",
+    "keyword": "āto",
+    "story": "Рисуешь картину.",
+    "sfx": "pencil"
+  },
+  "イラスト": {
+    "meaning": "🖼️",
+    "anchor": "✏️",
+    "keyword": "irasuto",
+    "story": "Создаёшь иллюстрацию.",
+    "sfx": "pencil"
+  },
+  "スケッチ": {
+    "meaning": "✏️",
+    "anchor": "📓",
+    "keyword": "suketchi",
+    "story": "Быстро набрасываешь рисунок.",
+    "sfx": "pencil"
+  },
+  "ペイント": {
+    "meaning": "🎨",
+    "anchor": "🖌️",
+    "keyword": "peinto",
+    "story": "Кисть оставляет цвет на холсте.",
+    "sfx": "fabric"
+  },
+  "カラー": {
+    "meaning": "🎨",
+    "anchor": "🌈",
+    "keyword": "karā",
+    "story": "Выбираешь цвет на палитре.",
+    "sfx": "sparkle"
+  },
+  "スケートボード": {
+    "meaning": "🛹",
+    "anchor": "🛞",
+    "keyword": "sukētobōdo",
+    "story": "Колёса скейтборда катятся по асфальту.",
+    "sfx": "slide"
+  },
+  "トリック": {
+    "meaning": "🛹",
+    "anchor": "✨",
+    "keyword": "torikku",
+    "story": "Скейт подскакивает при выполнении трюка.",
+    "sfx": "whip"
+  },
+  "オーリー": {
+    "meaning": "🛹",
+    "anchor": "⬆️",
+    "keyword": "ōrī",
+    "story": "Доска подпрыгивает вместе с райдером.",
+    "sfx": "pop"
+  },
+  "キックフリップ": {
+    "meaning": "🛹",
+    "anchor": "🔄",
+    "keyword": "kikkufurippu",
+    "story": "Доска переворачивается в воздухе.",
+    "sfx": "whip"
+  },
+  "スケートパーク": {
+    "meaning": "🛹",
+    "anchor": "🏞️",
+    "keyword": "sukētopāku",
+    "story": "Едешь по рампе скейтпарка.",
+    "sfx": "slide"
+  },
+  "カフェ": {
+    "meaning": "☕",
+    "anchor": "🍰",
+    "keyword": "kafe",
+    "story": "В кафе наливают кофе.",
+    "sfx": "pour"
+  },
+  "メニュー": {
+    "meaning": "📋",
+    "anchor": "🍽️",
+    "keyword": "menyū",
+    "story": "Листаешь меню ресторана.",
+    "sfx": "paper"
+  },
+  "サンドイッチ": {
+    "meaning": "🥪",
+    "anchor": "🍞",
+    "keyword": "sandoitchi",
+    "story": "Откусываешь хрустящий сэндвич.",
+    "sfx": "bite"
+  },
+  "チョコレート": {
+    "meaning": "🍫",
+    "anchor": "😋",
+    "keyword": "chokorēto",
+    "story": "Отламываешь кусочек шоколада.",
+    "sfx": "crunch"
+  },
+  "ジュース": {
+    "meaning": "🧃",
+    "anchor": "🍊",
+    "keyword": "jūsu",
+    "story": "Juice — сок наливается в стакан.",
+    "sfx": "pour"
+  },
+  "コーラ": {
+    "meaning": "🥤",
+    "anchor": "🫧",
+    "keyword": "kōra",
+    "story": "Открываешь газировку, пузырьки лопаются.",
+    "sfx": "pop"
+  },
+  "ポテト": {
+    "meaning": "🍟",
+    "anchor": "🥔",
+    "keyword": "poteto",
+    "story": "Картошка фри шипит во фритюре.",
+    "sfx": "fry"
+  },
+  "サンドバッグ": {
+    "meaning": "🥊",
+    "anchor": "💥",
+    "keyword": "sandobaggu",
+    "story": "Удар по тренировочному мешку.",
+    "sfx": "thud"
+  },
+  "コンセント": {
+    "meaning": "🔌",
+    "anchor": "⚡",
+    "keyword": "konsento",
+    "story": "Вставляешь вилку в розетку.",
+    "sfx": "tap"
+  },
+  "エスカレーター": {
+    "meaning": "🚶",
+    "anchor": "⬆️",
+    "keyword": "esukarētā",
+    "story": "Движущаяся лестница поднимает людей.",
+    "sfx": "elevator"
+  },
+  "ターミナル": {
+    "meaning": "🛫",
+    "anchor": "🧳",
+    "keyword": "tāminaru",
+    "story": "В терминале ждёшь отправления.",
+    "sfx": "plane"
+  },
+  "バイク": {
+    "meaning": "🏍️",
+    "anchor": "🛣️",
+    "keyword": "baiku",
+    "story": "Мотоцикл заводится.",
+    "sfx": "car"
+  },
+  "トラック": {
+    "meaning": "🚚",
+    "anchor": "🎵",
+    "keyword": "torakku",
+    "story": "Грузовик едет; в DAWN track — звуковая дорожка.",
+    "sfx": "bus"
+  },
+  "ブレーキ": {
+    "meaning": "🚗",
+    "anchor": "🛑",
+    "keyword": "burēki",
+    "story": "Машина тормозит.",
+    "sfx": "hiss"
+  },
+  "ハンドル": {
+    "meaning": "🚗",
+    "anchor": "✋",
+    "keyword": "handoru",
+    "story": "Поворачиваешь руль автомобиля.",
+    "sfx": "tap"
+  },
+  "ガソリン": {
+    "meaning": "⛽",
+    "anchor": "🚗",
+    "keyword": "gasorin",
+    "story": "Заправляешь бак бензином.",
+    "sfx": "pour"
+  },
+  "リュック": {
+    "meaning": "🎒",
+    "anchor": "🚶",
+    "keyword": "ryukku",
+    "story": "Надеваешь рюкзак перед дорогой.",
+    "sfx": "fabric"
+  },
+  "バッグ": {
+    "meaning": "👜",
+    "anchor": "🎒",
+    "keyword": "baggu",
+    "story": "Открываешь сумку.",
+    "sfx": "fabric"
+  },
+  "ポケット": {
+    "meaning": "👖",
+    "anchor": "📱",
+    "keyword": "poketto",
+    "story": "Кладёшь телефон в карман.",
+    "sfx": "fabric"
+  },
+  "ボタン": {
+    "meaning": "🔘",
+    "anchor": "👕",
+    "keyword": "botan",
+    "story": "Застёгиваешь пуговицу или нажимаешь кнопку.",
+    "sfx": "tap"
+  },
+  "ジーンズ": {
+    "meaning": "👖",
+    "anchor": "🧵",
+    "keyword": "jīnzu",
+    "story": "Джинсовая ткань шуршит.",
+    "sfx": "fabric"
+  },
+  "ジャケット": {
+    "meaning": "🧥",
+    "anchor": "👕",
+    "keyword": "jaketto",
+    "story": "Надеваешь куртку.",
+    "sfx": "fabric"
+  },
+  "スニーカー": {
+    "meaning": "👟",
+    "anchor": "👣",
+    "keyword": "sunīkā",
+    "story": "Слышишь шаги в кроссовках.",
+    "sfx": "footstep"
+  },
+  "シャンプー": {
+    "meaning": "🧴",
+    "anchor": "🫧",
+    "keyword": "shanpū",
+    "story": "Шампунь пенится в душе.",
+    "sfx": "pour"
+  },
+  "ブラシ": {
+    "meaning": "🪥",
+    "anchor": "🧹",
+    "keyword": "burashi",
+    "story": "Щётка шуршит по поверхности.",
+    "sfx": "shaker"
+  },
+  "タブレット": {
+    "meaning": "📱",
+    "anchor": "✍️",
+    "keyword": "taburetto",
+    "story": "Рисуешь пером на планшете.",
+    "sfx": "tap"
+  },
+  "ペンタブレット": {
+    "meaning": "🖊️",
+    "anchor": "🎨",
+    "keyword": "pentaburetto",
+    "story": "Перо рисует штрихи на планшете.",
+    "sfx": "pencil"
+  },
+  "バッテリー": {
+    "meaning": "🔋",
+    "anchor": "⚡",
+    "keyword": "batterī",
+    "story": "Подключаешь аккумулятор к зарядке.",
+    "sfx": "beep"
+  },
+  "ケーブル": {
+    "meaning": "🔌",
+    "anchor": "💻",
+    "keyword": "kēburu",
+    "story": "Кабель подключается к компьютеру.",
+    "sfx": "tap"
+  },
+  "ファイル": {
+    "meaning": "📁",
+    "anchor": "💾",
+    "keyword": "fairu",
+    "story": "Открываешь файл.",
+    "sfx": "tap"
+  },
+  "フォルダー": {
+    "meaning": "📁",
+    "anchor": "📄",
+    "keyword": "forudā",
+    "story": "Внутри папки лежат документы.",
+    "sfx": "paper"
+  },
+  "ブラウザー": {
+    "meaning": "🌐",
+    "anchor": "🖥️",
+    "keyword": "burauzā",
+    "story": "Браузер загружает страницу.",
+    "sfx": "modem"
+  },
+  "ログイン": {
+    "meaning": "🔑",
+    "anchor": "💻",
+    "keyword": "roguin",
+    "story": "Ключ открывает доступ к аккаунту.",
+    "sfx": "keys"
+  },
+  "パスワード": {
+    "meaning": "🔒",
+    "anchor": "⌨️",
+    "keyword": "pasuwādo",
+    "story": "Печатаешь пароль.",
+    "sfx": "type"
+  },
+  "エラー": {
+    "meaning": "⚠️",
+    "anchor": "💻",
+    "keyword": "erā",
+    "story": "Компьютер издаёт сигнал ошибки.",
+    "sfx": "alert"
+  },
+  "アップデート": {
+    "meaning": "🔄",
+    "anchor": "💻",
+    "keyword": "appudēto",
+    "story": "Устанавливается новая версия.",
+    "sfx": "modem"
+  },
+  "バックアップ": {
+    "meaning": "💾",
+    "anchor": "📦",
+    "keyword": "bakkuappu",
+    "story": "Сохраняешь запасную копию данных.",
+    "sfx": "chime"
+  },
+  "サーバー": {
+    "meaning": "🖥️",
+    "anchor": "🌐",
+    "keyword": "sābā",
+    "story": "Слышен вентилятор серверной стойки.",
+    "sfx": "fan"
+  },
+  "ネットワーク": {
+    "meaning": "🌐",
+    "anchor": "🔗",
+    "keyword": "nettowāku",
+    "story": "Компьютеры связываются по сети.",
+    "sfx": "modem"
+  },
+  "チャット": {
+    "meaning": "💬",
+    "anchor": "📱",
+    "keyword": "chatto",
+    "story": "Приходит новое сообщение.",
+    "sfx": "phone"
+  },
+  "コメント": {
+    "meaning": "💬",
+    "anchor": "📝",
+    "keyword": "komento",
+    "story": "Печатаешь комментарий.",
+    "sfx": "type"
+  },
+  "プロフィール": {
+    "meaning": "👤",
+    "anchor": "📋",
+    "keyword": "purofīru",
+    "story": "Открываешь страницу профиля.",
+    "sfx": "tap"
+  },
+  "アカウント": {
+    "meaning": "👤",
+    "anchor": "🔑",
+    "keyword": "akaunto",
+    "story": "Входишь в свой аккаунт.",
+    "sfx": "keys"
   }
 };
 export const SOUND_SCENES = {
