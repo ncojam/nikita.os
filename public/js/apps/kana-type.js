@@ -11,7 +11,7 @@ import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-
  * Слоги проверяются прямо в строке набора Mozc (composition): каждый готовый знак сверяется с целью,
  * хвост латиницы (t, ky, n — недописанный слог) пропускается. Верно — зелёный прыжок, «динь», голос слога.
  * Ошибка — красная вспышка, дрожь, набор сбрасывается (blur → очистка → focus), этот слог пишем заново.
- * Проверка: без ромадзи, голоса и подсказок; Enter — сдать. Итог проверки двигает уровень: ≥90% — выше, <60% — ниже.
+ * Проверка: без ромадзи и подсказок; правильные слоги озвучиваются, ответ принимается автоматически. Итог проверки двигает уровень: ≥90% — выше, <60% — ниже.
  * Подсказка клавиш (что жать в Mozc: は → ha, ー → -, っ → двойная согласная) — на уровнях 1–2 и после ошибки.
  * Катакана: на уровнях 1–2 засчитываем и хирагану, с 3-го — только настоящую (F7 перед Enter).
  * Статистика ошибок по знакам — store("kana.type").kana: слабые знаки чаще попадаются в уроках.
@@ -176,6 +176,15 @@ export function openKanaType() {
     w.onClose = () => { TTS.stop(); KanaTTS.bindStatus(null); };
     menu();
 
+    function writing(preferred = [], level = st.level, back = menu) {
+      TTS.stop();
+      const loading = el("p", { className: "kn-muted", textContent: "Открываем тренажёр письма…" });
+      c.replaceChildren(loading);
+      import("./kana-write.js").then(m => {
+        if (loading.isConnected) m.renderKanaWrite(c, { back, preferred, level, voice: () => st.voice });
+      }).catch(e => { if (loading.isConnected) { loading.textContent = e.message; c.append(el("button", { className: "kn-btn", textContent: "Назад", onclick: back })); } });
+    }
+
     /* --- меню: уровни, настройки, слабые знаки, история --- */
     function menu() {
       TTS.stop();
@@ -202,7 +211,7 @@ export function openKanaType() {
       const preview = el("button", { className: "kn-btn small", textContent: "🔊 Проверить голос", onclick: () => TTS.say("こんにちは。わたしはにほんごをべんきょうします。") });
       c.replaceChildren(el("div", { className: "kt-menu" },
         el("h3", { textContent: "⌨️ Тренажёр печати" }),
-        el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи: слово готово — Enter. Катакана — F7 перед Enter (с 3-го уровня обязательно). Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
+        el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи. Ответ принимается автоматически; катакана в проверке с 3-го уровня — F7. Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
         lv,
         el("div", { className: "kn-builder" }, voice, keys),
         el("div", { className: "kn-builder" }, engine, speed, preview),
@@ -212,7 +221,8 @@ export function openKanaType() {
           ...weak.map(([k, x]) => el("span", { className: "kn-chip", title: `ошибок ${x.err}, верно ${x.ok}`, textContent: k }))) : "",
         st.hist.length ? el("div", { className: "kt-hist" }, el("span", { className: "kn-label", textContent: "Недавно:" }),
           ...st.hist.slice(-6).reverse().map(h => el("span", { className: "kt-hgrade g-" + h.grade, title: `уровень ${h.level} · точность ${h.acc} · проверка ${h.check}`, textContent: `${h.grade} · ур.${h.level}` }))) : "",
-        el("button", { className: "kn-btn kt-go", textContent: `▶ Начать урок — уровень ${st.level}`, onclick: () => lesson(st.level) })));
+        el("button", { className: "kn-btn kt-go", textContent: `▶ Начать урок — уровень ${st.level}`, onclick: () => lesson(st.level) }),
+        el("button", { className: "kn-btn", textContent: "✍ Тренажёр письма", onclick: () => writing(weak.map(([k]) => k)) })));
     }
 
     /* --- урок --- */
@@ -257,7 +267,7 @@ export function openKanaType() {
         const used = [...new Set(role)].filter(r => ROLE_NAME[r]);
         const legend = used.length > 1 ? el("div", { className: "kt-legend" }, ...used.map(r => el("span", { className: "kt-lg r-" + r, textContent: ROLE_NAME[r] }))) : "";
         const input = el("input", { className: "kt-in", lang: "ja", autocomplete: "off", spellcheck: false,
-          placeholder: checking ? "напечатай то, что видишь, и нажми Enter" : "печатай здесь (Mozc)" });
+          placeholder: checking ? "напечатай то, что видишь (автопроверка)" : "печатай здесь (Mozc)" });
         const hint = el("div", { className: "kt-hint" });
         const stat = el("span", { className: "kt-stat" });
         const say = el("button", { className: "kn-btn small", textContent: "🔊 ещё раз", hidden: checking, onclick: () => { TTS.say(spoken(cd)); input.focus(); } });
@@ -275,11 +285,36 @@ export function openKanaType() {
 
         if (checking) {
           input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); } });
-          let submitted = false;
+          let submitted = false, autoTimer, voicedTo = 0;
+          const norm = strictKata ? s => s : toHira;
+          function observe() {
+            if (submitted || !box.isConnected) return;
+            clearTimeout(autoTimer);
+            const raw = input.value.replace(/\s/g, ""), typed = raw.replace(LATIN_TAIL, "");
+            let n = 0, spokenTo = 0;
+            while (n < typed.length && n < cd.target.length && toHira(typed[n]) === toHira(cd.target[n])) n++;
+            cd.slots.forEach((sl, si) => {
+              const end = cd.start[si] + sl.length;
+              if (end > n) return;
+              spokenTo = end;
+              if (end <= voicedTo || /^[ーっッ]$/.test(sl)) return;
+              const tok = cd.toks[cd.owner[si]];
+              TTS.say(tok.p && SAY[sl] && tok.k === sl ? SAY[sl] : sl, 1.1);
+            });
+            voicedTo = spokenTo;
+            if (LATIN_TAIL.test(raw)) return;
+            const exact = norm(typed) === norm(cd.target);
+            if (!exact && strictKata && toHira(typed) === toHira(cd.target)) return;
+            if (exact || typed.length >= cd.target.length)
+              autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(); }, exact ? 220 : 1600);
+          }
+          input.addEventListener("input", observe);
+          input.addEventListener("compositionupdate", () => queueMicrotask(observe));
+          input.addEventListener("compositionend", observe);
           function submit() {
-            if (submitted) return; submitted = true;
+            if (submitted || !box.isConnected) return; submitted = true;
+            clearTimeout(autoTimer);
             const typed = input.value.replace(/\s|[A-Za-zＡ-Ｚａ-ｚ'’]/g, "");
-            const norm = strictKata ? s => s : toHira;
             const hit = lcsHits([...norm(cd.target)], [...norm(typed)]);
             let good = 0;
             cd.slots.forEach((s, si) => {
@@ -291,7 +326,7 @@ export function openKanaType() {
             input.disabled = true;
             hint.replaceChildren(el("span", { className: "kn-muted", textContent: typed ? "Ты набрал: " : "Пусто" }), typed ? el("span", { className: "kt-typed", textContent: typed }) : "");
             good === cd.slots.length ? Juice.ding(4) : Juice.buzz();
-            setTimeout(done, good === cd.slots.length ? 700 : 1600);
+            setTimeout(() => { if (box.isConnected) done(); }, good === cd.slots.length ? 950 : 1600);
           }
           return;
         }
@@ -307,7 +342,7 @@ export function openKanaType() {
         input.addEventListener("compositionstart", () => { composing = true; });
         input.addEventListener("compositionend", () => { composing = false; if (!resetting) commit(); });
         input.addEventListener("input", e => {
-          if (resetting) return;
+          if (resetting || finished || !box.isConnected) return;
           if (!t0) t0 = performance.now();
           if (composing || e.isComposing) check(input.value, false, false);
           else commit();
@@ -316,7 +351,7 @@ export function openKanaType() {
         // текст закреплён (Enter в Mozc, или набор без IME)
         function commit() {
           const v = input.value;
-          if (!v) return;
+          if (finished || !box.isConnected || !v) return;
           if (!composing && LATIN_TAIL.test(v) && !/[ぁ-ヿ]/.test(v)) { warn(hint, "Это латиница — включи японскую раскладку (Mozc)."); clear(); return; }
           if (check(v, strictKata, true)) input.value = "";
         }
@@ -394,7 +429,7 @@ export function openKanaType() {
           if (t0) R.ms += performance.now() - t0;
           save();
           box.classList.add("done");
-          setTimeout(done, 750);
+          setTimeout(() => { if (box.isConnected) done(); }, 950);
         }
       }
     }
@@ -429,6 +464,7 @@ export function openKanaType() {
           ...weak.map(([k, n]) => el("span", { className: "kn-chip", title: `ошибок: ${n}`, textContent: k }))) : el("p", { className: "kn-muted", textContent: "Ни одной ошибки 🎉" }),
         el("div", { className: "kn-row" },
           el("button", { className: "kn-btn kt-go", textContent: `▶ Следующий урок — уровень ${to}`, onclick: () => lesson(to) }),
+          el("button", { className: "kn-btn", textContent: "✍ Письмо между уроками", onclick: () => writing(weak.map(([k]) => k), from, () => lesson(to)) }),
           el("button", { className: "kn-btn", textContent: "Меню", onclick: () => menu() }))));
       Juice.spawn(g);
     }

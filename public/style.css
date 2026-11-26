@@ -2370,3 +2370,18 @@ a.nw-chip:hover { border-color: var(--mt); }
 .rig-mbar { height: 5px; border-radius: 3px; background: rgba(0,0,0,.35); overflow: hidden; }
 .rig-mbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #b8f59e, #ffd36e 70%, #ff8a8a); }
 .au-patching .au-cable { pointer-events: none; }
+
+/* Кана · письмо */
+.kw-card { gap:8px; align-items:stretch; }
+.kw-heading { display:flex; align-items:center; justify-content:center; gap:18px; }
+.kw-character { font-size:64px; line-height:1; }
+.kw-board { display:block; width:min(100%,300px); max-height:42vh; aspect-ratio:1; margin:0 auto; border:1px solid #8091a555; border-radius:12px; background:#fff; touch-action:none; user-select:none; cursor:crosshair; }
+.kw-grid { fill:none; stroke:#93a1b5; opacity:.5; stroke-width:.35; stroke-dasharray:2 2; }
+.kw-reference { fill:none; stroke:#546e91; stroke-width:5; stroke-linecap:round; stroke-linejoin:round; }
+.kw-reference.kw-current { stroke:#456fd1; }
+.kw-dot { fill:#e59436; pointer-events:none; }
+.kw-ink { fill:none; stroke:#263346; stroke-width:3.5; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
+.kw-right { stroke:#198b62; }
+.kw-wrong { stroke:#d84955; }
+.kw-note { min-height:1.3em; margin:0; text-align:center; }
+.kw-card .kn-row { justify-content:center; flex-wrap:wrap; }
