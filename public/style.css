@@ -2416,3 +2416,20 @@ a.nw-chip:hover { border-color: var(--mt); }
 .ka-scenes.compact .ka-icons { font-size:20px; }
 .ka-scenes.compact .ka-scythe { width:24px; height:24px; }
 .ka-scenes.compact .ka-copy { min-width:100px; }
+
+/* Кана · статистика */
+.kt-script { margin:2px 0; color:var(--muted); font-weight:600; font-size:12px; text-align:center; }
+.ks-page { width:100%; align-items:stretch; }
+.ks-tabs { flex-wrap:wrap; }
+.ks-body { display:grid; gap:10px; min-width:0; }
+.ks-panel { border:1px solid #8091a544; padding:10px; border-radius:10px; min-width:0; }
+.ks-panel h3 { margin:0 0 8px; }
+.ks-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(115px,1fr)); gap:8px; }
+.ks-metric { display:grid; gap:4px; padding:8px; border:1px solid #8091a533; border-radius:7px; }
+.ks-metric b { font-size:20px; font-variant-numeric:tabular-nums; }
+.ks-metric small { color:var(--muted); }
+.ks-table-wrap { overflow:auto; max-height:360px; }
+.ks-table { border-collapse:collapse; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
+.ks-table th,.ks-table td { text-align:left; padding:6px; border-bottom:1px solid #8091a533; white-space:nowrap; }
+.ks-table th { position:sticky; top:0; background:var(--panel,#23262d); }
+.ks-table td:first-child { font-size:16px; }

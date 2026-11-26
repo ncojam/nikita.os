@@ -1,7 +1,7 @@
 import { store } from "../core/util.js";
 
 const clone = x => JSON.parse(JSON.stringify(x));
-const empty = () => ({level:1,max:1,voice:true,keys:"auto",kana:{},words:{},hist:[],examCredit:0,examHist:[],writing:{}});
+const empty = () => ({level:1,max:1,voice:true,keys:"auto",kana:{},words:{},hist:[],examCredit:0,examHist:[],writing:{},writingHist:[],modeStats:{},scriptKana:{}});
 const normalize = x => Object.assign(empty(),x||{});
 const guest = () => normalize({...store.get("kana.type",{}),writing:store.get("kana.type",{}).writing || store.get("kana.write",{})});
 export const progress = guest();
@@ -9,7 +9,7 @@ let uid=null,nick=null,rev=0,base=empty(),dirty=false,busy=false,timer=null,list
 const key = id => "kana.account."+id;
 const status = message => listener?.(message);
 const set = x => { for(const k of Object.keys(progress))delete progress[k];Object.assign(progress,normalize(x)); };
-const nonempty = x => x.hist.length || x.examHist.length || Object.keys(x.kana).length || Object.keys(x.words).length || Object.keys(x.writing).length || x.examCredit;
+const nonempty = x => x.hist.length || x.examHist.length || Object.keys(x.kana).length || Object.keys(x.words).length || Object.keys(x.writing).length || Object.keys(x.modeStats).length || Object.keys(x.scriptKana).length || x.writingHist.length || x.examCredit;
 const count = x => Number.isFinite(x)?x:0;
 const delta = (a,b)=>count(b)-count(a);
 const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
@@ -18,17 +18,17 @@ const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 // counters add their increments rather than overwriting work on another device.
 export function rebase(base,local,remote){
   base=normalize(base);local=normalize(local);const out=normalize(clone(remote||{}));
-  for(const field of ["kana","words","writing"]){
+  for(const field of ["kana","words","writing","modeStats","scriptKana"]){
     for(const [k,v] of Object.entries(local[field])){
       const old=base[field][k]||{},r=out[field][k]||{ok:0,err:0};
       if(eq(v,old))continue;
-      for(const f of ["ok","err","streak","unguided","audioOk","copyLapses","recallLapses"])if(f in v||f in r)r[f]=Math.max(0,count(r[f])+delta(old[f],v[f]));
+      for(const f of ["ok","err","streak","unguided","audioOk","copyLapses","recallLapses","typeOk","typeErr","checkOk","checkErr","examOk","examErr","ms","completed","skipped","assisted","strokeOk","strokeErr"])if(f in v||f in r)r[f]=Math.max(0,count(r[f])+delta(old[f],v[f]));
       if(v.ru&&!r.ru)r.ru=v.ru;
       if(v.last)r.last=Math.max(count(r.last),v.last);
       out[field][k]=r;
     }
   }
-  for(const field of ["hist","examHist"]){
+  for(const field of ["hist","examHist","writingHist"]){
     const id=x=>x.id||JSON.stringify(x);
     const old=new Set(base[field].map(id)),seen=new Set(out[field].map(id));
     for(const row of local[field])if(!old.has(id(row))&&!seen.has(id(row))){out[field].push(row);seen.add(id(row));}
@@ -123,4 +123,19 @@ async function flush(){
     }else{throw Error(d.error||"HTTP "+r.status);}
   }catch(e){if(token===epoch){status("Синхронизация не удалась · прогресс сохранён локально");delay=10000;}}
   finally{busy=false;if(token===epoch)persist();schedule(delay);}
+}
+
+export function scriptOf(k){
+  const hira=/[ぁ-ゖ]/.test(k),kata=/[ァ-ヺ]/.test(k);
+  return hira&&kata?"mixed":kata?"kata":hira?"hira":"other";
+}
+export const statId=()=>globalThis.crypto?.randomUUID?.()||Date.now()+"-"+Math.random();
+export function recordMode(mode,k,delta){
+  const key=mode+"."+scriptOf(k),r=progress.modeStats[key]||={ok:0,err:0};
+  for(const [field,n] of Object.entries(delta))r[field]=(r[field]||0)+Math.max(0,Math.round(n||0));
+}
+export function recordItem(field,k,mode,ok){
+  const r=progress[field][k]||={ok:0,err:0};
+  const key=mode+(ok?"Ok":"Err");
+  r[key]=(r[key]||0)+1;
 }

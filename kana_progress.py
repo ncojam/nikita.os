@@ -6,8 +6,8 @@ from aiohttp import web
 
 MAX_BYTES = 512 * 1024
 MAX_COUNT = 10**8
-MAP_LIMITS = {"kana": 1024, "words": 4096, "writing": 256}
-HIST_LIMITS = {"hist": 365, "examHist": 365}
+MAP_LIMITS = {"kana": 1024, "words": 4096, "writing": 256, "modeStats": 32, "scriptKana": 1024}
+HIST_LIMITS = {"hist": 365, "examHist": 365, "writingHist": 365}
 
 
 def integer(value, low=0, high=MAX_COUNT):
@@ -28,7 +28,9 @@ def validate(data):
         for word, row in rows.items():
             if not isinstance(word, str) or not 1 <= len(word) <= 128 or not isinstance(row, dict):
                 return False
-            if any(not integer(row.get(k, 0)) for k in ("ok", "err", "streak", "unguided", "audioOk", "copyLapses", "recallLapses")):
+            if any(not integer(row.get(k, 0)) for k in ("ok", "err", "streak", "unguided", "audioOk", "copyLapses", "recallLapses", "typeOk", "typeErr", "checkOk", "checkErr", "examOk", "examErr", "completed", "skipped", "assisted", "strokeOk", "strokeErr")):
+                return False
+            if not integer(row.get("ms", 0), 0, 10**14):
                 return False
             if not integer(row.get("last", 0), 0, 10**14):
                 return False
@@ -50,8 +52,13 @@ def validate(data):
                     v = row.get(field)
                     if not isinstance(v, str) or not v.endswith("%") or not v[:-1].isdigit() or int(v[:-1]) > 100:
                         return False
-            elif not integer(row.get("total"), 1, 100) or not integer(row.get("ok"), 0, row["total"]):
-                return False
+            else:
+                if not integer(row.get("total"), 1, 100) or not integer(row.get("ok"), 0, row["total"]):
+                    return False
+                if not integer(row.get("ms", 0), 0, 10**14):
+                    return False
+                if key == "writingHist" and (not integer(row.get("completed"), 0, row["total"]) or not integer(row.get("skipped"), 0, row["total"]) or row["ok"] > row["completed"] or row["completed"] + row["skipped"] != row["total"] or any(not integer(row.get(x)) for x in ("strokeOk", "strokeErr"))):
+                    return False
     return True
 
 

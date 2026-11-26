@@ -1,5 +1,5 @@
 import { el } from "../core/util.js";
-import { progress, saveProgress } from "./kana-progress.js";
+import { progress, saveProgress, recordMode, statId } from "./kana-progress.js";
 import { Juice } from "../core/juice.js";
 import { KanaTTS } from "./kana-tts.js";
 const NS="http://www.w3.org/2000/svg";
@@ -68,11 +68,11 @@ export async function renderKanaWrite(c,{back,voice=()=>true,preferred=[],level=
     const priority=ch=>{const r=stats()[ch]||{};return 1+Math.min(5,(r.err||0)/(1+(r.ok||0)))+(writingStage(ch,r,voice())===0?2:0);};
     const weak=pool.map(ch=>[ch,-Math.log(Math.max(Number.EPSILON,Math.random()))/priority(ch)]).sort((a,b)=>a[1]-b[1]).map(x=>x[0]);
     const chars=[...new Set([...shuffle(fav).slice(0,3),...weak])].slice(0,6);
-    let at=0,ok=0,errors=0;
+    let at=0,ok=0,errors=0,clean=0,skipped=0,strokeOk=0,ms=0;
     function next(){
       KanaTTS.stop();
-      if(at>=chars.length){KanaTTS.bindStatus(null);c.replaceChildren(el("div",{className:"kt-menu"},el("h3",{textContent:"Письмо завершено"}),el("p",{textContent:ok+" знаков написано · "+errors+" ошибок штриха"}),el("button",{className:"kn-btn kt-go",textContent:"Ещё 6 знаков",onclick:start}),el("button",{className:"kn-btn",textContent:"Назад",onclick:leave})));return;}
-      const ch=chars[at],refs=data.kana[ch].strokes;
+      if(at>=chars.length){progress.writingHist.push({id:statId(),at:Date.now(),ok:clean,total:chars.length,completed:ok,skipped,strokeOk,strokeErr:errors,ms});progress.writingHist=progress.writingHist.slice(-365);saveProgress();KanaTTS.bindStatus(null);c.replaceChildren(el("div",{className:"kt-menu"},el("h3",{textContent:"Письмо завершено"}),el("p",{textContent:ok+" знаков написано · "+errors+" ошибок штриха"}),el("button",{className:"kn-btn kt-go",textContent:"Ещё 6 знаков",onclick:start}),el("button",{className:"kn-btn",textContent:"Назад",onclick:leave})));return;}
+      const ch=chars[at],refs=data.kana[ch].strokes,started=performance.now();
       const stage=adaptive?writingStage(ch,stats()[ch],voice()):0;
       let guided=stage===0,showGlyph=stage!==2,assisted=false;
       let step=0,pointer=null,points=[],ink,finished=false,timer,hadError=false,lapse=false;
@@ -104,7 +104,7 @@ export async function renderKanaWrite(c,{back,voice=()=>true,preferred=[],level=
       }});
       const card=el("div",{className:"kt-menu kw-card"},el("div",{className:"kt-top"},el("b",{textContent:"Письмо "+(at+1)+" / "+chars.length}),el("span",{className:"kt-sp"}),el("button",{className:"kn-btn small",textContent:"✕ Назад",onclick:leave})),
         el("div",{className:"kw-heading"},glyph,el("div",{},num,mode),el("button",{className:"kn-btn",textContent:"🔊",title:"Повторить произношение",onclick:()=>speak(ch)})),
-        board,note,status,el("div",{className:"kn-row"},toggle,reveal,el("button",{className:"kn-btn small",textContent:"Заново",onclick:()=>{if(finished)return;if(step||pointer!==null){assisted=true;loseCredit();}pointer=null;step=0;draw.replaceChildren();accepted.replaceChildren();note.textContent="";paint();}}),el("button",{className:"kn-btn small",textContent:"Пропустить →",onclick:()=>{clearTimeout(timer);if(!finished){loseCredit();finished=true;}at++;next();}})));
+        board,note,status,el("div",{className:"kn-row"},toggle,reveal,el("button",{className:"kn-btn small",textContent:"Заново",onclick:()=>{if(finished)return;if(step||pointer!==null){assisted=true;loseCredit();}pointer=null;step=0;draw.replaceChildren();accepted.replaceChildren();note.textContent="";paint();}}),el("button",{className:"kn-btn small",textContent:"Пропустить →",onclick:()=>{clearTimeout(timer);if(!finished){loseCredit();finished=true;skipped++;const rec=record(),elapsed=Math.round(performance.now()-started);ms+=elapsed;rec.skipped=(rec.skipped||0)+1;rec.ms=(rec.ms||0)+elapsed;rec.last=Date.now();recordMode("writing",ch,{err:1,skipped:1,ms:elapsed});saveProgress();}at++;next();}})));
       c.replaceChildren(card);KanaTTS.bindStatus(status);
       function paint(){
         glyph.textContent=showGlyph||finished?ch:"？";
@@ -130,11 +130,15 @@ export async function renderKanaWrite(c,{back,voice=()=>true,preferred=[],level=
         const p=ref[step],l=p.getTotalLength(),target=Array.from({length:64},(_,i)=>{const q=p.getPointAtLength(l*i/63);return[q.x,q.y];});
         const error=assessStroke(points,target),rec=stats()[ch]||={ok:0,err:0};
         draw.replaceChildren();
-        if(error){errors++;hadError=true;rec.err++;loseCredit();saveProgress();note.textContent=error;note.className="kw-note kt-warn";ink.classList.add("kw-wrong");draw.append(ink);Juice.buzz();return;}
-        ink.classList.add("kw-right");accepted.append(ink);step++;Juice.ding(step);paint();note.textContent="Верно!";note.className="kw-note";
+        if(error){errors++;hadError=true;rec.err++;rec.strokeErr=(rec.strokeErr||0)+1;recordMode("writing",ch,{strokeErr:1});loseCredit();saveProgress();note.textContent=error;note.className="kw-note kt-warn";ink.classList.add("kw-wrong");draw.append(ink);Juice.buzz();return;}
+        ink.classList.add("kw-right");accepted.append(ink);step++;strokeOk++;rec.strokeOk=(rec.strokeOk||0)+1;recordMode("writing",ch,{strokeOk:1});saveProgress();Juice.ding(step);paint();note.textContent="Верно!";note.className="kw-note";
         if(step===refs.length){
           finished=true;ok++;
-          if(!hadError&&!assisted){
+          const elapsed=Math.round(performance.now()-started),good=!hadError&&!assisted;
+          ms+=elapsed;rec.completed=(rec.completed||0)+1;rec.ms=(rec.ms||0)+elapsed;
+          if(assisted)rec.assisted=(rec.assisted||0)+1;
+          recordMode("writing",ch,{ok:good?1:0,err:good?0:1,completed:1,assisted:assisted?1:0,ms:elapsed});
+          if(good){clean++;
             rec.ok++;
             if(stage>=1&&!guided)rec.unguided=(rec.unguided||0)+1;
             if(stage===2&&!showGlyph)rec.audioOk=(rec.audioOk||0)+1;
