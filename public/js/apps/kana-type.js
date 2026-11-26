@@ -2,6 +2,7 @@ import { el, store } from "../core/util.js";
 import { Juice } from "../core/juice.js";
 import { WM } from "../wm.js";
 import { WORDS } from "./kana-data.js";
+import { KanaTTS } from "./kana-tts.js";
 import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-phrases.js";
 
 /* ================= Кана: тренажёр печати на японской раскладке (Mozc) =================
@@ -66,28 +67,11 @@ function keysOf(slot, next) {
 // частицы читаются не так, как пишутся
 const SAY = { は: "わ", へ: "え", を: "お" };
 
-/* ---------- голос: браузерный speechSynthesis, ja-JP ---------- */
+/* ---------- голос: локальный Open JTalk / системный японский ---------- */
 const TTS = {
-  voice: null, ready: false,
-  init() {
-    if (!globalThis.speechSynthesis) return;
-    const pick = () => {
-      const v = speechSynthesis.getVoices().filter(x => /^ja/i.test(x.lang));
-      this.voice = v.find(x => /google/i.test(x.name)) || v[0] || null;
-      this.ready = true;
-    };
-    pick();
-    speechSynthesis.addEventListener?.("voiceschanged", pick);
-  },
-  say(text, rate = 0.9) {
-    if (!st.voice || !globalThis.speechSynthesis || !text) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "ja-JP"; u.rate = rate;
-    if (this.voice) u.voice = this.voice;
-    speechSynthesis.speak(u);
-  },
-  stop() { globalThis.speechSynthesis?.cancel(); },
+  init: () => KanaTTS.init(),
+  say(text, rate) { if (st.voice) KanaTTS.say(text, rate); },
+  stop: () => KanaTTS.stop(),
 };
 
 /* ---------- карточки по уровням ---------- */
@@ -189,7 +173,7 @@ export function openKanaType() {
   TTS.init();
   WM.open({ title: "Печать", icon: "⌨️", width: 860, height: 620, key: "kana:type", render(c, w) {
     c.classList.add("kn", "kt");
-    w.onClose = () => TTS.stop();
+    w.onClose = () => { TTS.stop(); KanaTTS.bindStatus(null); };
     menu();
 
     /* --- меню: уровни, настройки, слабые знаки, история --- */
@@ -201,18 +185,29 @@ export function openKanaType() {
         onclick: () => { st.level = L.n; save(); menu(); } },
         el("b", { textContent: L.n }), el("span", {}, el("strong", { textContent: L.h }), el("small", { textContent: L.sub })))));
       const voice = el("label", { className: "kn-check" },
-        el("input", { type: "checkbox", checked: st.voice, onchange: e => { st.voice = e.target.checked; save(); } }), "🔊 Голос");
+        el("input", { type: "checkbox", checked: st.voice, onchange: e => { st.voice = e.target.checked; if (!st.voice) TTS.stop(); save(); } }), "🔊 Голос");
       const keys = el("label", { className: "kn-bsel" }, el("span", { textContent: "⌨ Подсказка клавиш" }),
         el("select", { onchange: e => { st.keys = e.target.value; save(); } },
           ...KEYMODES.map(([v, t]) => el("option", { value: v, selected: v === st.keys, textContent: t }))));
       const weak = Object.entries(st.kana).filter(([, x]) => x.err).sort((a, b) => b[1].err / (b[1].ok + 1) - a[1].err / (a[1].ok + 1)).slice(0, 10);
-      const noVoice = TTS.ready && !TTS.voice && globalThis.speechSynthesis;
+      const voiceStatus = el("p", { className: "kn-muted", role: "status" });
+      KanaTTS.bindStatus(voiceStatus);
+      const engine = el("label", { className: "kn-bsel" }, el("span", { textContent: "Движок озвучки" }),
+        el("select", { onchange: e => { KanaTTS.mode = e.target.value; } },
+          ...[["jtalk", "Open JTalk · Mei"], ["native", "Системный японский"]].map(([value, textContent]) =>
+            el("option", { value, textContent, selected: value === KanaTTS.mode }))));
+      const speed = el("label", { className: "kn-bsel" }, el("span", { textContent: "Скорость голоса" }),
+        el("select", { onchange: e => { KanaTTS.speed = e.target.value; } },
+          ...[0.7, 0.85, 1, 1.15, 1.3].map(value => el("option", { value, textContent: value + "×", selected: value === KanaTTS.speed }))));
+      const preview = el("button", { className: "kn-btn small", textContent: "🔊 Проверить голос", onclick: () => TTS.say("こんにちは。わたしはにほんごをべんきょうします。") });
       c.replaceChildren(el("div", { className: "kt-menu" },
         el("h3", { textContent: "⌨️ Тренажёр печати" }),
         el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи: слово готово — Enter. Катакана — F7 перед Enter (с 3-го уровня обязательно). Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
         lv,
         el("div", { className: "kn-builder" }, voice, keys),
-        noVoice ? el("p", { className: "kt-warn", textContent: "В этом браузере нет японского голоса — озвучка будет молчать или с акцентом. В Chrome японский голос Google есть." }) : "",
+        el("div", { className: "kn-builder" }, engine, speed, preview),
+        voiceStatus,
+        el("a", { className: "kn-muted", href: "/vendor/openjtalk-v1/NOTICE.txt", target: "_blank", rel: "noopener", textContent: "Open JTalk / Mei · лицензии" }),
         weak.length ? el("div", { className: "kt-weak" }, el("span", { className: "kn-label", textContent: "Слабые знаки:" }),
           ...weak.map(([k, x]) => el("span", { className: "kn-chip", title: `ошибок ${x.err}, верно ${x.ok}`, textContent: k }))) : "",
         st.hist.length ? el("div", { className: "kt-hist" }, el("span", { className: "kn-label", textContent: "Недавно:" }),
@@ -238,6 +233,9 @@ export function openKanaType() {
       }
 
       function play(cd, label, checking, done) {
+        TTS.stop();
+        const voiceStatus = checking ? null : el("div", { className: "kn-muted", role: "status" });
+        KanaTTS.bindStatus(voiceStatus);
         const role = roles(cd.toks);
         const showKeys = st.keys === "always" || (st.keys === "auto" && level <= 2);
         const strictKata = level >= 3;
@@ -265,7 +263,7 @@ export function openKanaType() {
         const say = el("button", { className: "kn-btn small", textContent: "🔊 ещё раз", hidden: checking, onclick: () => { TTS.say(spoken(cd)); input.focus(); } });
         const quit = el("button", { className: "kn-btn small", textContent: "✕ в меню", onclick: () => menu() });
         const box = el("div", { className: "kt-card" + (showKeys && !checking ? " keys" : "") + (checking ? " checking" : "") },
-          el("div", { className: "kt-ru", textContent: cd.ru }), sent, legend, input, hint,
+          el("div", { className: "kt-ru", textContent: cd.ru }), sent, legend, input, hint, voiceStatus || "",
           checking ? el("button", { className: "kn-btn kt-go", textContent: "Готово →", onclick: () => submit() }) : "");
         c.replaceChildren(el("div", { className: "kt-top" }, el("b", { textContent: label }), stat, el("span", { className: "kt-sp" }), say, quit), box);
         box.addEventListener("mousedown", e => { if (e.target !== input && !e.target.closest("button")) { e.preventDefault(); input.focus(); } });

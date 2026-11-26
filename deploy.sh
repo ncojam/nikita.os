@@ -25,6 +25,11 @@ echo "→ треки Clown Dungeon → fs/home/nikita/Projects/ClownDungeon"
 mkdir -p fs/home/nikita/Projects/ClownDungeon
 cp -f public/dungeon/music/*.dawn fs/home/nikita/Projects/ClownDungeon/
 
+echo "→ ресурсы японской озвучки (Open JTalk)"
+if ! python3 prepare_kana_tts.py; then
+  echo "⚠ Open JTalk не подготовлен; сайт продолжит работать без встроенной озвучки"
+fi
+
 echo "→ сборка образа и перезапуск контейнера"
 docker compose up -d --build --remove-orphans
 

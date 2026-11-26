@@ -29,6 +29,10 @@ if ! python3 -c "import aiohttp" 2>/dev/null; then
   fi
 fi
 
+if ! "$PY" prepare_kana_tts.py >>"$LOG" 2>&1; then
+  echo "Open JTalk: не удалось подготовить ресурсы (см. server.log)" >&2
+fi
+
 stop_server            # если уже запущен — останавливаем, чтобы подхватить новый код
 
 open_browser() {

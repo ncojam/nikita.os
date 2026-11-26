@@ -7,3 +7,7 @@ server.log
 __pycache__/
 /public/tmp-test/
 .env
+
+# Generated, checksum-pinned browser speech assets
+/public/vendor/openjtalk-v1/
+/kana-tts-*/

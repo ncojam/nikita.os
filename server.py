@@ -700,7 +700,13 @@ async def serve_public(request):
         p = p / "index.html"
     if p is None or not p.is_file():
         raise web.HTTPNotFound()
-    return web.FileResponse(p, headers={"Content-Type": text_ctype(p)})
+    headers = {"Content-Type": text_ctype(p)}
+    # Версионированный набор Open JTalk с фиксированными контрольными суммами.
+    if p.is_relative_to(PUBLIC / "vendor" / "openjtalk-v1"):
+        headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        if p.suffix == ".wasm":
+            headers["Content-Type"] = "application/wasm"
+    return web.FileResponse(p, headers=headers)
 
 
 async def serve_browser(request):
