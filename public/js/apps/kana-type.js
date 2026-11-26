@@ -287,6 +287,11 @@ export function openKanaType() {
           input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); } });
           let submitted = false, autoTimer, voicedTo = 0;
           const norm = strictKata ? s => s : toHira;
+          const slotAt = pos => cd.slots.findIndex((sl, si) => cd.start[si] + sl.length > pos);
+          function reveal(si) {
+            if (si < 0) return;
+            slotEls[si].classList.add("reveal", "bad");
+          }
           function observe() {
             if (submitted || !box.isConnected) return;
             clearTimeout(autoTimer);
@@ -302,9 +307,30 @@ export function openKanaType() {
               TTS.say(tok.p && SAY[sl] && tok.k === sl ? SAY[sl] : sl, 1.1);
             });
             voicedTo = spokenTo;
+            // Do not mistake unfinished romaji or an incomplete compound syllable for an error.
+            // Revealed keys remain visible for this card, even after the learner corrects the typo.
+            slotEls.forEach(sl => sl.classList.remove("bad"));
+            hint.replaceChildren();
+            if (n < typed.length && n < cd.target.length) {
+              const si = slotAt(n);
+              reveal(si);
+              warn(hint, `Нужно: ${cd.slots[si]} → ${cd.keys[si]}`);
+            } else if (typed.length > cd.target.length) {
+              warn(hint, "Лишние знаки в конце — удали их.");
+            }
             if (LATIN_TAIL.test(raw)) return;
             const exact = norm(typed) === norm(cd.target);
-            if (!exact && strictKata && toHira(typed) === toHira(cd.target)) return;
+            if (!exact && strictKata && toHira(typed) === toHira(cd.target)) {
+              const pos = [...typed].findIndex((ch, i) => ch !== cd.target[i]);
+              const si = slotAt(pos);
+              if (si >= 0) {
+                reveal(si);
+                warn(hint, cd.slots[si] === toHira(cd.slots[si])
+                  ? `Нужно: ${cd.slots[si]} → ${cd.keys[si]} (хирагана)`
+                  : `Нужно: ${cd.slots[si]} → ${cd.keys[si]}, затем F7 (катакана)`);
+              }
+              return;
+            }
             if (exact || typed.length >= cd.target.length)
               autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(); }, exact ? 220 : 1600);
           }
@@ -319,14 +345,19 @@ export function openKanaType() {
             let good = 0;
             cd.slots.forEach((s, si) => {
               const ok = [...s].every((_, k) => hit[cd.start[si] + k]);
-              if (ok) good++; else R.weak[toHira(s)] = (R.weak[toHira(s)] || 0) + 1;
+              slotEls[si].classList.remove("bad");
+              if (ok) good++;
+              else {
+                R.weak[toHira(s)] = (R.weak[toHira(s)] || 0) + 1;
+                reveal(si);
+              }
               slotEls[si].classList.add(ok ? "ok" : "bad");
             });
             R.check.push(good / cd.slots.length);
             input.disabled = true;
             hint.replaceChildren(el("span", { className: "kn-muted", textContent: typed ? "Ты набрал: " : "Пусто" }), typed ? el("span", { className: "kt-typed", textContent: typed }) : "");
             good === cd.slots.length ? Juice.ding(4) : Juice.buzz();
-            setTimeout(() => { if (box.isConnected) done(); }, good === cd.slots.length ? 950 : 1600);
+            setTimeout(() => { if (box.isConnected) done(); }, good === cd.slots.length ? 950 : 2800);
           }
           return;
         }
