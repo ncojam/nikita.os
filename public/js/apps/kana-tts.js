@@ -101,7 +101,7 @@ async function load() {
       const w = createWorker();
       try {
         await w.call("configure", [{
-          dicArchiveUrl: new URL(BASE + "open_jtalk_dic_utf_8-1.11.tar.gz", location.href).href,
+          dicUrl: new URL(BASE + "dictionary/", location.href).href,
           voiceUrl: new URL(BASE + "mei_normal.htsvoice", location.href).href
         }], 120000);
         engine = w;
@@ -167,8 +167,8 @@ function say(text, rate = 0.9) {
       if (engine) { engine.close(e); engine = null; }
       if (ticket !== serial || engineMode !== "jtalk") return;
       const fallback = native(text, actual);
-      report(fallback ? "Open JTalk недоступен · системный японский голос"
-        : "Open JTalk недоступен. Проверь загрузку ресурсов при запуске сайта.");
+      report("Open JTalk: " + String(e?.message || e).slice(0, 250)
+        + (fallback ? " · системный японский голос" : ""));
     }
   });
 }

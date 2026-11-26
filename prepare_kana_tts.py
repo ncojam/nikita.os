@@ -2,6 +2,7 @@
 """Download the pinned browser-only Open JTalk assets. No npm install or build."""
 import base64
 import hashlib
+import gzip
 import pathlib
 import shutil
 import sys
@@ -21,6 +22,8 @@ VOICE_SHA256 = "f3be49a6838904a6c218790b64e07c3e83c1886e995dca284b413caab19184de
 WRAPPER = "openjtalk-wasm-wrapper-D6E3BSJO.js"
 RUNTIME = ("browser.js", "browser/worker.js", WRAPPER, "openjtalk-wasm.wasm")
 REQUIRED = (*RUNTIME, DIC, "mei_normal.htsvoice", "LICENSE.openjtalkjs", "LICENSE.dictionary", "NOTICE.txt")
+DIC_FILES = ("sys.dic", "matrix.bin", "char.bin", "unk.dic", "left-id.def",
+             "right-id.def", "pos-id.def", "rewrite.def")
 
 
 def download(url, target, algorithm, expected):
@@ -48,8 +51,48 @@ def copy_member(archive, member, dest):
         shutil.copyfileobj(src, out)
 
 
+def unpack_dictionary():
+    # The published 0.1.0 browser worker expects dicUrl (individual files).
+    # Reuse the already downloaded, checksum-pinned archive; no new network request.
+    dest = DEST / "dictionary"
+    if all((dest / name).is_file() and (dest / name).stat().st_size
+           and (dest / (name + ".gz")).is_file() for name in DIC_FILES):
+        return
+    with (DEST / DIC).open("rb") as src:
+        h = hashlib.sha256()
+        while chunk := src.read(256 * 1024):
+            h.update(chunk)
+    if h.hexdigest() != DIC_SHA256:
+        raise ValueError("Checksum mismatch: " + DIC)
+    with tempfile.TemporaryDirectory(prefix="kana-tts-", dir=ROOT) as temp:
+        stage = pathlib.Path(temp) / "dictionary"
+        stage.mkdir()
+        with tarfile.open(DEST / DIC, "r:gz") as archive:
+            members = {}
+            for m in archive.getmembers():
+                name = pathlib.PurePosixPath(m.name).name
+                if m.isfile() and name in DIC_FILES:
+                    if name in members:
+                        raise ValueError("Duplicate dictionary entry: " + name)
+                    members[name] = m
+            for name in DIC_FILES:
+                if name not in members:
+                    raise ValueError("Dictionary entry missing: " + name)
+                copy_member(archive, members[name], stage / name)
+        # aiohttp FileResponse can serve these precompressed siblings when
+        # the browser accepts gzip, avoiding ~100 MB of raw network traffic.
+        for name in DIC_FILES:
+            with (stage / name).open("rb") as src, gzip.open(stage / (name + ".gz"), "wb", compresslevel=3) as out:
+                shutil.copyfileobj(src, out)
+        if dest.exists():
+            shutil.rmtree(dest)
+        stage.rename(dest)
+    print("  Open JTalk: dictionary files ready", flush=True)
+
+
 def install():
     if (DEST / ".ready").is_file() and all((DEST / name).is_file() and (DEST / name).stat().st_size for name in REQUIRED):
+        unpack_dictionary()
         return
     DEST.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="kana-tts-", dir=ROOT) as temp:
@@ -95,6 +138,7 @@ def install():
         if DEST.exists():
             shutil.rmtree(DEST)
         stage.rename(DEST)
+    unpack_dictionary()
     print("  Open JTalk: browser assets ready", flush=True)
 
 
