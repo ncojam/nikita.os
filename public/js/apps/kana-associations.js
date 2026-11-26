@@ -1,4 +1,5 @@
 // Curated phonetic and semantic memory hooks, not etymology or pronunciation rules.
+// Familiar words deliberately excluded: neko, kawaii, anime.
 export const ASSOCIATIONS = {
   "かさ": {
     "meaning": "☂️",
@@ -13,13 +14,6 @@ export const ASSOCIATIONS = {
     "keyword": "ину — «и нюх»",
     "story": "Пёс говорит «и нюх!» и ведёт носом по следу.",
     "sfx": "dog"
-  },
-  "ねこ": {
-    "meaning": "🐈",
-    "anchor": "🥛",
-    "keyword": "неко — «нектар»",
-    "story": "Кошка лакает сладкий нектар из миски.",
-    "sfx": "cat"
   },
   "あさ": {
     "meaning": "🌅",
@@ -779,9 +773,9 @@ export const ASSOCIATIONS = {
   },
   "ゆめ": {
     "meaning": "💭",
-    "anchor": "🌙",
-    "keyword": "юмэ",
-    "story": "Во сне паришь среди звёзд.",
+    "anchor": "🎮",
+    "keyword": "Yume Nikki — ゆめにっき",
+    "story": "Вспомни игру Yume Nikki («Дневник сновидений»): её миры — сны. Yume означает сон или мечту.",
     "sfx": "dream"
   },
   "よる": {
@@ -1105,13 +1099,6 @@ export const ASSOCIATIONS = {
     "keyword": "пэра-пэра",
     "story": "Слова быстро и плавно льются изо рта.",
     "sfx": "type"
-  },
-  "アニメ": {
-    "meaning": "📺",
-    "anchor": "🎞️",
-    "keyword": "anime — аниме",
-    "story": "Кадры оживают на экране.",
-    "sfx": "projector"
   },
   "イギリス": {
     "meaning": "🇬🇧",

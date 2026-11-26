@@ -28,7 +28,7 @@ def validate(data):
         for word, row in rows.items():
             if not isinstance(word, str) or not 1 <= len(word) <= 128 or not isinstance(row, dict):
                 return False
-            if any(not integer(row.get(k, 0)) for k in ("ok", "err", "streak")):
+            if any(not integer(row.get(k, 0)) for k in ("ok", "err", "streak", "unguided", "audioOk", "copyLapses", "recallLapses")):
                 return False
             if not integer(row.get("last", 0), 0, 10**14):
                 return False
