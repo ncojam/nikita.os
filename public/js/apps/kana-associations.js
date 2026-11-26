@@ -3061,11 +3061,11 @@ export const ASSOCIATIONS = {
     "sfx": "pencil"
   },
   "もんだい": {
-    "meaning": "❓",
-    "anchor": "🧩",
-    "keyword": "mondai",
-    "story": "Перед тобой загадка, которую нужно решить.",
-    "sfx": "sonar"
+    "meaning": "🧩",
+    "anchor": "📅",
+    "keyword": "mondai — Monday (понедельник)",
+    "story": "В понедельник решаешь задачу. Mondai — задача или проблема, а не день недели: понедельник по-японски げつようび.",
+    "sfx": "clock"
   },
   "こたえ": {
     "meaning": "💬",

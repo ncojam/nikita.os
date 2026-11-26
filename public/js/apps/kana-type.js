@@ -25,7 +25,7 @@ const LESSON = 12, CHECK = 5, EXAM_AFTER = 20, EXAM_SIZE = 5;
 const LEVELS = [
   { n: 1, h: "Короткие слова", sub: "1–3 знака хираганой" },
   { n: 2, h: "Длинные слова", sub: "хирагана и катакана" },
-  { n: 3, h: "Слово + частица", sub: "すしを, カフェで, わたしは" },
+  { n: 3, h: "Слово + частица", sub: "Как связать слово с действием: は・を・に・で" },
   { n: 4, h: "Два слова", sub: "すしを たべます" },
   { n: 5, h: "Короткие фразы", sub: "конструктор: 3–4 куска" },
   { n: 6, h: "Полные фразы", sub: "конструктор и ситуации" },
@@ -79,8 +79,8 @@ const TTS = {
 };
 
 // Context is shown in guided lessons and only after submission in tests.
-function contextNotes(toks) {
-  const notes = [...new Set(toks.map(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k]).filter(Boolean))];
+function contextNotes(toks, example = "") {
+  const notes = [...new Set([...toks.map(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k]), example].filter(Boolean))];
   return notes.length ? el("div", { className: "kt-context" }, ...notes.map(textContent => el("div", { textContent }))) : "";
 }
 
@@ -89,7 +89,7 @@ const P = (k, r, g) => ({ k, r, g, p: true });
 const rnd = a => a[Math.floor(Math.random() * a.length)];
 const idx = (list, ok) => list.map((x, i) => ok(x) ? i : -1).filter(i => i >= 0);
 
-function card(toks, ru) {
+function card(toks, ru, example = "") {
   const slots = [], owner = [], keys = [];
   toks.forEach((t, ti) => slotsOf(t.k).forEach(s => { slots.push(s); owner.push(ti); }));
   slots.forEach((s, i) => keys.push(keysOf(s, slots[i + 1])));
@@ -98,7 +98,7 @@ function card(toks, ru) {
   // сколько знаков до начала каждого слога — по нему сбрасываемся при ошибке
   const start = []; let n = 0;
   for (const s of slots) { start.push(n); n += s.length; }
-  return { toks, ru, slots, owner, keys, start, target };
+  return { toks, ru, slots, owner, keys, start, target, example };
 }
 
 const words = (script, ok) => WORDS[script].filter(w => KANA.test(w.k) && ok(slotsOf(w.k).length)).map(w => card([{ k: w.k, r: w.r, g: "" }], w.m));
@@ -122,14 +122,31 @@ function phrase({ forms, sub = [1], time = 0, place = 0, q = 0 }) {
 }
 const many = (n, f) => Array.from({ length: n }, f);
 
+// Isolated particles are a sentence fragment, not a complete translation.
+function particleCard(x, particle, role, example = "") {
+  const reading = {は:"wa", に:"ni", で:"de", を:"o"}[particle];
+  const label = {は:"Тема разговора", に:"Время действия", で:"Место действия", を:"Объект действия"}[particle];
+  const gloss = WORDS.hira.find(w=>w.k===x.k)?.m || WORDS.kata.find(w=>w.k===x.k)?.m || x.g || x.ru;
+  return card([{k:x.k,r:x.r,g:gloss},P(particle,reading,role)],
+    label+": «"+x.ru+"» — добавь "+particle, example);
+}
+function objectExample(x){
+  // Prefer reading manga/books, not viewing them. Use only verbs that take を.
+  const preferred = {"まんが":"よむ","ほん":"よむ","ゲーム":"する","にほんご":"べんきょうする","でんしゃ":"みる"};
+  const v = VERBS.find(v=>v.d===preferred[x.k]&&!v.part&&!v.intr)
+    || VERBS.find(v=>!v.part&&!v.intr&&(FIT[v.d]||"").split(" ").includes(x.k));
+  if(!v)return "Это только часть фразы. После объекта с を обычно идёт действие. Например: ほんを よみます — читаю книгу.";
+  const e=compose({sub:1,time:0,place:0,obj:OBJ_FLAT.indexOf(x),verb:VERBS.indexOf(v),form:"pres",q:false,name:0});
+  return "Пример полной фразы: "+e.t.map(t=>t.k).join(" ")+" — "+e.ru;
+}
 const POOLS = {
   1: () => words("hira", n => n >= 1 && n <= 3),
   2: () => [...words("hira", n => n >= 4), ...words("kata", () => true)],
   3: () => [
-    ...SUBJ.filter(x => x.k).map(x => card([{ k: x.k, r: x.r, g: x.g }, P("は", "wa", "тема")], `${x.ru[0].toUpperCase() + x.ru.slice(1)} — тема (は)`)),
-    ...TIMES.map(i => TIME[i]).filter(x => x.ni).map(x => card([{ k: x.k, r: x.r, g: x.ru }, P("に", "ni", "когда")], `${x.ru} — когда (に)`)),
-    ...PLACES.map(i => PLACE[i]).map(x => card([{ k: x.k, r: x.r, g: x.ru }, P("で", "de", "где")], `${x.ru} — где (で)`)),
-    ...OBJ_FLAT.filter(x => x.k && !x.q).map(x => card([{ k: x.k, r: x.r, g: x.ru }, P("を", "o", "объект")], `${x.ru} — что (を)`)),
+    ...SUBJ.filter(x => x.k).map(x => particleCard(x,"は","тема","Пример: "+x.k+"は ほんを よみます — "+x.ru+" "+(x.p===1?"читаю":x.p===2?"читаешь":x.p===4?"читают":"читает")+" книги.")),
+    ...TIMES.map(i => TIME[i]).filter(x => x.ni).map(x => particleCard(x,"に","время","Пример: "+x.k+"に ほんを よみます — "+x.ru+" читаю / буду читать книги.")),
+    ...PLACES.map(i => PLACE[i]).map(x => particleCard(x,"で","место действия","Пример: "+x.k+"で ほんを よみます — "+x.ru+" читаю книги.")),
+    ...OBJ_FLAT.filter(x => x.k && !x.q).map(x => particleCard(x,"を","объект действия",objectExample(x))),
   ],
   4: () => many(40, () => phrase({ forms: ["pres", "neg", "past"] })),
   5: () => many(40, () => phrase({ forms: ["pres", "neg", "past", "pastneg", "want", "let"], sub: [0, 1, 2, 3], time: 0.5, place: 0.4 })),
@@ -439,7 +456,7 @@ export function openKanaType() {
         const say = el("button", { className: "kn-btn small", textContent: "🔊 ещё раз", hidden: checking, onclick: () => { TTS.say(spoken(cd)); input.focus(); } });
         const quit = el("button", { className: "kn-btn small", textContent: "✕ в меню", onclick: () => menu() });
         const box = el("div", { className: "kt-card" + (showKeys && !checking ? " keys" : "") + (checking ? " checking" : "") },
-          el("div", { className: "kt-ru", textContent: cd.ru }), el("p",{className:"kt-script",textContent:script==="kata"?"Набери катаканой · F7":script==="mixed"?"Катакана F7, хирагана F6 · переключай азбуку по словам":"Набери хираганой · F6"}), sent, legend, !checking ? contextNotes(cd.toks) : "", !checking ? associationRow(cd.toks) : "", input, hint, voiceStatus || "",
+          el("div", { className: "kt-ru", textContent: cd.ru }), el("p",{className:"kt-script",textContent:script==="kata"?"Набери катаканой · F7":script==="mixed"?"Катакана F7, хирагана F6 · переключай азбуку по словам":"Набери хираганой · F6"}), sent, legend, !checking ? contextNotes(cd.toks,cd.example) : "", !checking ? associationRow(cd.toks) : "", input, hint, voiceStatus || "",
           checking ? el("button", { className: "kn-btn kt-go", textContent: "Готово →", onclick: () => submit() }) : "");
         c.replaceChildren(el("div", { className: "kt-top" }, el("b", { textContent: label }), stat, el("span", { className: "kt-sp" }), say, quit), box);
         box.addEventListener("mousedown", e => { if (e.target !== input && !e.target.closest("button")) { e.preventDefault(); input.focus(); } });
@@ -536,7 +553,7 @@ export function openKanaType() {
               hint.append(el("div", {className:"kt-warn",textContent:"Правильно: " + cd.target + " · " + cd.keys.join(" ")}));
               if (strictKata && /[ァ-ヺ]/.test(cd.target)) hint.append(el("div",{className:"kn-muted",textContent:"Для катаканы используй F7."}));
             }
-            hint.append(contextNotes(cd.toks));
+            hint.append(contextNotes(cd.toks,cd.example));
             if (missed.size || !exact) hint.append(associationRow(cd.toks));
             exact ? Juice.ding(4) : Juice.buzz();
             if (cd.toks.some(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k]) || ((missed.size || !exact) && associationSettings.visible && associationKeys(cd.toks).length)) {
