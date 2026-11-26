@@ -18,10 +18,10 @@ import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-
  * Ошибка — красная вспышка, дрожь, набор сбрасывается (blur → очистка → focus), этот слог пишем заново.
  * Проверка: без ромадзи и подсказок; правильные слоги озвучиваются, ответ принимается автоматически. Итог проверки двигает уровень: ≥90% — выше, <60% — ниже.
  * Подсказка клавиш (что жать в Mozc: は → ha, ー → -, っ → двойная согласная) — на уровнях 1–2 и после ошибки.
- * Катакана обязательна на всех уровнях; встроенное переключение азбуки работает без словаря и Enter.
+ * Катакана ожидается; через SCRIPT_GRACE принимаем верное чтение с хираганой вместо катаканы.
  * Статистика ошибок по знакам — store("kana.type").kana: слабые знаки чаще попадаются в уроках.
  */
-const LESSON = 12, CHECK = 5, EXAM_AFTER = 20, EXAM_SIZE = 5;
+const LESSON = 12, CHECK = 5, EXAM_AFTER = 20, EXAM_SIZE = 5, SCRIPT_GRACE = 8000;
 const LEVELS = [
   { n: 1, h: "Короткие слова", sub: "1–3 знака хираганой" },
   { n: 2, h: "Длинные слова", sub: "хирагана и катакана" },
@@ -38,6 +38,12 @@ const KEYMODES = [["auto", "Авто: уровни 1–2 и после ошиб�
 const SMALL = "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ";
 const toHira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
 const KANA = /^[ぁ-ゖァ-ヺー]+$/;
+// Only hiragana in place of expected katakana is a permitted delayed fallback.
+// Do not fix typos, omit characters, or accept katakana in a hiragana position.
+function scriptFallback(typed,target){
+  return typed!==target && typed.length===target.length && KANA.test(typed) &&
+    [...target].every((ch,i)=>typed[i]===ch || (/[ァ-ヶ]/.test(ch)&&typed[i]===toHira(ch)));
+}
 const KANJI = /[㐀-鿿]/;
 const LATIN_TAIL = /[A-Za-zＡ-Ｚａ-ｚ'’]+$/;
 
@@ -203,7 +209,7 @@ function wordMark(k, ok, ru = "") {
   else { x.err++; x.streak = (x.streak || 0) + 1; }
   x.last = Date.now();
 }
-function recordCard(cd, missed, exact = true, mode = "type", ms = 0) {
+function recordCard(cd, missed, exact = true, mode = "type", ms = 0, fallback = false) {
   const tokens = new Map();
   cd.toks.forEach((t, i) => {
     if (t.p || !KANA.test(t.k)) return;
@@ -216,7 +222,7 @@ function recordCard(cd, missed, exact = true, mode = "type", ms = 0) {
   for (const [k,t] of tokens) { wordMark(k,!t.bad,t.ru); recordItem("words",k,mode,!t.bad); }
   cd.slots.forEach((s,i)=>recordItem("scriptKana",s,mode,!missed.has(i)));
   const clean=exact&&!missed.size;
-  recordMode(mode,cd.target,{ok:clean?1:0,err:clean?0:1,completed:1,ms});
+  recordMode(mode,cd.target,{ok:clean?1:0,err:clean?0:1,completed:1,ms,scriptFallback:fallback?1:0});
   if (exact && !missed.size) st.examCredit++;
   save();
 }
@@ -341,7 +347,7 @@ export function openKanaType() {
       const preview = el("button", { className: "kn-btn small", textContent: "🔊 Проверить голос", onclick: () => TTS.say("こんにちは。わたしはにほんごをべんきょうします。") });
       c.replaceChildren(el("div", { className: "kt-menu" },
         el("h3", { textContent: "⌨️ Тренажёр печати" }),
-        el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи. Ответ принимается автоматически; катакана обязательна на всех уровнях. Кнопки あ / ア преобразуют текущий набор без словаря Mozc и без Enter. Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
+        el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи. Ответ принимается автоматически; катакана ожидается на всех уровнях. Кнопки あ / ア меняют азбуку; после 8 секунд верный набор хираганой тоже принимается. Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
         el("div",{className:"kn-row"},syncStatus,login,account.uid!==null&&account.guestAvailable?el("button",{className:"kn-btn small",textContent:"Перенести гостевой прогресс",onclick:()=>{if(importGuest())menu();}}):""),
         lv,
         el("div", { className: "kn-builder" }, voice, keys, assoc, assocSound),
@@ -411,32 +417,35 @@ export function openKanaType() {
           if(submitted||converting||!panel.isConnected)return;
           const typed=input.value.normalize("NFKC").replace(/\s/g,"");
           if(!typed || LATIN_TAIL.test(typed))return;
-          autoTimer=setTimeout(()=>{if(panel.isConnected&&!submitted)submit();},4000);
+          autoTimer=setTimeout(()=>{if(panel.isConnected&&!submitted)submit(false,true);},SCRIPT_GRACE);
         }
         input.addEventListener("input",observe);
         input.addEventListener("compositionupdate",()=>queueMicrotask(observe));
         input.addEventListener("compositionend",observe);
-        function submit(skipped=false) {
+        function submit(skipped=false,allowFallback=false) {
           if(submitted||converting||!panel.isConnected)return;
           clearTimeout(autoTimer);
           const typed=input.value.trim().normalize("NFKC").replace(/\s/g,"");
           if(!typed&&!skipped){input.focus();return;}
           if(!skipped&&!KANA.test(typed)){feedback.textContent="Введи ответ каной (Mozc), без кандзи.";return;}
           submitted=true; input.disabled=true; skip.disabled=true;
-          // Accept dictionary synonyms with the same Russian gloss; exact kana spelling required.
-          const ok=!skipped&&accepted.includes(typed);
+          // Use canonical spelling for the synonym and statistics, without correcting any actual typo.
+          const fallbackAnswer=allowFallback&&!skipped?accepted.find(a=>scriptFallback(typed,a)):undefined;
+          const canonical=accepted.includes(typed)?typed:fallbackAnswer;
+          const fallback=!!fallbackAnswer&&!accepted.includes(typed);
+          const ok=!skipped&&!!canonical;
           if(ok)score++;else errors.push(w);
-          wordMark(ok?typed:w.k,ok,w.m);
-          recordItem("words",ok?typed:w.k,"exam",ok);
+          wordMark(ok?canonical:w.k,ok,w.m);
+          recordItem("words",ok?canonical:w.k,"exam",ok);
           const elapsed=Math.round(performance.now()-started); examMs+=elapsed;
-          recordMode("exam",w.k,{ok:ok?1:0,err:ok?0:1,completed:1,skipped:skipped?1:0,ms:elapsed});
+          recordMode("exam",w.k,{ok:ok?1:0,err:ok?0:1,completed:1,skipped:skipped?1:0,ms:elapsed,scriptFallback:fallback?1:0});
           const slots=slotsOf(w.k), hit=lcsHits([...w.k],[...typed]);
           let offset=0;
           for(const sl of slots){const good=ok||[...sl].every((_,j)=>hit[offset+j]);mark(sl,good);recordItem("scriptKana",sl,"exam",good);offset+=sl.length;}
           save();
-          feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?"Верно!":"Правильно: "+w.k+" · "+w.r+(expectedScript==="kata"&&scriptOf(typed)==="hira"?" · нужна катакана (кнопка ア)":"")}),
-            contextNotes([{k:ok?typed:w.k}]), associationRow([{k:ok?typed:w.k}]), el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
-          ok?Juice.ding(4):Juice.buzz();TTS.say(ok?typed:w.k);
+          feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?(fallback?"Верно по чтению. Катакана: "+canonical:"Верно!"):"Правильно: "+w.k+" · "+w.r+(expectedScript==="kata"&&scriptOf(typed)==="hira"?" · нужна катакана (кнопка ア)":"")}),
+            contextNotes([{k:ok?canonical:w.k}]), associationRow([{k:ok?canonical:w.k}]), el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
+          ok?Juice.ding(4):Juice.buzz();TTS.say(ok?canonical:w.k);
           function advance(){clearTimeout(nextTimer);if(!panel.isConnected)return;i++;next();}
           submitBtn.textContent="Далее →";submitBtn.onclick=advance;
           nextTimer=setTimeout(advance,ok?2600:6500);
@@ -564,19 +573,20 @@ export function openKanaType() {
             // Allow time for F7 instead of treating in-progress hiragana as a typo.
             if (typed.length) {
               // Give incomplete answers and F7 conversion more time, but never require Enter.
-              const delay = exact ? 220 : 5000;
-              autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(); }, delay);
+              const delay = exact ? 220 : SCRIPT_GRACE;
+              autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(!exact); }, delay);
             }
           }
           input.addEventListener("input", observe);
           input.addEventListener("compositionupdate", () => queueMicrotask(observe));
           input.addEventListener("compositionend",()=>{composingCheck=false;observe();});
-          function submit() {
-            if (submitted || !box.isConnected) return; submitted = true;
+          function submit(allowFallback = false) {
+            if (submitted || segmentReset || !box.isConnected) return; submitted = true;
             clearTimeout(autoTimer);
             const typed = fixed+(segmentReset?"":input.value.replace(/\s|[A-Za-zＡ-Ｚａ-ｚ'’]/g, ""));
-            const hit = lcsHits([...norm(cd.target)], [...norm(typed)]);
-            const exact = norm(typed) === norm(cd.target);
+            const fallback = allowFallback === true && scriptFallback(typed,cd.target);
+            const hit = lcsHits([...norm(cd.target)], [...norm(fallback?cd.target:typed)]);
+            const exact = fallback || norm(typed) === norm(cd.target);
             const missed = new Set(firstMisses);
             let good = 0;
             cd.slots.forEach((s, si) => {
@@ -591,13 +601,14 @@ export function openKanaType() {
               slotEls[si].classList.add(ok ? "ok" : "bad");
             });
             R.check.push(exact ? 1 : Math.min(good / cd.slots.length, (cd.slots.length - 1) / cd.slots.length));
-            recordCard(cd, missed, exact, "check", performance.now()-started);
+            recordCard(cd, missed, exact, "check", performance.now()-started, fallback);
             input.disabled = true;
             hint.replaceChildren(el("span", { className: "kn-muted", textContent: typed ? "Ты набрал: " : "Пусто" }), typed ? el("span", { className: "kt-typed", textContent: typed }) : "");
             if (missed.size || !exact) {
               hint.append(el("div", {className:"kt-warn",textContent:"Правильно: " + cd.target + " · " + cd.keys.join(" ")}));
               if (strictKata && /[ァ-ヺ]/.test(cd.target)) hint.append(el("div",{className:"kn-muted",textContent:"Для катаканы используй кнопку ア."}));
             }
+            if(fallback)hint.append(el("div",{className:"kn-muted",textContent:"Принято по чтению. Правильная азбука: "+cd.target}));
             hint.append(contextNotes(cd.toks,cd.example));
             if (missed.size || !exact) hint.append(associationRow(cd.toks));
             exact ? Juice.ding(4) : Juice.buzz();
@@ -608,7 +619,7 @@ export function openKanaType() {
               const advance = () => { clearTimeout(nextTimer); if (box.isConnected) done(); };
               nextBtn.onclick = advance;
               nextTimer = setTimeout(advance, exact && !missed.size ? 4000 : 7500);
-            } else setTimeout(() => { if (box.isConnected) done(); }, exact && !missed.size ? 950 : 3200);
+            } else setTimeout(() => { if (box.isConnected) done(); }, fallback?3000:exact && !missed.size ? 950 : 3200);
           }
           return;
         }
@@ -616,13 +627,13 @@ export function openKanaType() {
         // --- живой режим: проверяем строку набора Mozc ---
         let base = 0;      // сколько знаков цели принято (закреплено или зачтено в текущем наборе)
         let doneTo = 0;    // сколько знаков уже засчитано — дальше этого звучит «динь»
-        let streak = 0, resetting = false, composing = false, t0 = 0;
+        let streak = 0, resetting = false, composing = false, t0 = 0, scriptTimer, usedFallback=false;
         const missed = new Set();
         const slotAt = pos => { let s = 0; while (s + 1 < cd.slots.length && cd.start[s + 1] <= pos) s++; return s; };
         const same = (a, b, strict) => strict ? a === b : toHira(a) === toHira(b);
         conversionControls(input,value=>{
           if(finished||resetting)return;
-          resetting=true;input.blur();
+          clearTimeout(scriptTimer);resetting=true;input.blur();
           setTimeout(()=>{if(!box.isConnected||finished)return;input.value=value;composing=false;resetting=false;input.focus();if(!t0)t0=performance.now();commit();},40);
         });
 
@@ -639,7 +650,7 @@ export function openKanaType() {
         // текст закреплён IME или введён напрямую; Enter не требуется приложением
         function commit() {
           const v = input.value;
-          if (finished || !box.isConnected || !v) return;
+          if (finished || !box.isConnected || !v) { clearTimeout(scriptTimer); return; }
           if (!composing && LATIN_TAIL.test(v) && !/[ぁ-ヿ]/.test(v)) { warn(hint, "Это латиница — включи японскую раскладку (Mozc)."); clear(); return; }
           // A committed but phonetic match in the wrong script is still editable.
           // Wait for explicit conversion rather than deleting the text at focus loss.
@@ -650,6 +661,7 @@ export function openKanaType() {
 
         // s — набранное; strict — сверять катакану строго; final — текст закреплён
         function check(raw, strict, final) {
+          clearTimeout(scriptTimer);
           const s = raw.replace(LATIN_TAIL, "");
           if (KANJI.test(s)) {
             if (!final) { warn(hint, "Это иероглиф — пробел переводит в кандзи. Нажми Esc или Backspace, чтобы вернуться к кане."); return false; }
@@ -671,7 +683,21 @@ export function openKanaType() {
           const waitingScript=matched<L;
           if(s.length>L && !waitingScript){fail(slotEls.length-1);return false;}
           advance(base+matched, !waitingScript && !LATIN_TAIL.test(raw) && base+L===cd.target.length && s.length===L);
-          if(waitingScript)warn(hint, /[ァ-ヺ]/.test(cd.target[base+matched])?"Нужна катакана — нажми ア.":"Нужна хирагана — нажми あ.");
+          if(waitingScript){
+            warn(hint, /[ァ-ヺ]/.test(cd.target[base+matched])?"Нужна катакана — нажми ア.":"Нужна хирагана — нажми あ.");
+            const end=base+s.length, segment=cd.target.slice(base,end);
+            const boundary=end===cd.target.length || cd.toks.some((_,ti)=>ti>0&&cd.start[cd.owner.indexOf(ti)]===end);
+            if(boundary&&!LATIN_TAIL.test(raw)&&scriptFallback(s,segment)){
+              const at=base;
+              scriptTimer=setTimeout(()=>{
+                if(finished||resetting||!box.isConnected||base!==at||input.value!==raw)return;
+                usedFallback=true;
+                warn(hint,"Принято по чтению. Правильная азбука: "+segment);
+                advance(end,end===cd.target.length);
+                if(!finished){base=end;clear();}
+              },SCRIPT_GRACE);
+            }
+          }
           if(final)base+=matched;
           else if(!waitingScript && !LATIN_TAIL.test(raw) && matched===s.length && matched>0 && base+matched<cd.target.length && cd.toks.some((_,ti)=>ti>0&&cd.start[cd.owner.indexOf(ti)]===base+matched) && scriptOf(cd.toks[cd.owner[cd.slots.findIndex((_,si)=>cd.start[si]===base+matched)]-1]?.k||"")!==scriptOf(cd.toks[cd.owner[cd.slots.findIndex((_,si)=>cd.start[si]===base+matched)]]?.k||"")){
             base+=matched;clear();
@@ -716,6 +742,7 @@ export function openKanaType() {
 
         // сброс набора: blur закрывает строку Mozc, потом чистим и возвращаем фокус
         function clear() {
+          clearTimeout(scriptTimer);
           resetting = true;
           input.blur();
           setTimeout(() => { input.value = ""; composing = false; resetting = false; if (box.isConnected && !input.disabled) input.focus(); }, 40);
@@ -724,12 +751,13 @@ export function openKanaType() {
         let finished = false;
         function finish() {
           if (finished) return; finished = true;
+          clearTimeout(scriptTimer);
           input.disabled = true;
           R.chars += cd.target.length;
           if (t0) R.ms += performance.now() - t0;
-          recordCard(cd, missed, true, "type", performance.now()-started);
+          recordCard(cd, missed, true, "type", performance.now()-started, usedFallback);
           box.classList.add("done");
-          setTimeout(() => { if (box.isConnected) done(); }, 950);
+          setTimeout(() => { if (box.isConnected) done(); }, usedFallback?3000:950);
         }
       }
     }

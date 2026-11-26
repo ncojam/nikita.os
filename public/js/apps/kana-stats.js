@@ -34,7 +34,7 @@ export function renderKanaStats(c,back,initial="overview"){
     const matches=(k,r)=> (script==="all"||scriptOf(k)===script)&&(!query||(k+" "+(r.ru||dict.get(k)||"")).toLowerCase().includes(query));
     const metrics=(mode)=>{
       const rows=modeRows(mode,script),ok=sum(rows,"ok"),err=sum(rows,"err"),skip=sum(rows,"skipped");
-      return el("div",{className:"ks-metrics"},stat("Без ошибок",ok),stat("С ошибками / пропуском",err),stat("Точность карточек",pct(ok,err)),stat("Среднее время",time((ok+err)?sum(rows,"ms")/(ok+err):0)),...(mode==="writing"?[stat("Верных штрихов",sum(rows,"strokeOk")),stat("Ошибок штрихов",sum(rows,"strokeErr")),stat("Пропущено",skip)]:mode==="exam"?[stat("Не вспомнил",skip)]:[]));
+      return el("div",{className:"ks-metrics"},stat("Без ошибок",ok),stat("С ошибками / пропуском",err),stat("Точность карточек",pct(ok,err)),stat("Среднее время",time((ok+err)?sum(rows,"ms")/(ok+err):0)),...(mode!=="writing"?[stat("Принято по чтению",sum(rows,"scriptFallback"))]:[]),...(mode==="writing"?[stat("Верных штрихов",sum(rows,"strokeOk")),stat("Ошибок штрихов",sum(rows,"strokeErr")),stat("Пропущено",skip)]:mode==="exam"?[stat("Не вспомнил",skip)]:[]));
     };
     const modeTable=(field,mode)=>{
       const rows=Object.entries(p[field]).filter(([k,r])=>matches(k,r)&&n(r[mode+"Ok"])+n(r[mode+"Err"])>0&&(!onlyWeak||n(r[mode+"Err"])));

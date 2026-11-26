@@ -22,7 +22,7 @@ export function rebase(base,local,remote){
     for(const [k,v] of Object.entries(local[field])){
       const old=base[field][k]||{},r=out[field][k]||{ok:0,err:0};
       if(eq(v,old))continue;
-      for(const f of ["ok","err","streak","unguided","audioOk","copyLapses","recallLapses","typeOk","typeErr","checkOk","checkErr","examOk","examErr","ms","completed","skipped","assisted","strokeOk","strokeErr"])if(f in v||f in r)r[f]=Math.max(0,count(r[f])+delta(old[f],v[f]));
+      for(const f of ["ok","err","streak","unguided","audioOk","copyLapses","recallLapses","typeOk","typeErr","checkOk","checkErr","examOk","examErr","ms","completed","skipped","assisted","strokeOk","strokeErr","scriptFallback"])if(f in v||f in r)r[f]=Math.max(0,count(r[f])+delta(old[f],v[f]));
       if(v.ru&&!r.ru)r.ru=v.ru;
       if(v.last)r.last=Math.max(count(r.last),v.last);
       out[field][k]=r;
