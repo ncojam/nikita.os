@@ -1,4 +1,5 @@
-import { el, store } from "../core/util.js";
+import { el } from "../core/util.js";
+import { progress, saveProgress } from "./kana-progress.js";
 import { Juice } from "../core/juice.js";
 import { KanaTTS } from "./kana-tts.js";
 const NS="http://www.w3.org/2000/svg";
@@ -35,7 +36,7 @@ export async function renderKanaWrite(c,{back,voice=()=>true,preferred=[],level=
   try{data=await load();}catch(e){if(wait.isConnected)c.replaceChildren(el("p",{textContent:e.message}),el("button",{className:"kn-btn",textContent:"Назад",onclick:back}));return;}
   if(!wait.isConnected)return;
   KanaTTS.init();
-  const stats=store.get("kana.write",{})||{};
+  const stats=()=>progress.writing;
   let script=level===1?"hira":"both", guided=true;
   const speak=ch=>{if(voice())KanaTTS.say(ch,.9);};
   const leave=()=>{KanaTTS.stop();KanaTTS.bindStatus(null);back();};
@@ -52,7 +53,7 @@ export async function renderKanaWrite(c,{back,voice=()=>true,preferred=[],level=
   function start(){
     const pool=Object.keys(data.kana).filter(ch=>script==="both"||(script==="hira"?/[ぁ-ゖ]/.test(ch):/[ァ-ヺ]/.test(ch)));
     const fav=[...new Set(preferred.flatMap(s=>[...s.normalize("NFD").replace(/[\u3099\u309a]/g,"")]))].filter(ch=>pool.includes(ch));
-    const weak=shuffle(pool).sort((a,b)=>(stats[b]?.err||0)/(1+(stats[b]?.ok||0))-(stats[a]?.err||0)/(1+(stats[a]?.ok||0)));
+    const weak=shuffle(pool).sort((a,b)=>(stats()[b]?.err||0)/(1+(stats()[b]?.ok||0))-(stats()[a]?.err||0)/(1+(stats()[a]?.ok||0)));
     const chars=[...new Set([...shuffle(fav).slice(0,3),...weak])].slice(0,6);
     let at=0,ok=0,errors=0;
     function next(){
@@ -89,11 +90,11 @@ export async function renderKanaWrite(c,{back,voice=()=>true,preferred=[],level=
       board.addEventListener("pointerup",e=>{
         if(pointer!==e.pointerId||finished)return;append(e);pointer=null;
         const p=ref[step],l=p.getTotalLength(),target=Array.from({length:64},(_,i)=>{const q=p.getPointAtLength(l*i/63);return[q.x,q.y];});
-        const error=assessStroke(points,target),rec=stats[ch]||={ok:0,err:0};
+        const error=assessStroke(points,target),rec=stats()[ch]||={ok:0,err:0};
         draw.replaceChildren();
-        if(error){errors++;hadError=true;rec.err++;store.set("kana.write",stats);note.textContent=error;note.className="kw-note kt-warn";ink.classList.add("kw-wrong");draw.append(ink);Juice.buzz();return;}
+        if(error){errors++;hadError=true;rec.err++;saveProgress();note.textContent=error;note.className="kw-note kt-warn";ink.classList.add("kw-wrong");draw.append(ink);Juice.buzz();return;}
         ink.classList.add("kw-right");accepted.append(ink);step++;Juice.ding(step);paint();note.textContent="Верно!";note.className="kw-note";
-        if(step===refs.length){finished=true;ok++;if(!hadError)rec.ok++;store.set("kana.write",stats);speak(ch);timer=setTimeout(()=>{if(card.isConnected){at++;next();}},1050);}
+        if(step===refs.length){finished=true;ok++;if(!hadError)rec.ok++;saveProgress();speak(ch);timer=setTimeout(()=>{if(card.isConnected){at++;next();}},1050);}
       });
       paint();speak(ch);
     }

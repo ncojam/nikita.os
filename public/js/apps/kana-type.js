@@ -1,4 +1,7 @@
-import { el, store } from "../core/util.js";
+import { el } from "../core/util.js";
+import { progress as st, saveProgress as save, connectProgress, accountInfo, importGuest, bindProgressStatus } from "./kana-progress.js";
+import { historyGraph } from "./kana-graph.js";
+import { askAuth } from "../ui/auth.js";
 import { Juice } from "../core/juice.js";
 import { WM } from "../wm.js";
 import { WORDS } from "./kana-data.js";
@@ -27,8 +30,7 @@ const LEVELS = [
 ];
 const KEYMODES = [["auto", "Авто: уровни 1–2 и после ошибки"], ["always", "Всегда"], ["miss", "Только после ошибки"]];
 
-const st = Object.assign({ level: 1, max: 1, voice: true, keys: "auto", kana: {}, hist: [], words: {}, examCredit: 0, examHist: [] }, store.get("kana.type", {}));
-const save = () => store.set("kana.type", st);
+
 
 /* ---------- кана: слоги, клавиши, сравнение ---------- */
 const SMALL = "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ";
@@ -216,8 +218,10 @@ export function openKanaType() {
   TTS.init();
   WM.open({ title: "Печать", icon: "⌨️", width: 860, height: 620, key: "kana:type", render(c, w) {
     c.classList.add("kn", "kt");
-    w.onClose = () => { TTS.stop(); KanaTTS.bindStatus(null); };
-    menu();
+    w.onClose = () => { TTS.stop(); KanaTTS.bindStatus(null); bindProgressStatus(null); };
+    const loading = el("p",{className:"kn-muted",textContent:"Загружаем прогресс…"});
+    c.replaceChildren(loading);
+    connectProgress().finally(()=>{if(loading.isConnected)menu();});
 
     function writing(preferred = [], level = st.level, back = menu) {
       TTS.stop();
@@ -231,6 +235,13 @@ export function openKanaType() {
     /* --- меню: уровни, настройки, слабые знаки, история --- */
     function menu() {
       TTS.stop();
+      const account = accountInfo();
+      const syncStatus=el("p",{className:"kn-muted",role:"status"});
+      bindProgressStatus(message=>{if(syncStatus.isConnected||!syncStatus.parentNode)syncStatus.textContent=message;});
+      const login=el("button",{className:"kn-btn small",textContent:account.uid===null?"🔑 Войти / зарегистрироваться":"↻ Синхронизировать",onclick:async()=>{
+        if(account.uid===null && !await askAuth({why:"чтобы хранить прогресс Каны в аккаунте"}))return;
+        await connectProgress();if(c.isConnected)menu();
+      }});
       const lv = el("div", { className: "kt-levels" }, ...LEVELS.map(L => el("button", {
         className: "kt-lv" + (L.n === st.level ? " on" : "") + (L.n > st.max ? " locked" : ""),
         title: L.n > st.max ? "Ещё не открыт проверкой, но можно попробовать" : "",
@@ -256,6 +267,7 @@ export function openKanaType() {
       c.replaceChildren(el("div", { className: "kt-menu" },
         el("h3", { textContent: "⌨️ Тренажёр печати" }),
         el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи. Ответ принимается автоматически; катакана в проверке с 3-го уровня — F7. Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
+        el("div",{className:"kn-row"},syncStatus,login,account.uid!==null&&account.guestAvailable?el("button",{className:"kn-btn small",textContent:"Перенести гостевой прогресс",onclick:()=>{if(importGuest())menu();}}):""),
         lv,
         el("div", { className: "kn-builder" }, voice, keys),
         el("div", { className: "kn-builder" }, engine, speed, preview),
@@ -271,7 +283,8 @@ export function openKanaType() {
         st.hist.length ? el("div", { className: "kt-hist" }, el("span", { className: "kn-label", textContent: "Недавно:" }),
           ...st.hist.slice(-6).reverse().map(h => el("span", { className: "kt-hgrade g-" + h.grade, title: `уровень ${h.level} · точность ${h.acc} · проверка ${h.check}`, textContent: `${h.grade} · ур.${h.level}` }))) : "",
         el("button", { className: "kn-btn kt-go", textContent: `▶ Начать урок — уровень ${st.level}`, onclick: () => lesson(st.level) }),
-        el("button", { className: "kn-btn", textContent: "✍ Тренажёр письма", onclick: () => writing(weak.map(([k]) => k)) })));
+        el("button", { className: "kn-btn", textContent: "✍ Тренажёр письма", onclick: () => writing(weak.map(([k]) => k)) }),
+        el("button",{className:"kn-btn",textContent:"📈 История обучения",onclick:()=>{c.replaceChildren(el("div",{className:"kt-menu"},historyGraph(st.hist),el("button",{className:"kn-btn",textContent:"Назад",onclick:menu})));}})));
     }
 
     /* --- экзамен: только перевод, без длины ответа и TTS до сдачи --- */
@@ -285,8 +298,8 @@ export function openKanaType() {
         TTS.stop();
         if (i >= list.length) {
           st.examCredit = Math.max(0, st.examCredit - EXAM_AFTER);
-          st.examHist.push({ok:score,total:list.length,at:Date.now()});
-          st.examHist = st.examHist.slice(-30); save();
+          st.examHist.push({id:globalThis.crypto?.randomUUID?.() || Date.now()+"-"+Math.random(),ok:score,total:list.length,at:Date.now()});
+          st.examHist = st.examHist.slice(-365); save();
           c.replaceChildren(el("div",{className:"kt-menu kt-result"},
             el("h3",{textContent:"🎓 Экзамен завершён"}),
             el("div",{className:"kt-grade "+(score===list.length?"g-S":score>=4?"g-A":"g-C"),textContent:score+" / "+list.length}),
@@ -578,8 +591,8 @@ export function openKanaType() {
       else if (chk >= 0.9) verdict = "Максимальный уровень — дальше только скорость.";
       else if (chk < 0.6 && from > 1) { to = from - 1; verdict = `Проверка тяжело далась — вернёмся на уровень ${to}. Ошибочные знаки будут попадаться чаще.`; }
       st.level = to; st.max = Math.max(st.max, to);
-      st.hist.push({ level: from, grade, acc: fmtPct(acc), check: fmtPct(chk), kpm, at: Date.now() });
-      st.hist = st.hist.slice(-30);
+      st.hist.push({ id: globalThis.crypto?.randomUUID?.() || Date.now()+"-"+Math.random(), level: from, grade, acc: fmtPct(acc), check: fmtPct(chk), kpm, at: Date.now() });
+      st.hist = st.hist.slice(-365);
       save();
       const weak = Object.entries(R.weak).sort((a, b) => b[1] - a[1]).slice(0, 10);
       const g = el("div", { className: "kt-grade g-" + grade, textContent: grade });
@@ -589,6 +602,7 @@ export function openKanaType() {
           el("span", {}, el("b", { textContent: fmtPct(acc) }), el("small", { textContent: "точность в уроке" })),
           el("span", {}, el("b", { textContent: fmtPct(chk) }), el("small", { textContent: "проверка" })),
           el("span", {}, el("b", { textContent: kpm || "—" }), el("small", { textContent: "знаков в минуту" }))),
+        historyGraph(st.hist),
         el("p", { textContent: verdict }),
         weak.length ? el("div", { className: "kt-weak" }, el("span", { className: "kn-label", textContent: "Ошибался в:" }),
           ...weak.map(([k, n]) => el("span", { className: "kn-chip", title: `ошибок: ${n}`, textContent: k }))) : el("p", { className: "kn-muted", textContent: "Ни одной ошибки 🎉" }),

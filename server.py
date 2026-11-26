@@ -852,6 +852,9 @@ def make_app():
     from chat import Chat
     app["chat"] = Chat(DATA_DIR / "chat.db", client_ip)
     app["chat"].routes(app)
+    from kana_progress import KanaProgress
+    app["kana_progress"] = KanaProgress(DATA_DIR / "kana_progress.db", app["chat"].user_by_token)
+    app["kana_progress"].routes(app)
     # записи («твиты») — общий слой; авторизация через аккаунт чата
     from posts import Posts
     from userfs import Folders
