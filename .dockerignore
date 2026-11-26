@@ -8,3 +8,6 @@ __pycache__
 server.log
 .server.pid
 *.tar.gz
+
+# Полный словарь Open JTalk необходим браузерному WASM-движку.
+!public/vendor/openjtalk-v1/open_jtalk_dic_utf_8-1.11.tar.gz
