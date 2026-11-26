@@ -2396,3 +2396,9 @@ a.nw-chip:hover { border-color: var(--mt); }
 .kt-graph-legend { display:flex; gap:14px; justify-content:center; flex-wrap:wrap; font-size:12px; }
 .kt-graph-legend span { display:inline-flex; align-items:center; gap:5px; }
 .kt-graph-legend i { width:9px; height:9px; border-radius:50%; display:inline-block; }
+
+/* Кана · контекст употребления */
+.kt-context,.kn-word-context { color:var(--muted); font-size:12px; line-height:1.45; }
+.kt-context { max-width:640px; margin:4px auto; text-align:center; }
+.kt-context > div + div { margin-top:4px; }
+.kn-word-context { display:block; margin-top:3px; white-space:normal; }

@@ -4,7 +4,7 @@ import { historyGraph } from "./kana-graph.js";
 import { askAuth } from "../ui/auth.js";
 import { Juice } from "../core/juice.js";
 import { WM } from "../wm.js";
-import { WORDS } from "./kana-data.js";
+import { WORDS, WORD_CONTEXT, PARTICLE_CONTEXT } from "./kana-data.js";
 import { KanaTTS } from "./kana-tts.js";
 import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-phrases.js";
 
@@ -75,6 +75,12 @@ const TTS = {
   say(text, rate) { if (st.voice) KanaTTS.say(text, rate); },
   stop: () => KanaTTS.stop(),
 };
+
+// Context is shown in guided lessons and only after submission in tests.
+function contextNotes(toks) {
+  const notes = [...new Set(toks.map(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k]).filter(Boolean))];
+  return notes.length ? el("div", { className: "kt-context" }, ...notes.map(textContent => el("div", { textContent }))) : "";
+}
 
 /* ---------- карточки по уровням ---------- */
 const P = (k, r, g) => ({ k, r, g, p: true });
@@ -336,7 +342,7 @@ export function openKanaType() {
           for(const sl of slots){mark(sl,ok||[...sl].every((_,j)=>hit[offset+j]));offset+=sl.length;}
           save();
           feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?"Верно!":"Правильно: "+w.k+" · "+w.r}),
-            el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
+            contextNotes([{k:ok?typed:w.k}]), el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
           ok?Juice.ding(4):Juice.buzz();TTS.say(ok?typed:w.k);
           submitBtn.textContent="Далее →";submitBtn.onclick=()=>{i++;next();};
           submitBtn.focus();
@@ -394,7 +400,7 @@ export function openKanaType() {
         const say = el("button", { className: "kn-btn small", textContent: "🔊 ещё раз", hidden: checking, onclick: () => { TTS.say(spoken(cd)); input.focus(); } });
         const quit = el("button", { className: "kn-btn small", textContent: "✕ в меню", onclick: () => menu() });
         const box = el("div", { className: "kt-card" + (showKeys && !checking ? " keys" : "") + (checking ? " checking" : "") },
-          el("div", { className: "kt-ru", textContent: cd.ru }), sent, legend, input, hint, voiceStatus || "",
+          el("div", { className: "kt-ru", textContent: cd.ru }), sent, legend, !checking ? contextNotes(cd.toks) : "", input, hint, voiceStatus || "",
           checking ? el("button", { className: "kn-btn kt-go", textContent: "Готово →", onclick: () => submit() }) : "");
         c.replaceChildren(el("div", { className: "kt-top" }, el("b", { textContent: label }), stat, el("span", { className: "kt-sp" }), say, quit), box);
         box.addEventListener("mousedown", e => { if (e.target !== input && !e.target.closest("button")) { e.preventDefault(); input.focus(); } });
@@ -468,8 +474,14 @@ export function openKanaType() {
               hint.append(el("div", {className:"kt-warn",textContent:"Правильно: " + cd.target + " · " + cd.keys.join(" ")}));
               if (strictKata && /[ァ-ヺ]/.test(cd.target)) hint.append(el("div",{className:"kn-muted",textContent:"Для катаканы используй F7."}));
             }
+            hint.append(contextNotes(cd.toks));
             exact ? Juice.ding(4) : Juice.buzz();
-            setTimeout(() => { if (box.isConnected) done(); }, exact && !missed.size ? 950 : 3200);
+            if (cd.toks.some(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k])) {
+              const nextBtn = box.querySelector(".kt-go");
+              nextBtn.textContent = "Далее →";
+              nextBtn.onclick = () => { if (box.isConnected) done(); };
+              nextBtn.focus();
+            } else setTimeout(() => { if (box.isConnected) done(); }, exact && !missed.size ? 950 : 3200);
           }
           return;
         }

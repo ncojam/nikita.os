@@ -6,7 +6,7 @@ import { openKanaPhrases, phraseBuilder, sentence } from "./kana-phrases.js";
 import { openKanaColors, openKanaItems } from "./kana-words.js";
 import {
   ALL, COLS, GRAMMAR, IRREG_NOTE, MNEMO, SAME_PAIRS, TEMPLATE, VOWELS,
-  KANJI_LIKE, cell, kanjiLikeOf, originOf, other, twinsOf, voicing, wordsFor,
+  KANJI_LIKE, WORD_CONTEXT, cell, kanjiLikeOf, originOf, other, twinsOf, voicing, wordsFor,
 } from "./kana-data.js";
 
 /* ================= Кана: хирагана, катакана и строй фразы =================
@@ -234,7 +234,7 @@ function word(w, ch) {
   for (const g of w.k) k.append(g === ch ? el("mark", { textContent: g }) : g);
   return el("div", { className: "kn-word" },
     el("span", { className: "kn-wstack" }, k, el("span", { className: "kn-wr", textContent: w.r })),
-    el("span", { className: "kn-wm", textContent: w.m }));
+    el("span", { className: "kn-wm" }, w.m, WORD_CONTEXT[w.k] ? el("small", { className: "kn-word-context", textContent: WORD_CONTEXT[w.k] }) : ""));
 }
 
 /* ---------- строй предложения ---------- */
