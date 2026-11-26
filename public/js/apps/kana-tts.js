@@ -115,7 +115,11 @@ function bufferFor(data) {
   const pcm = data.pcm;
   if (!pcm?.length || !Number.isFinite(data.sampleRate) || data.sampleRate <= 0) throw new Error("Пустой ответ синтезатора");
   const buffer = audioContext().createBuffer(1, pcm.length, data.sampleRate);
-  buffer.copyToChannel(pcm instanceof Float32Array ? pcm : new Float32Array(pcm), 0);
+  // openjtalkjs returns Float32Array in signed 16-bit PCM units, not normalized floats.
+  const channel = buffer.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) {
+    channel[i] = Number.isFinite(pcm[i]) ? Math.max(-1, Math.min(1, pcm[i] / 32768)) : 0;
+  }
   return buffer;
 }
 function say(text, rate = 0.9) {
