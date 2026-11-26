@@ -17,7 +17,7 @@ import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-
  * Ошибка — красная вспышка, дрожь, набор сбрасывается (blur → очистка → focus), этот слог пишем заново.
  * Проверка: без ромадзи и подсказок; правильные слоги озвучиваются, ответ принимается автоматически. Итог проверки двигает уровень: ≥90% — выше, <60% — ниже.
  * Подсказка клавиш (что жать в Mozc: は → ha, ー → -, っ → двойная согласная) — на уровнях 1–2 и после ошибки.
- * Катакана: на уровнях 1–2 засчитываем и хирагану, с 3-го — только настоящую (F7 перед Enter).
+ * Катакана: на уровнях 1–2 засчитываем и хирагану, с 3-го — только настоящую (F7, без Enter).
  * Статистика ошибок по знакам — store("kana.type").kana: слабые знаки чаще попадаются в уроках.
  */
 const LESSON = 12, CHECK = 5, EXAM_AFTER = 20, EXAM_SIZE = 5;
@@ -319,8 +319,8 @@ export function openKanaType() {
         }
         const w = list[i];
         const accepted = DICT.filter(x=>x.m===w.m).map(x=>x.k);
-        let submitted = false;
-        const input = el("input",{className:"kt-in",lang:"ja",autocomplete:"off",spellcheck:false,placeholder:"Напиши слово по-японски"});
+        let submitted = false, autoTimer, nextTimer;
+        const input = el("input",{className:"kt-in",lang:"ja",autocomplete:"off",spellcheck:false,placeholder:"Напиши слово по-японски — ответ сдаётся после паузы"});
         const feedback = el("div",{className:"kt-hint",role:"status"});
         const submitBtn = el("button",{className:"kn-btn kt-go",textContent:"Проверить",onclick:()=>submit()});
         const skip = el("button",{className:"kn-btn",textContent:"Не помню",onclick:()=>submit(true)});
@@ -329,9 +329,21 @@ export function openKanaType() {
           el("div",{className:"kn-row"},submitBtn,skip),
           el("button",{className:"kn-btn",textContent:"В меню (экзамен позже)",onclick:menu}));
         c.replaceChildren(panel); setTimeout(()=>{if(panel.isConnected)input.focus();},30);
-        input.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229){e.preventDefault();submit();}});
+        // Same inactivity window for every answer; no length or correctness hints.
+        // Mozc preedit is accepted directly, without requiring the IME commit key.
+        function observe(){
+          clearTimeout(autoTimer);
+          if(submitted||!panel.isConnected)return;
+          const typed=input.value.normalize("NFKC").replace(/\s/g,"");
+          if(!typed || LATIN_TAIL.test(typed))return;
+          autoTimer=setTimeout(()=>{if(panel.isConnected&&!submitted)submit();},2500);
+        }
+        input.addEventListener("input",observe);
+        input.addEventListener("compositionupdate",()=>queueMicrotask(observe));
+        input.addEventListener("compositionend",observe);
         function submit(skipped=false) {
           if(submitted||!panel.isConnected)return;
+          clearTimeout(autoTimer);
           const typed=input.value.trim().normalize("NFKC").replace(/\s/g,"");
           if(!typed&&!skipped){input.focus();return;}
           if(!skipped&&!KANA.test(typed)){feedback.textContent="Введи ответ каной (Mozc), без кандзи.";return;}
@@ -347,8 +359,9 @@ export function openKanaType() {
           feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?"Верно!":"Правильно: "+w.k+" · "+w.r}),
             contextNotes([{k:ok?typed:w.k}]), associationRow([{k:ok?typed:w.k}]), el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
           ok?Juice.ding(4):Juice.buzz();TTS.say(ok?typed:w.k);
-          submitBtn.textContent="Далее →";submitBtn.onclick=()=>{i++;next();};
-          submitBtn.focus();
+          function advance(){clearTimeout(nextTimer);if(!panel.isConnected)return;i++;next();}
+          submitBtn.textContent="Далее →";submitBtn.onclick=advance;
+          nextTimer=setTimeout(advance,ok?2600:6500);
         }
       }
       next();
@@ -447,9 +460,11 @@ export function openKanaType() {
             if (LATIN_TAIL.test(raw)) return;
             const exact = norm(typed) === norm(cd.target);
             // Allow time for F7 instead of treating in-progress hiragana as a typo.
-            if (!exact && strictKata && toHira(typed) === toHira(cd.target)) return;
-            if (exact || typed.length >= cd.target.length)
-              autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(); }, exact ? 220 : 1600);
+            if (typed.length) {
+              // Give incomplete answers and F7 conversion more time, but never require Enter.
+              const delay = exact ? 220 : typed.length >= cd.target.length && !(strictKata && toHira(typed) === toHira(cd.target)) ? 1600 : 5000;
+              autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(); }, delay);
+            }
           }
           input.addEventListener("input", observe);
           input.addEventListener("compositionupdate", () => queueMicrotask(observe));
@@ -487,8 +502,10 @@ export function openKanaType() {
             if (cd.toks.some(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k]) || ((missed.size || !exact) && associationSettings.visible && associationKeys(cd.toks).length)) {
               const nextBtn = box.querySelector(".kt-go");
               nextBtn.textContent = "Далее →";
-              nextBtn.onclick = () => { if (box.isConnected) done(); };
-              nextBtn.focus();
+              let nextTimer;
+              const advance = () => { clearTimeout(nextTimer); if (box.isConnected) done(); };
+              nextBtn.onclick = advance;
+              nextTimer = setTimeout(advance, exact && !missed.size ? 4000 : 7500);
             } else setTimeout(() => { if (box.isConnected) done(); }, exact && !missed.size ? 950 : 3200);
           }
           return;
@@ -504,6 +521,7 @@ export function openKanaType() {
 
         input.addEventListener("compositionstart", () => { composing = true; });
         input.addEventListener("compositionend", () => { composing = false; if (!resetting) commit(); });
+        input.addEventListener("compositionupdate", () => queueMicrotask(() => { if (composing && !resetting && !finished && box.isConnected) check(input.value, false, false); }));
         input.addEventListener("input", e => {
           if (resetting || finished || !box.isConnected) return;
           if (!t0) t0 = performance.now();
@@ -511,7 +529,7 @@ export function openKanaType() {
           else commit();
         });
 
-        // текст закреплён (Enter в Mozc, или набор без IME)
+        // текст закреплён IME или введён напрямую; Enter не требуется приложением
         function commit() {
           const v = input.value;
           if (finished || !box.isConnected || !v) return;
@@ -523,7 +541,7 @@ export function openKanaType() {
         function check(raw, strict, final) {
           const s = raw.replace(LATIN_TAIL, "");
           if (KANJI.test(s)) {
-            if (!final) { warn(hint, "Это иероглиф — пробел переводит в кандзи. Нажми Esc или Backspace и сразу Enter."); return false; }
+            if (!final) { warn(hint, "Это иероглиф — пробел переводит в кандзи. Нажми Esc или Backspace, чтобы вернуться к кане."); return false; }
           } else hint.replaceChildren();
           let L = 0;
           for (; L < s.length && base + L < cd.target.length; L++) {
@@ -532,17 +550,19 @@ export function openKanaType() {
             if (!same(s[L], tc, strict && final)) {
               if (final && toHira(s[L]) === toHira(tc)) warn(hint, tc === toHira(tc)
                 ? "Здесь хирагана — катаканой (F7) переводи только своё слово, не всю строку."
-                : "Здесь нужна катакана — нажми F7 перед Enter.");
+                : "Здесь нужна катакана — нажми F7.");
               fail(slotAt(base + L));
               return false;
             }
           }
-          advance(base + L);
+          const waitingScript = strictKata && !final && s.length > 0 && s !== cd.target.slice(base, base+s.length);
+          advance(base + L, !waitingScript && !LATIN_TAIL.test(raw));
+          if (waitingScript && base + L >= cd.target.length) warn(hint, "Проверь азбуку: для катаканы F7, для хираганы F6.");
           if (final) base += L;
           return true;
         }
 
-        function advance(pos) {
+        function advance(pos, canFinish = true) {
           for (let si = 0; si < cd.slots.length; si++) {
             const end = cd.start[si] + cd.slots[si].length;
             if (end <= pos && end > doneTo) {
@@ -560,7 +580,7 @@ export function openKanaType() {
           const cur = cd.slots.findIndex((s, si) => cd.start[si] + s.length > doneTo);
           slotEls.forEach((sl, si) => sl.classList.toggle("cur", si === cur));
           paintStat();
-          if (doneTo >= cd.target.length) finish();
+          if (canFinish && doneTo >= cd.target.length) finish();
         }
 
         function fail(si) {

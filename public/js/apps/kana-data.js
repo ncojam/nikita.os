@@ -217,6 +217,7 @@ export const WORDS = {
 えき|eki|станция
 えび|ebi|креветка
 おちゃ|ocha|чай
+おいしい|oishii|вкусный
 おかね|okane|деньги
 かさ|kasa|зонт
 かお|kao|лицо

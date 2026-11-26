@@ -166,15 +166,106 @@ export function playOsc3(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
 /* ---------- встроенные ударные (рендерятся при первом обращении, путь "builtin:имя") ---------- */
 export const BUILTIN = { kick: "Kick", snare: "Snare", clap: "Clap", hat: "Hat", openhat: "Open hat", tom: "Tom",
   kickhard: "Kick punch", kick808: "808", snarefat: "Snare fat", rim: "Rim", snap: "Snap", shaker: "Shaker",
-  crash: "Crash", ride: "Ride", cowbell: "Cowbell", conga: "Conga", metal: "Metal hit", impact: "Impact", revcrash: "Reverse crash", whip: "Whip", whoosh: "Whoosh", chime: "Chime", pop: "Pop", buzz: "Buzz", horn: "Horn", quack: "Quack" };
+  crash: "Crash", ride: "Ride", cowbell: "Cowbell", conga: "Conga", metal: "Metal hit", impact: "Impact", revcrash: "Reverse crash", whip: "Whip", whoosh: "Whoosh", chime: "Chime", pop: "Pop", buzz: "Buzz", horn: "Horn", quack: "Quack", rain: "Rain", train: "Train", door: "Door", crunch: "Crunch", fry: "Fry", rewind: "Rewind", wind: "Wind", phone: "Phone", cluck: "Cluck", tap: "Tap", heart: "Heart", paper: "Paper", wood: "Wood", birdsong: "Birdsong", surf: "Surf", fabric: "Fabric", breath: "Breath", pour: "Pour", gulp: "Gulp", footstep: "Footstep", ship: "Ship", hiss: "Hiss", sparkle: "Sparkle", drop: "Drop", snow: "Snow", dream: "Dream", owl: "Owl", firework: "Firework", plane: "Plane", doorbell: "Doorbell", car: "Car", fire: "Fire", school: "School", slide: "Slide", steam: "Steam", clock: "Clock", box: "Box", elephant: "Elephant", deflate: "Deflate", sonar: "Sonar", keyboard: "Keyboard", monitor: "Monitor", pencil: "Pencil", rumble: "Rumble", glass: "Glass", ticket: "Ticket", projector: "Projector", bigben: "Bigben", modem: "Modem", alert: "Alert", fan: "Fan", elevator: "Elevator", cash: "Cash", football: "Football", bus: "Bus", slice: "Slice", flush: "Flush", tennis: "Tennis", cutlery: "Cutlery", rotor: "Rotor", miss: "Miss", laugh: "Laugh", radio: "Radio", golf: "Golf", whistle: "Whistle", dance: "Dance", guitar: "Guitar", mail: "Mail", dog: "Dog", cat: "Cat", keys: "Keys", camera: "Camera" };
 const BUILTIN_DUR = { kick: 0.6, snare: 0.35, clap: 0.4, hat: 0.08, openhat: 0.45, tom: 0.5, kickhard: 0.5, kick808: 1.5, snarefat: 0.45, rim: 0.1,
-  snap: 0.2, shaker: 0.15, crash: 2, ride: 1.3, cowbell: 0.4, conga: 0.3, metal: 0.35, impact: 2.5, revcrash: 2, whip: 0.3, whoosh: 0.36, chime: 0.48, pop: 0.16, buzz: 0.3, horn: 0.34, quack: 0.22 };
+  snap: 0.2, shaker: 0.15, crash: 2, ride: 1.3, cowbell: 0.4, conga: 0.3, metal: 0.35, impact: 2.5, revcrash: 2, whip: 0.3, whoosh: 0.36, chime: 0.48, pop: 0.16, buzz: 0.3, horn: 0.34, quack: 0.22, rain: 0.95, train: 0.95, door: 0.95, crunch: 0.95, fry: 0.95, rewind: 0.95, wind: 0.95, phone: 0.95, cluck: 0.95, tap: 0.95, heart: 0.95, paper: 0.95, wood: 0.95, birdsong: 0.95, surf: 0.95, fabric: 0.95, breath: 0.95, pour: 0.95, gulp: 0.95, footstep: 0.95, ship: 0.95, hiss: 0.95, sparkle: 0.95, drop: 0.95, snow: 0.95, dream: 0.95, owl: 0.95, firework: 0.95, plane: 0.95, doorbell: 0.95, car: 0.95, fire: 0.95, school: 0.95, slide: 0.95, steam: 0.95, clock: 0.95, box: 0.95, elephant: 0.95, deflate: 0.95, sonar: 0.95, keyboard: 0.95, monitor: 0.95, pencil: 0.95, rumble: 0.95, glass: 0.95, ticket: 0.95, projector: 0.95, bigben: 0.95, modem: 0.95, alert: 0.95, fan: 0.95, elevator: 0.95, cash: 0.95, football: 0.95, bus: 0.95, slice: 0.95, flush: 0.95, tennis: 0.95, cutlery: 0.95, rotor: 0.95, miss: 0.95, laugh: 0.95, radio: 0.95, golf: 0.95, whistle: 0.95, dance: 0.95, guitar: 0.95, mail: 0.95, dog: 0.95, cat: 0.95, keys: 0.95, camera: 0.95 };
 /* новые ударные: из простых генераторов, с насыщением (tanh) — сразу «жирные» */
 function extraDrum(oc, name, out, noise, env, sr) {
   const sat = (k = 2) => { const ws = oc.createWaveShaper(), c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; c[i] = Math.tanh(x * k) / Math.tanh(k); } ws.curve = c; ws.connect(out); return ws; };
   const osc = (type, f, dest, g0, dec, t = 0) => { const o = oc.createOscillator(), g = oc.createGain(); o.type = type; o.frequency.value = f; env(g, g0, dec, t); o.connect(g); g.connect(dest); o.start(t); o.stop(t + dec + 0.02); return o; };
   const nz = (type, f, q, dest, g0, dec, t = 0) => { const n = noise(), fl = oc.createBiquadFilter(), g = oc.createGain(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; env(g, g0, dec, t); n.connect(fl); fl.connect(g); g.connect(dest); n.start(t); return n; };
   const metal = (dest, g0, dec, freqs = [205, 304, 369, 522, 540, 800]) => { const bus = oc.createGain(); bus.gain.value = 1 / freqs.length; bus.connect(dest); freqs.forEach(f => osc("square", f * 1.71, bus, g0, dec)); };
+  // Short procedural Foley. No samples, no external assets.
+  const burst = (t,f,g=.45,d=.07,q=1) => nz("bandpass",f,q,out,g,d,t);
+  const tone = (t,f,g=.25,d=.12,type="sine",to=f) => {
+    const o=osc(type,f,out,g,d,t);
+    if(to!==f){o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(to,t+d*.8);}
+    return o;
+  };
+  const bed = (t,d,f0,f1,g=.35,type="bandpass",q=.8) => {
+    const n=noise(),fl=oc.createBiquadFilter(),amp=oc.createGain();
+    fl.type=type;fl.Q.value=q;
+    fl.frequency.setValueAtTime(f0,t);fl.frequency.exponentialRampToValueAtTime(f1,t+d*.9);
+    amp.gain.setValueAtTime(.0001,t);amp.gain.linearRampToValueAtTime(g,t+Math.min(.075,d*.25));amp.gain.exponentialRampToValueAtTime(.0001,t+d);
+    n.connect(fl);fl.connect(amp);amp.connect(out);n.start(t);n.stop(t+d);
+  };
+  const taps = (times,f=1800,g=.4,d=.045) => times.forEach((t,i)=>burst(t,f*(i%2?.83:1),g,d,1.4));
+  const bell = (t,f=880,g=.35,d=.34)=>{tone(t,f,g,d);tone(t,f*2.01,g*.22,d*.65);};
+  const foley = {
+    train(){bed(0,.92,180,360,.45,"lowpass");tone(0,55,.12,.87,"triangle",68);[.03,.12,.25,.34,.47,.56,.69,.78].forEach((t,i)=>{burst(t,1800,.5,.055,2);tone(t,i%2?145:95,.23,.07,"triangle");});bed(.56,.36,2200,4300,.2,"bandpass",2);},
+    door(){bed(0,.32,380,950,.2);tone(.02,160,.15,.25,"triangle",420);burst(.35,750,.5,.08);tone(.35,85,.35,.15);},
+    crunch(){taps([0,.025,.06,.12,.16],3600,.5,.045);burst(.1,850,.25,.08);},
+    fry(){for(let i=0;i<12;i++)burst(i*.065,2600+(i%4)*1200,.22,.07);bed(0,.87,6500,4200,.2,"highpass");},
+    rewind(){bed(0,.44,3500,550,.4);tone(0,1600,.12,.4,"triangle",230);burst(.45,1500,.4,.06);},
+    wind(){bed(0,.9,320,1400,.45,"bandpass",.7);},
+    phone(){[0,.21,.42].forEach(t=>tone(t,155,.32,.13,"sawtooth"));},
+    cluck(){[0,.18,.37].forEach(t=>{tone(t,650,.28,.1,"triangle",280);burst(t,1100,.12,.05);});},
+    tap(){burst(0,1900,.4,.035);tone(0,230,.15,.05);},
+    heart(){[0,.18,.52,.7].forEach((t,i)=>tone(t,i%2?65:90,.38,.12,"sine",42));},
+    paper(){[0,.12,.28,.43].forEach((t,i)=>bed(t,.14,1800+i*500,4800,.34));},
+    wood(){tone(0,230,.45,.12,"triangle",155);burst(0,1200,.35,.05);},
+    birdsong(){[0,.13,.31,.43].forEach((t,i)=>tone(t,1800+i%2*600,.2,.11,"sine",i%2?1400:2600));},
+    surf(){bed(0,.86,250,2600,.45);bed(.25,.58,6000,2200,.15,"highpass");},
+    fabric(){bed(0,.22,350,1500,.24);bed(.25,.22,700,400,.28);tone(.21,80,.11,.15);},
+    breath(){bed(0,.36,650,1800,.24);bed(.43,.39,1500,650,.2);},
+    pour(){for(let i=0;i<8;i++){const t=i*.085;tone(t,450+i*90,.12,.09,"sine",700+i*100);burst(t,1700,.17,.08);}bed(.02,.77,900,2600,.15);},
+    gulp(){[0,.22,.42].forEach(t=>{tone(t,410,.3,.13,"sine",115);burst(t,850,.13,.06);});},
+    footstep(){[0,.29,.58].forEach(t=>{tone(t,100,.32,.13,"triangle",45);burst(t,1000,.24,.065);});},
+    ship(){tone(0,112,.25,.75,"triangle",105);tone(0,148,.22,.72,"triangle",138);bed(0,.8,160,650,.18);},
+    hiss(){bed(0,.7,2600,7000,.46,"highpass");},
+    sparkle(){[0,.08,.19,.3].forEach((t,i)=>bell(t,[1200,1800,2400,3000][i],.22,.25));},
+    drop(){tone(0,550,.4,.15,"sine",1050);tone(.04,750,.12,.11,"sine",370);},
+    snow(){[0,.27,.54].forEach(t=>{bed(t,.16,2200,5000,.32);burst(t,900,.2,.06);});},
+    dream(){[0,.16,.32].forEach((t,i)=>bell(t,[440,660,880][i],.19,.43));},
+    owl(){tone(0,430,.3,.25,"sine",330);tone(.35,390,.26,.34,"sine",300);},
+    firework(){bed(0,.37,400,3200,.26);burst(.4,1100,.5,.11);for(let i=0;i<7;i++)burst(.48+i*.055,3000+i*200,.16,.06);},
+    plane(){bed(0,.9,350,1800,.44,"lowpass");tone(0,100,.14,.8,"triangle",145);},
+    doorbell(){bell(0,700,.4,.4);bell(.35,520,.36,.45);},
+    car(){tone(0,65,.32,.75,"sawtooth",150);tone(0,120,.16,.77,"triangle",300);bed(0,.8,250,950,.22,"lowpass");},
+    fire(){for(let i=0;i<9;i++)burst(i*.09,1700+i%3*800,.23,.04);bed(0,.85,700,1100,.12);},
+    school(){[0,.22,.44].forEach(t=>bell(t,1040,.28,.21));},
+    slide(){bed(0,.5,700,2400,.25);tone(0,250,.13,.45,"triangle",650);},
+    steam(){bed(0,.7,2200,6500,.32,"highpass");},
+    clock(){[0,.25,.5,.75].forEach((t,i)=>burst(t,i%2?1400:2100,.4,.035,3));},
+    box(){burst(0,650,.45,.09);tone(0,100,.25,.15,"triangle");bed(.17,.18,1400,2700,.2);},
+    elephant(){tone(0,520,.32,.52,"sawtooth",175);tone(.12,710,.18,.45,"triangle",280);},
+    deflate(){bed(0,.67,6500,700,.4);tone(0,480,.15,.62,"sine",95);},
+    sonar(){tone(0,1100,.27,.19);tone(.32,1100,.13,.16);tone(.59,1100,.07,.15);},
+    keyboard(){taps([0,.09,.19,.29,.45,.55,.68],2900,.34,.035);},
+    monitor(){tone(0,1100,.24,.08);tone(.46,1100,.24,.08);},
+    pencil(){[0,.16,.31,.48,.65].forEach(t=>bed(t,.12,2600,3900,.22));},
+    rumble(){tone(0,90,.32,.5,"triangle",45);tone(.2,110,.18,.42,"sine",60);},
+    glass(){bell(0,1700,.38,.6);tone(0,2750,.12,.38);},
+    ticket(){burst(0,1300,.35,.05);burst(.04,4500,.3,.06);bed(.1,.24,2700,4300,.23);},
+    projector(){taps([0,.07,.14,.21,.28,.35,.42,.49,.56,.63,.7],1400,.19,.035);bed(0,.8,180,450,.1);},
+    bigben(){bell(0,392,.35,.55);bell(.32,330,.3,.55);},
+    modem(){[0,.13,.28,.45,.62].forEach((t,i)=>tone(t,[750,1200,980,1600,600][i],.18,.13,"square"));},
+    alert(){tone(0,800,.23,.12,"triangle");tone(.17,640,.23,.12,"triangle");},
+    fan(){bed(0,.9,180,850,.35,"lowpass");tone(0,70,.15,.84,"triangle",100);},
+    elevator(){bell(0,880,.33,.32);bed(.35,.5,500,1300,.24);},
+    cash(){taps([0,.06,.15],1900,.33,.05);bell(.21,1300,.3,.48);bell(.31,1700,.2,.4);},
+    football(){tone(0,100,.45,.12,"triangle",50);burst(0,950,.33,.07);bed(.17,.54,500,1600,.19);},
+    bus(){tone(0,82,.28,.78,"triangle",117);bed(0,.68,220,900,.24,"lowpass");bed(.62,.27,2300,600,.28);},
+    slice(){bed(0,.19,3400,1300,.33);burst(.2,1100,.4,.055);tone(.2,185,.2,.09);},
+    flush(){bed(0,.9,450,1100,.44);[.1,.29,.48,.67].forEach(t=>tone(t,270,.14,.18,"sine",90));},
+    tennis(){[0,.48].forEach(t=>{burst(t,2300,.4,.06);tone(t,270,.26,.11,"triangle",155);});},
+    cutlery(){[0,.19,.41].forEach((t,i)=>bell(t,1450+i*350,.3,.18));},
+    rotor(){for(let i=0;i<12;i++)burst(i*.074,440,.34,.06);tone(0,72,.19,.85,"triangle");},
+    miss(){tone(0,550,.2,.2,"triangle",220);tone(.21,170,.22,.35,"triangle",90);},
+    laugh(){[0,.12,.26,.42].forEach((t,i)=>tone(t,370+i%2*65,.19,.11,"triangle",260));},
+    radio(){bed(0,.36,3000,500,.3);tone(.36,880,.13,.12,"triangle");bed(.5,.31,4500,1600,.24);},
+    golf(){bed(0,.18,500,3200,.25);burst(.17,2100,.45,.04);tone(.18,360,.22,.1,"triangle");},
+    whistle(){tone(0,1800,.23,.27,"sine",2250);tone(.32,1950,.19,.2,"sine",1700);},
+    dance(){[0,.22,.44,.66].forEach((t,i)=>{tone(t,i%2?180:80,.32,.14,"triangle",55);burst(t+.08,3500,.2,.04);});},
+    guitar(){[0,.08,.16].forEach((t,i)=>{tone(t,[196,247,294][i],.3,.55,"triangle");tone(t,[392,494,588][i],.09,.24);});},
+    mail(){bed(0,.18,1800,3200,.26);burst(.21,620,.43,.075);tone(.21,130,.18,.14);},
+    dog(){[0,.28].forEach(t=>{tone(t,160,.3,.19,"sawtooth",95);burst(t,800,.28,.1);});},
+    cat(){tone(0,480,.3,.44,"triangle",820);tone(.36,600,.15,.3,"sine",360);},
+    rain(){for(let i=0;i<16;i++)burst(i*.052,1900+i%5*600,.13,.04);bed(0,.9,4400,3000,.15,"highpass");},
+    keys(){[0,.07,.13,.23].forEach((t,i)=>bell(t,1900+i*270,.25,.15));},
+    camera(){burst(0,2400,.4,.035);burst(.045,3600,.35,.035);tone(.08,200,.18,.08,"triangle");}
+  };
+  if (foley[name]) { foley[name](); return; }
   if (name === "whip" || name === "whoosh") {
     const n = noise(), fl = oc.createBiquadFilter(), g = oc.createGain();
     fl.type = "bandpass"; fl.Q.value = 0.8;
