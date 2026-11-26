@@ -18,7 +18,7 @@ import { OBJ_FLAT, PLACE, SITUATIONS, SUBJ, TIME, VERBS, compose } from "./kana-
  * Ошибка — красная вспышка, дрожь, набор сбрасывается (blur → очистка → focus), этот слог пишем заново.
  * Проверка: без ромадзи и подсказок; правильные слоги озвучиваются, ответ принимается автоматически. Итог проверки двигает уровень: ≥90% — выше, <60% — ниже.
  * Подсказка клавиш (что жать в Mozc: は → ha, ー → -, っ → двойная согласная) — на уровнях 1–2 и после ошибки.
- * Катакана обязательна на всех уровнях (F7 без Enter).
+ * Катакана обязательна на всех уровнях; встроенное переключение азбуки работает без словаря и Enter.
  * Статистика ошибок по знакам — store("kana.type").kana: слабые знаки чаще попадаются в уроках.
  */
 const LESSON = 12, CHECK = 5, EXAM_AFTER = 20, EXAM_SIZE = 5;
@@ -40,6 +40,40 @@ const toHira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeA
 const KANA = /^[ぁ-ゖァ-ヺー]+$/;
 const KANJI = /[㐀-鿿]/;
 const LATIN_TAIL = /[A-Za-zＡ-Ｚａ-ｚ'’]+$/;
+
+// Explicit script conversion: never consult the answer or a word dictionary.
+function convertKana(text, script) {
+  return text.normalize("NFKC").replace(script==="kata"?/[ぁ-ゖ]/g:/[ァ-ヶ]/g,
+    ch=>String.fromCharCode(ch.charCodeAt(0)+(script==="kata"?0x60:-0x60)));
+}
+function conversionControls(input, apply) {
+  let snapshot=null;
+  const convert=(script, raw=input.value)=>{
+    snapshot=null;
+    if(input.disabled||!input.isConnected||!/[ぁ-ゖァ-ヺ]/.test(raw.normalize("NFKC")))return false;
+    apply(convertKana(raw,script));return true;
+  };
+  const button=(script,label)=>{
+    const b=el("button",{className:"kn-btn small",type:"button",textContent:label,title:"Преобразовать текущий ввод без словаря Mozc",
+      onclick:()=>convert(script,snapshot??input.value)});
+    // Preserve the preedit before a browser button can cause IME focus loss.
+    b.addEventListener("pointerdown",e=>{snapshot=input.value;e.preventDefault();});
+    b.addEventListener("pointercancel",()=>{snapshot=null;});
+    return b;
+  };
+  const bar=el("div",{className:"kn-row",style:"justify-content:center;flex-wrap:wrap"},
+    button("hira","あ Хирагана"),button("kata","ア Катакана"),
+    el("span",{className:"kn-muted",textContent:"Tab — сменить азбуку, если клавиша дошла до сайта"}));
+  input.before(bar);
+  input.addEventListener("keydown",e=>{
+    if(e.key!=="Tab"||e.shiftKey||e.ctrlKey||e.altKey||e.metaKey)return;
+    const raw=input.value.normalize("NFKC");
+    if(!/[ぁ-ゖァ-ヺ]/.test(raw))return;
+    e.preventDefault();
+    convert(/[ぁ-ゖ]/.test(raw)?"kata":"hira",raw);
+  });
+  return bar;
+}
 
 // слоги: маленькие ゃ ゅ ょ ぁ… прилипают к предыдущему знаку (きょ — один слог), っ и ー — отдельные
 const slotsOf = k => {
@@ -307,7 +341,7 @@ export function openKanaType() {
       const preview = el("button", { className: "kn-btn small", textContent: "🔊 Проверить голос", onclick: () => TTS.say("こんにちは。わたしはにほんごをべんきょうします。") });
       c.replaceChildren(el("div", { className: "kt-menu" },
         el("h3", { textContent: "⌨️ Тренажёр печати" }),
-        el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи. Ответ принимается автоматически; катакана обязательна на всех уровнях — F7, хирагана — F6. Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
+        el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи. Ответ принимается автоматически; катакана обязательна на всех уровнях. Кнопки あ / ア преобразуют текущий набор без словаря Mozc и без Enter. Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
         el("div",{className:"kn-row"},syncStatus,login,account.uid!==null&&account.guestAvailable?el("button",{className:"kn-btn small",textContent:"Перенести гостевой прогресс",onclick:()=>{if(importGuest())menu();}}):""),
         lv,
         el("div", { className: "kn-builder" }, voice, keys, assoc, assocSound),
@@ -354,30 +388,36 @@ export function openKanaType() {
         const expectedScript=scriptOf(w.k);
         const accepted = DICT.filter(x=>x.m===w.m&&scriptOf(x.k)===expectedScript).map(x=>x.k);
         const started=performance.now();
-        let submitted = false, autoTimer, nextTimer;
+        let submitted = false, autoTimer, nextTimer, converting = false;
         const input = el("input",{className:"kt-in",lang:"ja",autocomplete:"off",spellcheck:false,placeholder:"Напиши слово по-японски — ответ сдаётся после паузы"});
         const feedback = el("div",{className:"kt-hint",role:"status"});
         const submitBtn = el("button",{className:"kn-btn kt-go",textContent:"Проверить",onclick:()=>submit()});
         const skip = el("button",{className:"kn-btn",textContent:"Не помню",onclick:()=>submit(true)});
         const panel = el("div",{className:"kt-menu kt-card"},el("h3",{textContent:"🎓 Экзамен "+(i+1)+" / "+list.length}),
-          el("div",{className:"kt-ru",textContent:w.m}),el("p",{className:"kt-script",textContent:expectedScript==="kata"?"Ответ катаканой · F7":"Ответ хираганой · F6"}),input,feedback,
+          el("div",{className:"kt-ru",textContent:w.m}),el("p",{className:"kt-script",textContent:expectedScript==="kata"?"Ответ катаканой · кнопка ア":"Ответ хираганой · кнопка あ"}),input,feedback,
           el("div",{className:"kn-row"},submitBtn,skip),
           el("button",{className:"kn-btn",textContent:"В меню (экзамен позже)",onclick:menu}));
-        c.replaceChildren(panel); setTimeout(()=>{if(panel.isConnected)input.focus();},30);
+        c.replaceChildren(panel);
+        conversionControls(input,value=>{
+          if(submitted||converting)return;
+          converting=true;clearTimeout(autoTimer);input.blur();
+          setTimeout(()=>{if(!panel.isConnected||submitted)return;input.value=value;converting=false;input.focus();observe();},40);
+        });
+        setTimeout(()=>{if(panel.isConnected)input.focus();},30);
         // Same inactivity window for every answer; no length or correctness hints.
         // Mozc preedit is accepted directly, without requiring the IME commit key.
         function observe(){
           clearTimeout(autoTimer);
-          if(submitted||!panel.isConnected)return;
+          if(submitted||converting||!panel.isConnected)return;
           const typed=input.value.normalize("NFKC").replace(/\s/g,"");
           if(!typed || LATIN_TAIL.test(typed))return;
-          autoTimer=setTimeout(()=>{if(panel.isConnected&&!submitted)submit();},2500);
+          autoTimer=setTimeout(()=>{if(panel.isConnected&&!submitted)submit();},4000);
         }
         input.addEventListener("input",observe);
         input.addEventListener("compositionupdate",()=>queueMicrotask(observe));
         input.addEventListener("compositionend",observe);
         function submit(skipped=false) {
-          if(submitted||!panel.isConnected)return;
+          if(submitted||converting||!panel.isConnected)return;
           clearTimeout(autoTimer);
           const typed=input.value.trim().normalize("NFKC").replace(/\s/g,"");
           if(!typed&&!skipped){input.focus();return;}
@@ -394,7 +434,7 @@ export function openKanaType() {
           let offset=0;
           for(const sl of slots){const good=ok||[...sl].every((_,j)=>hit[offset+j]);mark(sl,good);recordItem("scriptKana",sl,"exam",good);offset+=sl.length;}
           save();
-          feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?"Верно!":"Правильно: "+w.k+" · "+w.r+(expectedScript==="kata"&&scriptOf(typed)==="hira"?" · нужна катакана (F7)":"")}),
+          feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?"Верно!":"Правильно: "+w.k+" · "+w.r+(expectedScript==="kata"&&scriptOf(typed)==="hira"?" · нужна катакана (кнопка ア)":"")}),
             contextNotes([{k:ok?typed:w.k}]), associationRow([{k:ok?typed:w.k}]), el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
           ok?Juice.ding(4):Juice.buzz();TTS.say(ok?typed:w.k);
           function advance(){clearTimeout(nextTimer);if(!panel.isConnected)return;i++;next();}
@@ -456,7 +496,7 @@ export function openKanaType() {
         const say = el("button", { className: "kn-btn small", textContent: "🔊 ещё раз", hidden: checking, onclick: () => { TTS.say(spoken(cd)); input.focus(); } });
         const quit = el("button", { className: "kn-btn small", textContent: "✕ в меню", onclick: () => menu() });
         const box = el("div", { className: "kt-card" + (showKeys && !checking ? " keys" : "") + (checking ? " checking" : "") },
-          el("div", { className: "kt-ru", textContent: cd.ru }), el("p",{className:"kt-script",textContent:script==="kata"?"Набери катаканой · F7":script==="mixed"?"Катакана F7, хирагана F6 · переключай азбуку по словам":"Набери хираганой · F6"}), sent, legend, !checking ? contextNotes(cd.toks,cd.example) : "", !checking ? associationRow(cd.toks) : "", input, hint, voiceStatus || "",
+          el("div", { className: "kt-ru", textContent: cd.ru }), el("p",{className:"kt-script",textContent:script==="kata"?"Набери катаканой · кнопка ア":script==="mixed"?"Переключай азбуку по словам: あ / ア":"Набери хираганой · кнопка あ"}), sent, legend, !checking ? contextNotes(cd.toks,cd.example) : "", !checking ? associationRow(cd.toks) : "", input, hint, voiceStatus || "",
           checking ? el("button", { className: "kn-btn kt-go", textContent: "Готово →", onclick: () => submit() }) : "");
         c.replaceChildren(el("div", { className: "kt-top" }, el("b", { textContent: label }), stat, el("span", { className: "kt-sp" }), say, quit), box);
         box.addEventListener("mousedown", e => { if (e.target !== input && !e.target.closest("button")) { e.preventDefault(); input.focus(); } });
@@ -475,6 +515,11 @@ export function openKanaType() {
           let submitted = false, autoTimer, voicedTo = 0, fixed = "", segmentReset = false, composingCheck = false;
           const prefix = el("div",{className:"kn-muted",hidden:true});
           input.before(prefix);
+          conversionControls(input,value=>{
+            if(submitted||segmentReset)return;
+            clearTimeout(autoTimer);segmentReset=true;input.blur();
+            setTimeout(()=>{if(!box.isConnected||submitted)return;input.value=value;segmentReset=false;composingCheck=false;input.focus();observe();},40);
+          });
           input.addEventListener("compositionstart",()=>{composingCheck=true;});
           const firstMisses = new Set();
           const norm = strictKata ? s => s : toHira;
@@ -507,7 +552,7 @@ export function openKanaType() {
             // Keep the accepted IME segment when the shown phrase changes alphabet.
             // Compare only length and alphabet here, never reveal lexical correctness.
             const boundary=cd.toks.findIndex((_,ti)=>ti>0&&cd.start[cd.owner.indexOf(ti)]===typed.length);
-            if(script==="mixed"&&composingCheck&&current&&KANA.test(current)&&boundary>0&&
+            if(script==="mixed"&&current&&KANA.test(current)&&boundary>0&&
                scriptOf(current)===scriptOf(cd.target.slice(fixed.length,typed.length))&&
                scriptOf(cd.toks[boundary-1].k)!==scriptOf(cd.toks[boundary].k)){
               fixed=typed;prefix.hidden=false;prefix.textContent="Введено: "+fixed;
@@ -519,7 +564,7 @@ export function openKanaType() {
             // Allow time for F7 instead of treating in-progress hiragana as a typo.
             if (typed.length) {
               // Give incomplete answers and F7 conversion more time, but never require Enter.
-              const delay = exact ? 220 : typed.length >= cd.target.length && !(strictKata && toHira(typed) === toHira(cd.target)) ? 1600 : 5000;
+              const delay = exact ? 220 : 5000;
               autoTimer = setTimeout(() => { if (box.isConnected && !submitted) submit(); }, delay);
             }
           }
@@ -551,7 +596,7 @@ export function openKanaType() {
             hint.replaceChildren(el("span", { className: "kn-muted", textContent: typed ? "Ты набрал: " : "Пусто" }), typed ? el("span", { className: "kt-typed", textContent: typed }) : "");
             if (missed.size || !exact) {
               hint.append(el("div", {className:"kt-warn",textContent:"Правильно: " + cd.target + " · " + cd.keys.join(" ")}));
-              if (strictKata && /[ァ-ヺ]/.test(cd.target)) hint.append(el("div",{className:"kn-muted",textContent:"Для катаканы используй F7."}));
+              if (strictKata && /[ァ-ヺ]/.test(cd.target)) hint.append(el("div",{className:"kn-muted",textContent:"Для катаканы используй кнопку ア."}));
             }
             hint.append(contextNotes(cd.toks,cd.example));
             if (missed.size || !exact) hint.append(associationRow(cd.toks));
@@ -575,6 +620,11 @@ export function openKanaType() {
         const missed = new Set();
         const slotAt = pos => { let s = 0; while (s + 1 < cd.slots.length && cd.start[s + 1] <= pos) s++; return s; };
         const same = (a, b, strict) => strict ? a === b : toHira(a) === toHira(b);
+        conversionControls(input,value=>{
+          if(finished||resetting)return;
+          resetting=true;input.blur();
+          setTimeout(()=>{if(!box.isConnected||finished)return;input.value=value;composing=false;resetting=false;input.focus();if(!t0)t0=performance.now();commit();},40);
+        });
 
         input.addEventListener("compositionstart", () => { composing = true; });
         input.addEventListener("compositionend", () => { composing = false; if (!resetting) commit(); });
@@ -591,6 +641,10 @@ export function openKanaType() {
           const v = input.value;
           if (finished || !box.isConnected || !v) return;
           if (!composing && LATIN_TAIL.test(v) && !/[ぁ-ヿ]/.test(v)) { warn(hint, "Это латиница — включи японскую раскладку (Mozc)."); clear(); return; }
+          // A committed but phonetic match in the wrong script is still editable.
+          // Wait for explicit conversion rather than deleting the text at focus loss.
+          const raw=v.replace(LATIN_TAIL,""),target=cd.target.slice(base,base+raw.length);
+          if(raw && raw!==target && toHira(raw)===toHira(target)){check(v,false,false);return;}
           if (check(v, strictKata, true)) input.value = "";
         }
 
@@ -606,8 +660,8 @@ export function openKanaType() {
             // пока идёт набор, Mozc показывает хирагану: катакану сверяем «по звуку», строго — при закреплении
             if (!same(s[L], tc, strict && final)) {
               if (final && toHira(s[L]) === toHira(tc)) warn(hint, tc === toHira(tc)
-                ? "Здесь хирагана — катаканой (F7) переводи только своё слово, не всю строку."
-                : "Здесь нужна катакана — нажми F7.");
+                ? "Здесь хирагана — преобразуй текущий набор кнопкой あ."
+                : "Здесь нужна катакана — нажми ア.");
               fail(slotAt(base + L));
               return false;
             }
@@ -617,7 +671,7 @@ export function openKanaType() {
           const waitingScript=matched<L;
           if(s.length>L && !waitingScript){fail(slotEls.length-1);return false;}
           advance(base+matched, !waitingScript && !LATIN_TAIL.test(raw) && base+L===cd.target.length && s.length===L);
-          if(waitingScript)warn(hint, /[ァ-ヺ]/.test(cd.target[base+matched])?"Нужна катакана — нажми F7.":"Нужна хирагана — нажми F6.");
+          if(waitingScript)warn(hint, /[ァ-ヺ]/.test(cd.target[base+matched])?"Нужна катакана — нажми ア.":"Нужна хирагана — нажми あ.");
           if(final)base+=matched;
           else if(!waitingScript && !LATIN_TAIL.test(raw) && matched===s.length && matched>0 && base+matched<cd.target.length && cd.toks.some((_,ti)=>ti>0&&cd.start[cd.owner.indexOf(ti)]===base+matched) && scriptOf(cd.toks[cd.owner[cd.slots.findIndex((_,si)=>cd.start[si]===base+matched)]-1]?.k||"")!==scriptOf(cd.toks[cd.owner[cd.slots.findIndex((_,si)=>cd.start[si]===base+matched)]]?.k||"")){
             base+=matched;clear();
