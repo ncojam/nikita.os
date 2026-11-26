@@ -1,4 +1,5 @@
 import { el } from "../core/util.js";
+import { associationSettings, associationKeys, associationRow, playAssociation, stopAssociation } from "./kana-association-ui.js";
 import { progress as st, saveProgress as save, connectProgress, accountInfo, importGuest, bindProgressStatus } from "./kana-progress.js";
 import { historyGraph } from "./kana-graph.js";
 import { askAuth } from "../ui/auth.js";
@@ -73,7 +74,7 @@ const SAY = { は: "わ", へ: "え", を: "お" };
 const TTS = {
   init: () => KanaTTS.init(),
   say(text, rate) { if (st.voice) KanaTTS.say(text, rate); },
-  stop: () => KanaTTS.stop(),
+  stop: () => { KanaTTS.stop(); stopAssociation(); },
 };
 
 // Context is shown in guided lessons and only after submission in tests.
@@ -255,6 +256,8 @@ export function openKanaType() {
         el("b", { textContent: L.n }), el("span", {}, el("strong", { textContent: L.h }), el("small", { textContent: L.sub })))));
       const voice = el("label", { className: "kn-check" },
         el("input", { type: "checkbox", checked: st.voice, onchange: e => { st.voice = e.target.checked; if (!st.voice) TTS.stop(); save(); } }), "🔊 Голос");
+      const assoc = el("label",{className:"kn-check"},el("input",{type:"checkbox",checked:associationSettings.visible,onchange:e=>{associationSettings.visible=e.target.checked;menu();}}),"🧠 Ассоциации");
+      const assocSound = el("label",{className:"kn-check"},el("input",{type:"checkbox",checked:associationSettings.sound,disabled:!associationSettings.visible,onchange:e=>{associationSettings.sound=e.target.checked;if(!associationSettings.sound)stopAssociation();}}),"🎵 Звуки ассоциаций");
       const keys = el("label", { className: "kn-bsel" }, el("span", { textContent: "⌨ Подсказка клавиш" }),
         el("select", { onchange: e => { st.keys = e.target.value; save(); } },
           ...KEYMODES.map(([v, t]) => el("option", { value: v, selected: v === st.keys, textContent: t }))));
@@ -275,7 +278,7 @@ export function openKanaType() {
         el("p", { className: "kn-muted", textContent: `Включи Mozc (хирагана). Печатай ромадзи — знаки проверяются сразу. В иероглифы не переводи. Ответ принимается автоматически; катакана в проверке с 3-го уровня — F7. Урок — ${LESSON} карточек и проверка из ${CHECK}.` }),
         el("div",{className:"kn-row"},syncStatus,login,account.uid!==null&&account.guestAvailable?el("button",{className:"kn-btn small",textContent:"Перенести гостевой прогресс",onclick:()=>{if(importGuest())menu();}}):""),
         lv,
-        el("div", { className: "kn-builder" }, voice, keys),
+        el("div", { className: "kn-builder" }, voice, keys, assoc, assocSound),
         el("div", { className: "kn-builder" }, engine, speed, preview),
         voiceStatus,
         el("a", { className: "kn-muted", href: "/vendor/openjtalk-v1/NOTICE.txt", target: "_blank", rel: "noopener", textContent: "Open JTalk / Mei · лицензии" }),
@@ -342,7 +345,7 @@ export function openKanaType() {
           for(const sl of slots){mark(sl,ok||[...sl].every((_,j)=>hit[offset+j]));offset+=sl.length;}
           save();
           feedback.replaceChildren(el("p",{className:ok?"kn-muted":"kt-warn",textContent:ok?"Верно!":"Правильно: "+w.k+" · "+w.r}),
-            contextNotes([{k:ok?typed:w.k}]), el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
+            contextNotes([{k:ok?typed:w.k}]), associationRow([{k:ok?typed:w.k}]), el("button",{className:"kn-btn small",textContent:"🔊",onclick:()=>TTS.say(w.k)}));
           ok?Juice.ding(4):Juice.buzz();TTS.say(ok?typed:w.k);
           submitBtn.textContent="Далее →";submitBtn.onclick=()=>{i++;next();};
           submitBtn.focus();
@@ -400,7 +403,7 @@ export function openKanaType() {
         const say = el("button", { className: "kn-btn small", textContent: "🔊 ещё раз", hidden: checking, onclick: () => { TTS.say(spoken(cd)); input.focus(); } });
         const quit = el("button", { className: "kn-btn small", textContent: "✕ в меню", onclick: () => menu() });
         const box = el("div", { className: "kt-card" + (showKeys && !checking ? " keys" : "") + (checking ? " checking" : "") },
-          el("div", { className: "kt-ru", textContent: cd.ru }), sent, legend, !checking ? contextNotes(cd.toks) : "", input, hint, voiceStatus || "",
+          el("div", { className: "kt-ru", textContent: cd.ru }), sent, legend, !checking ? contextNotes(cd.toks) : "", !checking ? associationRow(cd.toks) : "", input, hint, voiceStatus || "",
           checking ? el("button", { className: "kn-btn kt-go", textContent: "Готово →", onclick: () => submit() }) : "");
         c.replaceChildren(el("div", { className: "kt-top" }, el("b", { textContent: label }), stat, el("span", { className: "kt-sp" }), say, quit), box);
         box.addEventListener("mousedown", e => { if (e.target !== input && !e.target.closest("button")) { e.preventDefault(); input.focus(); } });
@@ -408,7 +411,11 @@ export function openKanaType() {
         paintStat();
         Juice.spawn(box, { sound: false });
         setTimeout(() => input.focus(), 30);
-        if (!checking) TTS.say(spoken(cd), 0.85);
+        if (!checking) {
+          TTS.say(spoken(cd), 0.85);
+          const assoc = associationKeys(cd.toks)[0];
+          if (assoc && associationSettings.visible) playAssociation(assoc,()=>box.isConnected&&!input.disabled);
+        }
 
         if (checking) {
           input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); } });
@@ -475,8 +482,9 @@ export function openKanaType() {
               if (strictKata && /[ァ-ヺ]/.test(cd.target)) hint.append(el("div",{className:"kn-muted",textContent:"Для катаканы используй F7."}));
             }
             hint.append(contextNotes(cd.toks));
+            if (missed.size || !exact) hint.append(associationRow(cd.toks));
             exact ? Juice.ding(4) : Juice.buzz();
-            if (cd.toks.some(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k])) {
+            if (cd.toks.some(t => t.p ? PARTICLE_CONTEXT[t.k] || WORD_CONTEXT[t.k] : WORD_CONTEXT[t.k]) || ((missed.size || !exact) && associationSettings.visible && associationKeys(cd.toks).length)) {
               const nextBtn = box.querySelector(".kt-go");
               nextBtn.textContent = "Далее →";
               nextBtn.onclick = () => { if (box.isConnected) done(); };

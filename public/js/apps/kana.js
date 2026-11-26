@@ -1,4 +1,5 @@
 import { el, store } from "../core/util.js";
+import { associationRow } from "./kana-association-ui.js";
 import "../i18n/kana.js";
 import { WM } from "../wm.js";
 import { openKanaNumbers } from "./kana-num.js";
@@ -234,7 +235,7 @@ function word(w, ch) {
   for (const g of w.k) k.append(g === ch ? el("mark", { textContent: g }) : g);
   return el("div", { className: "kn-word" },
     el("span", { className: "kn-wstack" }, k, el("span", { className: "kn-wr", textContent: w.r })),
-    el("span", { className: "kn-wm" }, w.m, WORD_CONTEXT[w.k] ? el("small", { className: "kn-word-context", textContent: WORD_CONTEXT[w.k] }) : ""));
+    el("span", { className: "kn-wm" }, w.m, WORD_CONTEXT[w.k] ? el("small", { className: "kn-word-context", textContent: WORD_CONTEXT[w.k] }) : "", associationRow([{k:w.k}], {compact:true})));
 }
 
 /* ---------- строй предложения ---------- */

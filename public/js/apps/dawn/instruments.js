@@ -166,16 +166,34 @@ export function playOsc3(ctx, out, p, t, dur, n, v, edo = 12, bend = 0) {
 /* ---------- встроенные ударные (рендерятся при первом обращении, путь "builtin:имя") ---------- */
 export const BUILTIN = { kick: "Kick", snare: "Snare", clap: "Clap", hat: "Hat", openhat: "Open hat", tom: "Tom",
   kickhard: "Kick punch", kick808: "808", snarefat: "Snare fat", rim: "Rim", snap: "Snap", shaker: "Shaker",
-  crash: "Crash", ride: "Ride", cowbell: "Cowbell", conga: "Conga", metal: "Metal hit", impact: "Impact", revcrash: "Reverse crash" };
+  crash: "Crash", ride: "Ride", cowbell: "Cowbell", conga: "Conga", metal: "Metal hit", impact: "Impact", revcrash: "Reverse crash", whip: "Whip", whoosh: "Whoosh", chime: "Chime", pop: "Pop", buzz: "Buzz", horn: "Horn", quack: "Quack" };
 const BUILTIN_DUR = { kick: 0.6, snare: 0.35, clap: 0.4, hat: 0.08, openhat: 0.45, tom: 0.5, kickhard: 0.5, kick808: 1.5, snarefat: 0.45, rim: 0.1,
-  snap: 0.2, shaker: 0.15, crash: 2, ride: 1.3, cowbell: 0.4, conga: 0.3, metal: 0.35, impact: 2.5, revcrash: 2 };
+  snap: 0.2, shaker: 0.15, crash: 2, ride: 1.3, cowbell: 0.4, conga: 0.3, metal: 0.35, impact: 2.5, revcrash: 2, whip: 0.3, whoosh: 0.36, chime: 0.48, pop: 0.16, buzz: 0.3, horn: 0.34, quack: 0.22 };
 /* новые ударные: из простых генераторов, с насыщением (tanh) — сразу «жирные» */
 function extraDrum(oc, name, out, noise, env, sr) {
   const sat = (k = 2) => { const ws = oc.createWaveShaper(), c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; c[i] = Math.tanh(x * k) / Math.tanh(k); } ws.curve = c; ws.connect(out); return ws; };
   const osc = (type, f, dest, g0, dec, t = 0) => { const o = oc.createOscillator(), g = oc.createGain(); o.type = type; o.frequency.value = f; env(g, g0, dec, t); o.connect(g); g.connect(dest); o.start(t); o.stop(t + dec + 0.02); return o; };
   const nz = (type, f, q, dest, g0, dec, t = 0) => { const n = noise(), fl = oc.createBiquadFilter(), g = oc.createGain(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; env(g, g0, dec, t); n.connect(fl); fl.connect(g); g.connect(dest); n.start(t); return n; };
   const metal = (dest, g0, dec, freqs = [205, 304, 369, 522, 540, 800]) => { const bus = oc.createGain(); bus.gain.value = 1 / freqs.length; bus.connect(dest); freqs.forEach(f => osc("square", f * 1.71, bus, g0, dec)); };
-  if (name === "kickhard" || name === "kick808" || name === "impact") {
+  if (name === "whip" || name === "whoosh") {
+    const n = noise(), fl = oc.createBiquadFilter(), g = oc.createGain();
+    fl.type = "bandpass"; fl.Q.value = 0.8;
+    fl.frequency.setValueAtTime(420, 0); fl.frequency.exponentialRampToValueAtTime(6200, 0.13);
+    fl.frequency.exponentialRampToValueAtTime(1300, 0.27);
+    g.gain.setValueAtTime(0.001, 0); g.gain.linearRampToValueAtTime(0.85, 0.12); g.gain.exponentialRampToValueAtTime(0.001, 0.29);
+    n.connect(fl); fl.connect(g); g.connect(out); n.start();
+    if (name === "whip") nz("highpass", 3500, 0.7, out, 0.75, 0.035, 0.13);
+  } else if (name === "chime") {
+    osc("sine", 880, out, 0.55, 0.42); osc("sine", 1320, out, 0.18, 0.28); osc("sine", 2200, out, 0.09, 0.17);
+  } else if (name === "pop") {
+    const o = osc("sine", 430, out, 0.65, 0.11); o.frequency.setValueAtTime(430,0); o.frequency.exponentialRampToValueAtTime(120,0.07);
+    nz("bandpass", 1800, 1, out, 0.25, 0.025);
+  } else if (name === "buzz" || name === "horn" || name === "quack") {
+    const fl=oc.createBiquadFilter();fl.type="lowpass";fl.frequency.value=name==="buzz"?900:1300;fl.Q.value=1.5;fl.connect(out);
+    const o=osc(name==="buzz"?"sawtooth":"triangle",name==="buzz"?150:name==="horn"?310:520,fl,0.5,name==="quack"?0.17:0.27);
+    if(name==="quack")o.frequency.exponentialRampToValueAtTime(190,0.1);
+    else if(name==="horn")osc("triangle",390,fl,0.22,0.25);
+  } else if (name === "kickhard" || name === "kick808" || name === "impact") {
     const [f0, f1, sweep, dec, drive] = { kickhard: [230, 48, 0.07, 0.42, 3], kick808: [120, 46, 0.06, 1.35, 1.6], impact: [90, 28, 0.9, 2.3, 2.5] }[name];
     const s = sat(drive), o = osc("sine", f0, s, 1, dec);
     o.frequency.setValueAtTime(f0, 0); o.frequency.exponentialRampToValueAtTime(f1, sweep);

@@ -2402,3 +2402,17 @@ a.nw-chip:hover { border-color: var(--mt); }
 .kt-context { max-width:640px; margin:4px auto; text-align:center; }
 .kt-context > div + div { margin-top:4px; }
 .kn-word-context { display:block; margin-top:3px; white-space:normal; }
+
+/* Кана · смысл + созвучие + звук */
+.ka-scenes { display:grid; gap:5px; width:100%; max-width:660px; margin:4px auto; }
+.ka-scene { display:flex; align-items:center; gap:9px; padding:6px 9px; border:1px solid #8091a540; border-radius:10px; text-align:left; }
+.ka-icons { display:flex; flex:none; align-items:center; gap:5px; font-size:29px; line-height:1; }
+.ka-link { font-size:14px; color:var(--muted); }
+.ka-scythe { width:32px; height:32px; display:block; }
+.ka-copy { display:grid; gap:2px; min-width:0; flex:1; }
+.ka-copy b { font-size:12px; }
+.ka-copy small { color:var(--muted); font-size:11.5px; line-height:1.35; }
+.ka-scenes.compact .ka-scene { padding:4px; gap:5px; flex-wrap:wrap; }
+.ka-scenes.compact .ka-icons { font-size:20px; }
+.ka-scenes.compact .ka-scythe { width:24px; height:24px; }
+.ka-scenes.compact .ka-copy { min-width:100px; }
