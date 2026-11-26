@@ -19,7 +19,8 @@ import {
  *   • «Числа и время» — kana-num.js;
  *   • «Фразы» — конструктор и готовые фразы по ситуациям, kana-phrases.js;
  *   • «Цвета» и «Предметы» — словарики, сгруппированные по общему кусочку слова, kana-words.js;
- *   • «Строй предложения» — шаблон фразы, конструктор и частицы с примерами (латиница под каждым словом).
+ *   • «Строй предложения» — шаблон фразы, конструктор и частицы с примерами (латиница под каждым словом);
+ *   • «Печать» — тренажёр набора на японской раскладке (Mozc): уровни, проверка слогов на лету, TTS, kana-type.js.
  * Данные — kana-data.js. Состояние посетителя — store("kana.*").
  */
 const NAME = { hira: "Хирагана", kata: "Катакана" };
@@ -38,7 +39,7 @@ const VOICES = { k: "dk", s: "dk", t: "dk", h: "dkp" };
 
 /* ---------- менеджер ---------- */
 export function openKana() {
-  WM.open({ title: "Кана", icon: "🎌", width: 300, height: 560, key: "kana", render(c) {
+  WM.open({ title: "Кана", icon: "🎌", width: 300, height: 620, key: "kana", render(c) {
     c.classList.add("kn", "kn-mgr");
     const b = (icon, text, sub, fn) => el("button", { className: "kn-mbtn", onclick: fn },
       el("span", { className: "kn-micon", textContent: icon }),
@@ -51,6 +52,7 @@ export function openKana() {
       b("🎨", "Цвета", "あか, あお и всё, что на 〜いろ", () => openKanaColors()),
       b("🧳", "Предметы", "вещи для жизни и поездки", () => openKanaItems()),
       b("一", "Числа и время", "счёт, половины, часы и минуты", () => openKanaNumbers()),
+      b("⌨️", "Печать", "тренажёр набора на Mozc", () => import("./kana-type.js").then(m => m.openKanaType())),
     );
   } });
 }

@@ -55,6 +55,24 @@ function click({ freq, to = freq * 0.55, cut, len, gain = 1 }) {
   osc.onended = () => out.disconnect();
 }
 
+/* чистый тон без шума: «динь» и «бзз» тренажёра печати */
+function tone({ freq, to = freq, len, gain = 1, type = "sine" }) {
+  if (!cfg.sound || cfg.volume <= 0) return;
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, out = a.createGain();
+  out.gain.setValueAtTime(0.0001, t);
+  out.gain.exponentialRampToValueAtTime(cfg.volume * gain, t + 0.008);
+  out.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  out.connect(a.destination);
+  const osc = a.createOscillator();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  osc.frequency.exponentialRampToValueAtTime(to, t + len);
+  osc.connect(out);
+  osc.start(t); osc.stop(t + len + 0.01);
+  osc.onended = () => out.disconnect();
+}
+
 const canMove = () => cfg.motion && !REDUCED;
 const play = (node, frames, opts) => {
   if (!canMove()) return null;
@@ -87,6 +105,16 @@ export const Juice = {
       { scale: 1 - 0.006 * p, offset: 0.55 },
       { scale: 1 },
     ], { duration: 170 });
+  },
+
+  // тренажёр печати: верный слог (step — сколько подряд без ошибки, тон растёт) и ошибка
+  ding(step = 0) {
+    const f = 880 * 2 ** (Math.min(step, 12) / 24);
+    tone({ freq: f, to: f * 1.01, len: 0.16, gain: 0.5 });
+    tone({ freq: f * 2, len: 0.08, gain: 0.15 });
+  },
+  buzz() {
+    tone({ freq: 160, to: 90, len: 0.2, gain: 0.45, type: "square" });
   },
 
   // шаблон появления: вырастает с отскоком и вспышкой
