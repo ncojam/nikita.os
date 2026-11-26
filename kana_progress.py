@@ -1,12 +1,13 @@
 """Private Kana learning progress, keyed by the existing authenticated user ID."""
 import json
+import re
 import sqlite3
 import time
 from aiohttp import web
 
-MAX_BYTES = 512 * 1024
+MAX_BYTES = 768 * 1024
 MAX_COUNT = 10**8
-MAP_LIMITS = {"kana": 1024, "words": 4096, "writing": 256, "modeStats": 32, "scriptKana": 1024}
+MAP_LIMITS = {"kana": 1024, "words": 4096, "writing": 256, "modeStats": 32, "scriptKana": 1024, "dailyStats": 1440}
 HIST_LIMITS = {"hist": 365, "examHist": 365, "writingHist": 365}
 
 
@@ -31,6 +32,10 @@ def validate(data):
             if any(not integer(row.get(k, 0)) for k in ("ok", "err", "streak", "unguided", "audioOk", "copyLapses", "recallLapses", "typeOk", "typeErr", "checkOk", "checkErr", "examOk", "examErr", "completed", "skipped", "assisted", "strokeOk", "strokeErr", "scriptFallback")):
                 return False
             if not integer(row.get("ms", 0), 0, 10**14):
+                return False
+            if key == "dailyStats" and not re.fullmatch(r"\d{4}-\d{2}-\d{2}\|(type|check|exam|writing)\.(hira|kata|mixed|other)", word):
+                return False
+            if not integer(row.get("first", 0), 0, 10**14):
                 return False
             if not integer(row.get("last", 0), 0, 10**14):
                 return False

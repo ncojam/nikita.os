@@ -2433,3 +2433,17 @@ a.nw-chip:hover { border-color: var(--mt); }
 .ks-table th,.ks-table td { text-align:left; padding:6px; border-bottom:1px solid #8091a533; white-space:nowrap; }
 .ks-table th { position:sticky; top:0; background:var(--panel,#23262d); }
 .ks-table td:first-child { font-size:16px; }
+
+/* Кана · графики статистики */
+.ks-page { max-width:1100px; }
+.ks-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr)); gap:8px; margin:8px 0; min-width:0; }
+.ks-panel > .kt-graph-panel { margin-top:8px; }
+.ks-bars { display:grid; gap:7px; margin:10px 0; }
+.ks-bar-row { display:grid; grid-template-columns:minmax(58px,110px) minmax(0,1fr) 40px; align-items:center; gap:6px; font-size:12px; }
+.ks-bar-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ks-bar-track { display:flex; background:#8091a522; height:12px; border-radius:4px; overflow:hidden; }
+.ks-bar-track span { display:block; height:100%; }
+.ks-bar-value { text-align:right; font-variant-numeric:tabular-nums; }
+.ks-heat-scroll { overflow-x:auto; }
+.ks-heat-grid { display:grid; gap:3px; margin:8px 0; }
+.ks-heat-cell { display:grid; place-items:center; min-height:29px; font-size:17px; border-radius:4px; border:1px solid #8091a533; cursor:default; }

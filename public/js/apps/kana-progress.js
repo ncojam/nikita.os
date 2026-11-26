@@ -1,7 +1,7 @@
 import { store } from "../core/util.js";
 
 const clone = x => JSON.parse(JSON.stringify(x));
-const empty = () => ({level:1,max:1,voice:true,keys:"auto",kana:{},words:{},hist:[],examCredit:0,examHist:[],writing:{},writingHist:[],modeStats:{},scriptKana:{}});
+const empty = () => ({level:1,max:1,voice:true,keys:"auto",kana:{},words:{},hist:[],examCredit:0,examHist:[],writing:{},writingHist:[],modeStats:{},scriptKana:{},dailyStats:{}});
 const normalize = x => Object.assign(empty(),x||{});
 const guest = () => normalize({...store.get("kana.type",{}),writing:store.get("kana.type",{}).writing || store.get("kana.write",{})});
 export const progress = guest();
@@ -18,13 +18,14 @@ const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 // counters add their increments rather than overwriting work on another device.
 export function rebase(base,local,remote){
   base=normalize(base);local=normalize(local);const out=normalize(clone(remote||{}));
-  for(const field of ["kana","words","writing","modeStats","scriptKana"]){
+  for(const field of ["kana","words","writing","modeStats","scriptKana","dailyStats"]){
     for(const [k,v] of Object.entries(local[field])){
       const old=base[field][k]||{},r=out[field][k]||{ok:0,err:0};
       if(eq(v,old))continue;
       for(const f of ["ok","err","streak","unguided","audioOk","copyLapses","recallLapses","typeOk","typeErr","checkOk","checkErr","examOk","examErr","ms","completed","skipped","assisted","strokeOk","strokeErr","scriptFallback"])if(f in v||f in r)r[f]=Math.max(0,count(r[f])+delta(old[f],v[f]));
       if(v.ru&&!r.ru)r.ru=v.ru;
       if(v.last)r.last=Math.max(count(r.last),v.last);
+      if(v.first)r.first=r.first?Math.min(r.first,v.first):v.first;
       out[field][k]=r;
     }
   }
@@ -34,6 +35,7 @@ export function rebase(base,local,remote){
     for(const row of local[field])if(!old.has(id(row))&&!seen.has(id(row))){out[field].push(row);seen.add(id(row));}
     out[field]=out[field].sort((a,b)=>a.at-b.at).slice(-365);
   }
+  pruneDaily(out.dailyStats);
   out.examCredit=Math.max(0,count(out.examCredit)+delta(base.examCredit,local.examCredit));
   out.max=Math.max(out.max,local.max);
   for(const f of ["level","voice","keys"])if(local[f]!==base[f])out[f]=local[f];
@@ -130,12 +132,30 @@ export function scriptOf(k){
   return hira&&kata?"mixed":kata?"kata":hira?"hira":"other";
 }
 export const statId=()=>globalThis.crypto?.randomUUID?.()||Date.now()+"-"+Math.random();
+// Local calendar day, independently mergeable counters across devices.
+export function dayKey(date=new Date()){
+  return date.getFullYear()+"-"+String(date.getMonth()+1).padStart(2,"0")+"-"+String(date.getDate()).padStart(2,"0");
+}
+function pruneDaily(rows){
+  const days=[...new Set(Object.keys(rows).map(k=>k.slice(0,10)))].sort();
+  const latest=days.at(-1),today=new Date();
+  const anchor=latest&&latest>dayKey(today)?new Date(latest+"T12:00:00"):today;
+  const cutoff=dayKey(new Date(anchor.getFullYear(),anchor.getMonth(),anchor.getDate()-89,12));
+  for(const k of Object.keys(rows))if(k.slice(0,10)<cutoff)delete rows[k];
+}
 export function recordMode(mode,k,delta){
   const key=mode+"."+scriptOf(k),r=progress.modeStats[key]||={ok:0,err:0};
-  for(const [field,n] of Object.entries(delta))r[field]=(r[field]||0)+Math.max(0,Math.round(n||0));
+  const day=dayKey()+"|"+key;
+  const fresh=!progress.dailyStats[day],d=progress.dailyStats[day]||={};
+  for(const [field,n] of Object.entries(delta)){
+    const v=Math.max(0,Math.round(n||0));
+    if(v){r[field]=(r[field]||0)+v;d[field]=(d[field]||0)+v;}
+  }
+  if(fresh)pruneDaily(progress.dailyStats);
 }
 export function recordItem(field,k,mode,ok){
   const r=progress[field][k]||={ok:0,err:0};
+  if(!r.first)r.first=Date.now();
   const key=mode+(ok?"Ok":"Err");
   r[key]=(r[key]||0)+1;
 }
