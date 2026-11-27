@@ -861,7 +861,8 @@ def make_app():
     app["posts"] = Posts(UFS_ROOT, app["chat"].user_by_token, client_ip, old_dir=DATA_DIR)
     app["folders"] = Folders(UFS_ROOT, app["chat"].user_by_token, app["posts"].purge_dir)
     app["posts"].dir_ok = lambda v: unified_dir_exists(app, v)   # запись — только в общей папке
-    from dawnstore import Projects, Visits
+    from dawnstore import Projects
+    from visits import Visits
     app["projects"] = Projects(UFS_ROOT, app["chat"].user_by_token, app["folders"].real,
                                lambda v: unified_dir_exists(app, v),
                                lambda v: bool((lambda p: p and p.exists())(resolve_inside(FS_ROOT, v))))

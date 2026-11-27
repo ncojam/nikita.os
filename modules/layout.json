@@ -1,0 +1,23 @@
+{
+  "dawn.os": [
+    "dawnstore.py",
+    "public/js/apps/dawn/",
+    "public/js/i18n/dawn.js",
+    "docs/dawn.md",
+    "docs/dawn-format.md"
+  ],
+  "kana.os": [
+    "kana_progress.py",
+    "prepare_kana_tts.py",
+    "public/js/apps/kana*",
+    "public/js/i18n/kana.js",
+    "tools/kana-tts/"
+  ],
+  "clown-dungeon.os": [
+    "dungeon.py",
+    "public/dungeon.html",
+    "public/dungeon/",
+    "public/js/apps/dungeon/",
+    "docs/dungeon.md"
+  ]
+}
