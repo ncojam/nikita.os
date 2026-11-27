@@ -16,6 +16,9 @@ RUN pip install -r requirements.txt
 
 COPY *.py ./
 COPY public ./public
+COPY modules ./modules
+COPY tools/materialize_modules.py ./tools/materialize_modules.py
+RUN python tools/materialize_modules.py && rm -rf modules tools
 
 USER nos
 ENV HOST=0.0.0.0 PORT=8000 NOS_FS=/app/fs NOS_DATA=/data

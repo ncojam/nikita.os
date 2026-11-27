@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DAWN на сервере: общие проекты зарегистрированных пользователей и счётчик посещений.
+DAWN на сервере: общие проекты зарегистрированных пользователей.
 
 Проекты — настоящие файлы <имя>.dawn в общем слое /ufs (UFS_ROOT/<папка>/<имя>.dawn), поэтому листинг
 и /fs отдают их без особого кода. Владение — в UFS_ROOT/.meta/projects.json: {виртуальный путь: {uid, nick, size, t}}.
@@ -10,10 +10,7 @@ DAWN на сервере: общие проекты зарегистрирова
   • папка — любая существующая (канон /fs или пользовательская /ufs)
   • перезаписать или удалить можно только свой проект; имя, занятое чужим или каноном, — нельзя
 
-Счётчик — DATA_DIR/visits.json: {app: {total, uniq: [хэши id посетителя]}}; id — случайная строка из браузера,
-на сервере хранится только хэш.
 """
-import hashlib
 import json
 import os
 import re
@@ -108,41 +105,3 @@ class Projects:
         self.map.pop(v, None)
         _write_json(self.path, self.map)
         return None
-
-
-VISITS_UNIQ_MAX = int(os.environ.get("NOS_VISITS_UNIQ_MAX", "200000"))
-VISITS_APPS_MAX = 64   # разных app в счётчике
-
-
-class Visits:
-    def __init__(self, path):
-        self.path = Path(path)
-        try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            raw = {}
-        self.data = {k: {"total": int(v.get("total", 0)), "uniq": set(v.get("uniq", []))} for k, v in raw.items()}
-        self.dirty = False
-
-    def hit(self, app, vid):
-        if app not in self.data and len(self.data) >= VISITS_APPS_MAX:
-            return self.get(app)
-        d = self.data.setdefault(app, {"total": 0, "uniq": set()})
-        d["total"] += 1
-        if vid and len(d["uniq"]) < VISITS_UNIQ_MAX:   # потолок, чтобы файл не раздували случайными id
-            d["uniq"].add(hashlib.sha256(("nos:" + vid).encode()).hexdigest()[:16])
-        self.dirty = True
-        return self.get(app)
-
-    def get(self, app):
-        d = self.data.get(app) or {"total": 0, "uniq": set()}
-        return {"total": d["total"], "unique": len(d["uniq"])}
-
-    def flush(self):
-        if not self.dirty:
-            return
-        try:
-            _write_json(self.path, {k: {"total": v["total"], "uniq": sorted(v["uniq"])} for k, v in self.data.items()})
-            self.dirty = False
-        except OSError:
-            pass

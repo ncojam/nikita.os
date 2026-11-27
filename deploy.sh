@@ -13,6 +13,14 @@ if [ "${1:-}" != "--no-pull" ] && [ -d .git ]; then
   git pull --ff-only
 fi
 
+if [ -f modules/.enabled ]; then
+  if [ "${1:-}" != "--no-pull" ] && [ -e .git ]; then
+    git submodule sync --recursive
+    git submodule update --init --recursive
+  fi
+  python3 tools/materialize_modules.py
+fi
+
 # общедоступные файлы из репозитория (seed/ → fs/): только недостающие, твои правки не перезаписываются
 if [ -d seed ]; then
   echo "→ seed: докладываю недостающие файлы в fs/"

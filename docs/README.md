@@ -7,6 +7,7 @@
 
 | Файл | О чём |
 |---|---|
+| [modules.md](modules.md) | Семейство приложений: submodules, выделение истории, подключение |
 | [architecture.md](architecture.md) | Общая схема, запуск страницы, кто кого вызывает |
 | [philosophy.md](philosophy.md) | Принципы проекта и сквозные механизмы |
 | [server.md](server.md) | Серверные модули и все HTTP/WS-эндпоинты |
