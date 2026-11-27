@@ -11,3 +11,20 @@ __pycache__/
 # Generated, checksum-pinned browser speech assets
 /public/vendor/openjtalk-v1/
 /kana-tts-*/
+
+# Generated app runtime files (source: modules/)
+/dawnstore.py
+/public/js/apps/dawn/
+/public/js/i18n/dawn.js
+/docs/dawn.md
+/docs/dawn-format.md
+/kana_progress.py
+/prepare_kana_tts.py
+/public/js/apps/kana*
+/public/js/i18n/kana.js
+/tools/kana-tts/
+/dungeon.py
+/public/dungeon.html
+/public/dungeon/
+/public/js/apps/dungeon/
+/docs/dungeon.md
