@@ -1,0 +1,9 @@
+[submodule "dawn.os"]
+	path = modules/dawn.os
+	url = https://github.com/ncojam/dawn.os.git
+[submodule "kana.os"]
+	path = modules/kana.os
+	url = https://github.com/ncojam/kana.os.git
+[submodule "clown-dungeon.os"]
+	path = modules/clown-dungeon.os
+	url = https://github.com/ncojam/clown-dungeon.os.git
